@@ -112,6 +112,9 @@ export function GameScreen({ launch }: { launch: Launch }) {
       setZoomed(r.zoomed);
     });
     const unbind = online?.bind(ctrl);
+    if (isSaveable(ctrl.state) && !ctrl.state.ended) saveGame({ state: ctrl.state, initial: launch.initial });
+    // test/debug hook
+    (window as unknown as { __infweb?: unknown }).__infweb = { ctrl, renderer: r };
     ctrl.start();
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
