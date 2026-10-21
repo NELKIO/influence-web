@@ -441,24 +441,19 @@ function EndButton({
   pulse: boolean;
   label: string | null;
 }) {
+  // tap = click (reliable on touch screens); hold for 0.5 s = act without confirmation
   const timer = useRef(0);
-  const fired = useRef(false);
-  const down = () => {
-    fired.current = false;
+  const held = useRef(false);
+  const startHold = () => {
+    held.current = false;
+    clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
-      fired.current = true;
+      held.current = true;
       sfx.click();
       ctrl.endButton(true);
     }, 500);
   };
-  const up = () => {
-    clearTimeout(timer.current);
-    if (!fired.current) {
-      sfx.click();
-      ctrl.endButton(false);
-    }
-    fired.current = true;
-  };
+  const stopHold = () => clearTimeout(timer.current);
   return (
     <button
       class={`end-btn ${pulse ? 'pulse' : ''}`}
@@ -466,9 +461,19 @@ function EndButton({
       disabled={disabled}
       aria-label={ctrl.state.phase === 'attack' ? t('endAttack') : t('endTurn')}
       title={ctrl.state.phase === 'attack' ? t('endAttack') : t('endTurn')}
-      onPointerDown={down}
-      onPointerUp={up}
-      onPointerLeave={() => clearTimeout(timer.current)}
+      onPointerDown={startHold}
+      onPointerUp={stopHold}
+      onPointerCancel={stopHold}
+      onPointerLeave={stopHold}
+      onClick={() => {
+        stopHold();
+        if (held.current) {
+          held.current = false;
+          return;
+        }
+        sfx.click();
+        ctrl.endButton(false);
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {label ?? <IconSkip />}

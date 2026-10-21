@@ -1126,17 +1126,30 @@ button {
   height: 26px;
 }
 
-.end-btn.pulse {
-  animation: nudge 1.6s ease-in-out infinite;
+.end-btn {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
-@keyframes nudge {
+/* a still, breathing outline: the button must not move under the finger */
+.end-btn.pulse::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 26px;
+  border: 2px solid var(--c);
+  animation: breathe 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes breathe {
   0%,
   100% {
-    transform: none;
+    opacity: 0.15;
   }
   50% {
-    transform: translateY(-3px);
+    opacity: 0.85;
   }
 }
 

@@ -147,3 +147,46 @@ test('settings: language switch and persistence', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'New battle' })).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('end-turn button: real taps, confirmation only when attacks remain', async ({ page }, testInfo) => {
+  const errors = await fresh(page, { confirmEnd: true });
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'infweb.setup',
+      JSON.stringify({ size: 'S', players: ['human', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+    ),
+  );
+  await page.reload();
+  await page.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
+  await waitGame(page);
+  const press = async () => {
+    const btn = page.locator('.end-btn');
+    if (testInfo.project.name === 'desktop') await btn.click();
+    else await btn.tap();
+  };
+  const phase = () => page.evaluate(() => (window as any).__infweb.ctrl.state.phase);
+
+  // 1) attacks still possible -> confirmation dialog
+  await press();
+  await expect(page.locator('.modal h2')).toHaveText('Закончить атаку?');
+  await page.locator('.modal').getByRole('button', { name: 'Отмена' }).click();
+  expect(await phase()).toBe('attack');
+
+  // 2) nothing can attack -> the tap ends the attack right away, no dialog
+  await page.evaluate(() => {
+    const c = (window as any).__infweb.ctrl;
+    for (const cell of c.state.field.cells) if (cell.owner === 0) cell.power = 1;
+    c.replaceState(c.state);
+  });
+  await expect(page.locator('.end-btn.pulse')).toBeVisible();
+  await press();
+  await expect.poll(phase).toBe('power');
+  await expect(page.locator('.modal')).toHaveCount(0);
+
+  // 3) "+N" -> confirmation -> power spread evenly and the turn passes
+  await press();
+  await expect(page.locator('.modal h2')).toContainText('Распределить');
+  await page.locator('.modal').getByRole('button', { name: 'Завершить ход' }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__infweb.ctrl.state.turn)).toBeGreaterThanOrEqual(1);
+  await expectNoErrors(errors);
+});
