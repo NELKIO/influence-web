@@ -1,86 +1,72 @@
 import { useEffect, useState } from 'preact/hooks';
 import { t } from '../../i18n';
-import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
+import { Modal, Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import type { DuelOptions } from './DuelsScreen';
-import { DuelSession, getClientId, inviteUrl, isValidCode, normalizeCode, type KVStorage } from '../../net';
-import { BroadcastTransport, useBroadcastTransport } from '../../net/broadcast';
-import { errorText, getActiveSession, launchOnline, setActiveSession } from '../online';
-import { IconShare } from '../components/icons';
+import { inviteUrl, isValidCode, normalizeCode, type DuelSession } from '../../net';
+import { errorText, launchOnline } from '../online';
+import { canCreate, hostDuel, joinDuel, listSlots, MAX_DUELS, onDuelsChange, removeSlot, resumeAll, slotSession } from '../duels';
+import { IconChevron, IconShare, IconX } from '../components/icons';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import type { FieldSize } from '../../core/types';
 
 const TURN_TIMES = [0, 60, 120, 300];
 
-/** Test/debug mode: two tabs of one browser talk over BroadcastChannel, each tab keeps its own session. */
-const BC = useBroadcastTransport();
-const bcStorage: KVStorage | undefined = BC ? sessionStorage : undefined;
+type View = { kind: 'lobby' } | { kind: 'room'; id: string };
 
-type Phase = 'menu' | 'hosting' | 'joining' | 'error';
+/** Short status of a match for the list. */
+function statusOf(s: DuelSession | null): { text: string; tone: 'go' | 'wait' | 'off' | 'win' | 'lose' } {
+  if (!s) return { text: t('duelStOffline'), tone: 'off' };
+  const st = s.state;
+  if (st?.ended) return st.ended.winner === s.localSlot ? { text: t('duelStWon'), tone: 'win' } : { text: t('duelStLost'), tone: 'lose' };
+  if (s.status === 'error') return { text: errorText(s.lastError), tone: 'off' };
+  if (!st) return { text: s.role === 'host' ? t('duelWaiting') : t('duelConnecting'), tone: 'wait' };
+  if (!s.connected) return { text: t('duelStNoLink'), tone: 'off' };
+  return s.isMyTurn ? { text: t('yourTurn'), tone: 'go' } : { text: t('statusWaitRemote'), tone: 'wait' };
+}
+
+const TONE: Record<string, string> = {
+  go: 'var(--good)',
+  wait: 'var(--muted)',
+  off: 'var(--dim)',
+  win: 'var(--good)',
+  lose: 'var(--bad)',
+};
 
 export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions; join?: string; onBack: () => void }) {
   const [opts, setOpts] = useState<DuelOptions>(initial);
-  const [phase, setPhase] = useState<Phase>('menu');
+  const [view, setView] = useState<View>({ kind: 'lobby' });
   const [code, setCode] = useState(join ?? '');
-  const [session, setSession] = useState<DuelSession | null>(getActiveSession());
   const [, setTick] = useState(0);
   const [err, setErr] = useState('');
   const [toast, setToast] = useState('');
-  const saved = DuelSession.saved(bcStorage);
-
-  const watch = (s: DuelSession) => {
-    setActiveSession(s);
-    setSession(s);
-    const offs = [
-      s.onStatus((st) => {
-        setTick((n) => n + 1);
-        if (st === 'error') {
-          setErr(errorText(s.lastError));
-          setPhase('error');
-        } else if (st === 'playing' && s.state && !s.state.ended) {
-          offs.forEach((f) => f());
-          launchOnline(s);
-        }
-      }),
-      s.onState(() => {
-        if (s.state && !s.state.ended && s.status !== 'error') {
-          offs.forEach((f) => f());
-          sfx.versus();
-          launchOnline(s);
-        }
-      }),
-      s.onError((e) => {
-        if (e.fatal) {
-          setErr(errorText(e));
-          setPhase('error');
-        }
-      }),
-    ];
-    // already in a match (resume): open the board right away, the HUD shows the reconnect status
-    if (s.state && !s.state.ended) {
-      offs.forEach((f) => f());
-      launchOnline(s);
-    }
-    return offs;
-  };
+  const [askRemove, setAskRemove] = useState<string | null>(null);
 
   useEffect(() => {
+    resumeAll();
+    const off = onDuelsChange(() => setTick((n) => n + 1));
     if (join && isValidCode(normalizeCode(join))) startJoin(join);
+    return off;
   }, []);
+
+  // open the board as soon as the match of the room we are looking at starts
+  const room = view.kind === 'room' ? slotSession(view.id) : null;
+  useEffect(() => {
+    if (room?.state && !room.state.ended && room.status !== 'error') {
+      sfx.versus();
+      launchOnline(room);
+    }
+  });
 
   const host = () => {
     unlockAudio();
     sfx.click();
     setErr('');
-    const s = DuelSession.host({
-      size: opts.size,
-      darkness: opts.darkness,
-      turnTime: opts.turnTime,
-      symmetry: true,
-      storage: bcStorage,
-      transport: BC ? BroadcastTransport.host(getClientId(bcStorage)) : undefined,
-    });
-    watch(s);
-    setPhase('hosting');
+    if (!canCreate()) {
+      setErr(t('duelTooMany', { n: MAX_DUELS }));
+      return;
+    }
+    const { id } = hostDuel({ size: opts.size, darkness: opts.darkness, turnTime: opts.turnTime });
+    setView({ kind: 'room', id });
   };
 
   const startJoin = (raw: string) => {
@@ -90,37 +76,36 @@ export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions
       setErr(t('duelBadCode'));
       return;
     }
+    if (!canCreate() && !listSlots().some((x) => x.session?.code === c)) {
+      setErr(t('duelTooMany', { n: MAX_DUELS }));
+      return;
+    }
     setErr('');
-    const s = DuelSession.join(c, { storage: bcStorage, transport: BC ? BroadcastTransport.join(c, getClientId(bcStorage)) : undefined });
-    watch(s);
-    setPhase('joining');
+    const { id } = joinDuel(c);
+    setView({ kind: 'room', id });
   };
 
-  const resume = () => {
-    unlockAudio();
-    const info = DuelSession.saved(bcStorage);
-    const s = DuelSession.resume({
-      storage: bcStorage,
-      transport: BC && info ? (info.role === 'host' ? BroadcastTransport.host(getClientId(bcStorage), info.code) : BroadcastTransport.join(info.code, getClientId(bcStorage))) : undefined,
-    });
-    if (!s) return;
-    watch(s);
-    setPhase(s.role === 'host' ? 'hosting' : 'joining');
+  const open = (id: string) => {
+    const s = slotSession(id);
+    sfx.click();
+    if (s?.state) launchOnline(s);
+    else setView({ kind: 'room', id });
   };
 
-  const cancel = () => {
-    session?.leave();
-    setActiveSession(null);
-    setSession(null);
-    setPhase('menu');
+  const remove = (id: string) => {
+    const s = slotSession(id);
+    if (s?.state && !s.state.ended) s.concede();
+    removeSlot(id);
+    setAskRemove(null);
+    if (view.kind === 'room' && view.id === id) setView({ kind: 'lobby' });
   };
 
-  const share = async () => {
-    if (!session?.code) return;
-    const url = inviteUrl(session.code);
+  const share = async (s: DuelSession) => {
+    if (!s.code) return;
+    const url = inviteUrl(s.code);
     try {
       if (navigator.share) {
-        await navigator.share({ title: 'Influence Web', text: t('duelInviteText', { code: session.code }), url });
+        await navigator.share({ title: 'Influence Web', text: t('duelInviteText', { code: s.code }), url });
         return;
       }
     } catch {
@@ -135,32 +120,55 @@ export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions
     }
   };
 
-  const back = () => {
-    if (phase !== 'menu') cancel();
-    else onBack();
-  };
+  const slots = listSlots();
+  const back = () => (view.kind === 'room' ? setView({ kind: 'lobby' }) : onBack());
+  const askedSession = askRemove ? slotSession(askRemove) : null;
 
   return (
     <div class="screen">
       <div class="screen-inner">
         <TopBar title={t('duelOnline')} onBack={back} />
 
-        {phase === 'menu' && (
+        {view.kind === 'lobby' && (
           <>
-            {saved && saved.inMatch && !saved.ended && (
-              <button class="choice green" onClick={resume}>
-                <div>
-                  <div class="t">{t('duelResume')}</div>
-                  <div class="d">
-                    {t('duelCode')}: {saved.code}
-                  </div>
+            {slots.length > 0 && (
+              <>
+                <div class="section-title">{t('duelMyMatches', { n: slots.length, max: MAX_DUELS })}</div>
+                <div class="list">
+                  {slots.map(({ id, session: s }) => {
+                    const st = statusOf(s);
+                    return (
+                      <div key={id} class="list-item duel-row" onClick={() => open(id)} role="button" data-testid="duel-row">
+                        <span class="duel-code">{s?.code ?? '····'}</span>
+                        <div class="grow">
+                          <div class="title" style={{ fontSize: 14 }}>
+                            {s?.opponentName || (s?.state ? t('player_remote') : t('duelNoOpponent'))}
+                          </div>
+                          <div class="desc" style={{ color: TONE[st.tone], fontWeight: 700 }}>
+                            {st.tone === 'go' && <span class="live-dot" />}
+                            {st.text}
+                          </div>
+                        </div>
+                        <button
+                          class="remove-btn"
+                          aria-label={t('duelRemove')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAskRemove(id);
+                          }}
+                        >
+                          <IconX width={18} height={18} />
+                        </button>
+                        <IconChevron width={18} height={18} style={{ color: 'var(--dim)' }} />
+                      </div>
+                    );
+                  })}
                 </div>
-              </button>
+              </>
             )}
+
             <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div class="title" style={{ fontWeight: 700 }}>
-                {t('duelJoin')}
-              </div>
+              <div class="title">{t('duelJoin')}</div>
               <input
                 class="code-input"
                 value={code}
@@ -173,7 +181,7 @@ export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions
                 onInput={(e) => setCode(normalizeCode((e.target as HTMLInputElement).value).slice(0, 4))}
                 onKeyDown={(e) => e.key === 'Enter' && startJoin(code)}
               />
-              <button class="btn" disabled={code.length !== 4} onClick={() => startJoin(code)}>
+              <button class="btn primary" disabled={code.length !== 4} onClick={() => startJoin(code)}>
                 {t('duelJoinBtn')}
               </button>
             </div>
@@ -203,59 +211,88 @@ export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions
             <button class="btn red" onClick={host}>
               {t('duelCreate')}
             </button>
-            {err && <p style={{ color: 'var(--bad)', textAlign: 'center', margin: 0 }}>{err}</p>}
-            <p class="muted" style={{ fontSize: 12, textAlign: 'center', lineHeight: 1.45 }}>
+            {err && <p style={{ color: 'var(--bad)', textAlign: 'center', margin: 0, fontWeight: 600 }}>{err}</p>}
+            <p class="muted" style={{ fontSize: 12, textAlign: 'center', lineHeight: 1.5 }}>
               {t('duelP2PNote')}
             </p>
           </>
         )}
 
-        {phase === 'hosting' && session && (
-          <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'stretch', textAlign: 'center' }}>
-            {session.code ? (
+        {view.kind === 'room' && room && (
+          <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 16, textAlign: 'center' }}>
+            {room.status === 'error' ? (
+              <>
+                <div style={{ color: 'var(--bad)', fontWeight: 700, fontSize: 17 }}>{errorText(room.lastError)}</div>
+                <button
+                  class="btn"
+                  onClick={() => {
+                    removeSlot(view.id);
+                    setView({ kind: 'lobby' });
+                  }}
+                >
+                  {t('ok')}
+                </button>
+              </>
+            ) : room.role === 'host' && room.code ? (
               <>
                 <div class="muted">{t('duelCodeShare')}</div>
                 <div class="room-code" data-testid="room-code">
-                  {session.code}
+                  {room.code}
                 </div>
-                <button class="btn" onClick={share}>
+                <button class="btn primary" onClick={() => share(room)}>
                   <IconShare width={18} height={18} /> {t('duelShare')}
                 </button>
                 <div class="spinner" />
                 <div class="muted">{t('duelWaiting')}</div>
+                <div class="row">
+                  <button class="btn ghost small" onClick={() => setView({ kind: 'lobby' })}>
+                    {t('duelToList')}
+                  </button>
+                  <button
+                    class="btn ghost small"
+                    onClick={() => {
+                      removeSlot(view.id);
+                      setView({ kind: 'lobby' });
+                    }}
+                  >
+                    {t('duelCancelRoom')}
+                  </button>
+                </div>
               </>
             ) : (
               <>
+                {room.code && <div class="room-code">{room.code}</div>}
                 <div class="spinner" />
-                <div class="muted">{t('duelConnecting')}</div>
+                <div class="muted">{room.status === 'reconnecting' ? t('duelReconnecting') : t('duelConnecting')}</div>
+                <button
+                  class="btn ghost small"
+                  onClick={() => {
+                    removeSlot(view.id);
+                    setView({ kind: 'lobby' });
+                  }}
+                >
+                  {t('cancel')}
+                </button>
               </>
             )}
-            <button class="btn ghost small" onClick={cancel}>
-              {t('cancel')}
-            </button>
-          </div>
-        )}
-
-        {phase === 'joining' && session && (
-          <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 16, textAlign: 'center' }}>
-            <div class="room-code">{session.code}</div>
-            <div class="spinner" />
-            <div class="muted">{session.status === 'reconnecting' ? t('duelReconnecting') : t('duelConnecting')}</div>
-            <button class="btn ghost small" onClick={cancel}>
-              {t('cancel')}
-            </button>
-          </div>
-        )}
-
-        {phase === 'error' && (
-          <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 14, textAlign: 'center' }}>
-            <div style={{ color: 'var(--bad)', fontWeight: 700, fontSize: 18 }}>{err || t('duelError')}</div>
-            <button class="btn" onClick={cancel}>
-              {t('ok')}
-            </button>
           </div>
         )}
       </div>
+
+      {askRemove && (
+        <Modal onBackdrop={() => setAskRemove(null)}>
+          <h2>{t('duelRemove')}</h2>
+          <p>{askedSession?.state && !askedSession.state.ended ? t('duelRemoveRunning') : t('duelRemoveText')}</p>
+          <div class="row">
+            <button class="btn ghost" onClick={() => setAskRemove(null)}>
+              {t('cancel')}
+            </button>
+            <button class="btn red" onClick={() => remove(askRemove)}>
+              {t('duelRemoveDo')}
+            </button>
+          </div>
+        </Modal>
+      )}
       {toast && <div class="toast">{toast}</div>}
     </div>
   );

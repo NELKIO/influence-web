@@ -53,7 +53,7 @@ export type Route =
   | { name: 'setup' }
   | { name: 'game'; launch: Launch }
   | { name: 'daily' }
-  | { name: 'duels'; join?: string }
+  | { name: 'duels'; join?: string; online?: boolean }
   | { name: 'settings' }
   | { name: 'stats' }
   | { name: 'rules' };

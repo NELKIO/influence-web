@@ -5,6 +5,7 @@ test('quick start plays a full match to the result screen', async ({ page }) => 
   const errors = await fresh(page, { confirmEnd: false });
   await page.getByRole('button', { name: /Быстрый старт/ }).click();
   await expect(page.locator('canvas')).toBeVisible();
+  await waitGame(page);
   await autoplay(page);
   await expect(page.locator('.result-title')).toBeVisible({ timeout: 10_000 });
   // stats were recorded
@@ -27,6 +28,7 @@ test('battle setup: size, players, modes and a real canvas attack', async ({ pag
   await page.getByRole('switch').first().click(); // darkness
   await page.getByRole('button', { name: /В бой/ }).click();
   await expect(page.locator('canvas')).toBeVisible();
+  await waitGame(page);
   const info = await page.evaluate(() => {
     const { ctrl } = (window as any).__infweb;
     const s = ctrl.state;

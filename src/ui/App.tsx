@@ -1,4 +1,8 @@
-import { useEffect } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
+import { resumeAll, setDuelNotifier, slotSession, listSlots } from './duels';
+import { launchOnline } from './online';
+import { t } from '../i18n';
+import { sfx, buzz } from '../audio/sfx';
 import { navigate, useRoute } from './store';
 import { MenuScreen } from './screens/MenuScreen';
 import { SetupScreen } from './screens/SetupScreen';
@@ -15,7 +19,51 @@ function readInvite(): string | null {
   return m ? m[1].toUpperCase() : null;
 }
 
+function Notice() {
+  const [n, setN] = useState<{ text: string; slot: string } | null>(null);
+  useEffect(() => {
+    let timer = 0;
+    setDuelNotifier((kind, slot) => {
+      const s = slotSession(slot);
+      const code = s?.code ?? '';
+      setN({ text: t(kind === 'turn' ? 'notifyTurn' : 'notifyEnd', { code }), slot });
+      sfx.turn();
+      buzz(30);
+      clearTimeout(timer);
+      timer = window.setTimeout(() => setN(null), 6000);
+    });
+    // reconnect saved duels in the background
+    if (listSlots().length) resumeAll();
+    return () => clearTimeout(timer);
+  }, []);
+  if (!n) return null;
+  return (
+    <div class="notice" role="status">
+      <span>{n.text}</span>
+      <button
+        class="btn primary"
+        onClick={() => {
+          const s = slotSession(n.slot);
+          setN(null);
+          if (s?.state) launchOnline(s);
+        }}
+      >
+        {t('notifyOpen')}
+      </button>
+    </div>
+  );
+}
+
 export function App() {
+  return (
+    <>
+      <Screens />
+      <Notice />
+    </>
+  );
+}
+
+function Screens() {
   const route = useRoute();
 
   useEffect(() => {
@@ -47,6 +95,6 @@ export function App() {
     case 'daily':
       return <DailyScreen />;
     case 'duels':
-      return <DuelsScreen key={route.join ?? 'duels'} join={route.join} />;
+      return <DuelsScreen key={route.join ?? 'duels'} join={route.join} online={route.online} />;
   }
 }

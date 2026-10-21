@@ -9,12 +9,17 @@ import { AmbientBoard } from '../components/AmbientBoard';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import { dayNumber, dayId } from '../../daily';
 import { playerName } from '../names';
+import { myTurnCount, onDuelsChange } from '../duels';
+import { useEffect } from 'preact/hooks';
 
 export function MenuScreen() {
   useSettings();
   const saved = loadSavedGame();
   const setup = loadSetup();
   const [confirmNew, setConfirmNew] = useState<null | (() => void)>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => onDuelsChange(() => setTick((n) => n + 1)), []);
+  const duelTurns = myTurnCount();
 
   const go = (fn: () => void) => {
     unlockAudio();
@@ -89,8 +94,9 @@ export function MenuScreen() {
               <div class="t">{t('quickStart')}</div>
               <div class="d">{quickSub}</div>
             </button>
-            <button class="mode-card" onClick={() => go(() => navigate({ name: 'duels' }))}>
+            <button class="mode-card" onClick={() => go(() => navigate({ name: 'duels', online: duelTurns > 0 }))}>
               <ModeArt kind="duel" />
+              {duelTurns > 0 && <span class="badge">{t('duelsYourTurn', { n: duelTurns })}</span>}
               <div class="t">{t('duels')}</div>
               <div class="d">{t('duelsCardSub')}</div>
             </button>

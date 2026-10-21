@@ -76,14 +76,14 @@ async function playDuel(host: Page, guest: Page, base: string) {
   await guest.reload();
   await guest.getByRole('button', { name: /Дуэли/ }).click();
   await guest.getByText('Онлайн с другом').click();
-  await guest.getByText('Вернуться в онлайн-матч').click();
+  await guest.getByTestId('duel-row').first().click();
   await expect(guest.locator('canvas')).toBeVisible({ timeout: 30_000 });
   await expect.poll(async () => (await snap(host)) === (await snap(guest)), { timeout: 30_000 }).toBe(true);
 
   // concede from the guest -> host wins
   await guest.getByRole('button', { name: 'Пауза' }).click();
-  guest.once('dialog', (d) => d.accept());
   await guest.getByRole('button', { name: /Сдаться/ }).click();
+  await guest.locator('.modal').getByRole('button', { name: 'Сдаться' }).click();
   await expect(host.locator('.result-title')).toHaveText(/Победа/, { timeout: 20_000 });
   await expect(guest.locator('.result-title')).toHaveText(/Поражение/, { timeout: 20_000 });
 
@@ -115,4 +115,57 @@ test('online duel over real WebRTC (PeerJS broker)', async ({ baseURL }, testInf
   await setup(guest, baseURL!);
   await playDuel(host, guest, baseURL!);
   await browser.close();
+});
+
+test('two online duels at the same time (BroadcastChannel)', async ({ context, baseURL }) => {
+  test.setTimeout(180_000);
+  const base = `${baseURL}?transport=bc`;
+  const host = await context.newPage();
+  const g1 = await context.newPage();
+  const g2 = await context.newPage();
+  for (const p of [host, g1, g2]) await setup(p, base);
+
+  const createRoom = async () => {
+    await host.goto(base);
+    await host.getByRole('button', { name: /Дуэли/ }).click();
+    await host.getByText('Онлайн с другом').click();
+    await host.getByRole('button', { name: 'Создать комнату' }).click();
+    const el = host.getByTestId('room-code');
+    await expect(el).toHaveText(/^[A-Z0-9]{4}$/, { timeout: 30_000 });
+    const code = (await el.textContent())!.trim();
+    await host.getByRole('button', { name: 'К списку матчей' }).click();
+    return code;
+  };
+  const c1 = await createRoom();
+  // second room created from the same lobby
+  await host.getByRole('button', { name: 'Создать комнату' }).click();
+  const el2 = host.getByTestId('room-code');
+  await expect(el2).toHaveText(/^[A-Z0-9]{4}$/, { timeout: 30_000 });
+  const c2 = (await el2.textContent())!.trim();
+  expect(c2).not.toBe(c1);
+  await host.getByRole('button', { name: 'К списку матчей' }).click();
+  await expect(host.getByTestId('duel-row')).toHaveCount(2);
+
+  await g1.goto(`${base}#/duel/${c1}`);
+  await expect(g1.locator('canvas')).toBeVisible({ timeout: 30_000 });
+  await g2.goto(`${base}#/duel/${c2}`);
+  await expect(g2.locator('canvas')).toBeVisible({ timeout: 30_000 });
+
+  // both matches are listed as running on the host; open each and check it is in sync with its guest
+  await host.goto(base);
+  await host.getByRole('button', { name: /Дуэли/ }).click();
+  await host.getByText('Онлайн с другом').click();
+  await expect(host.getByTestId('duel-row')).toHaveCount(2);
+  for (const [code, guest] of [
+    [c1, g1],
+    [c2, g2],
+  ] as const) {
+    await host.getByTestId('duel-row').filter({ hasText: code }).click();
+    await expect(host.locator('canvas')).toBeVisible({ timeout: 30_000 });
+    const sig = (p: Page) => p.evaluate(() => JSON.stringify((window as any).__infweb?.ctrl?.state?.field.cells.map((c: any) => c.maxPower)));
+    await expect.poll(async () => (await sig(host)) === (await sig(guest)), { timeout: 20_000 }).toBe(true);
+    await host.getByRole('button', { name: 'Пауза' }).click();
+    await host.getByRole('button', { name: /В меню/ }).click();
+    await expect(host.getByTestId('duel-row')).toHaveCount(2);
+  }
 });

@@ -6,19 +6,8 @@ import { navigate } from './store';
 import { t } from '../i18n';
 import { playerColor } from './theme';
 import { sfx, buzz } from '../audio/sfx';
+import { setViewing, slotIdOf } from './duels';
 import type { MatchState } from '../core/types';
-
-/** The one live online session (kept across screen changes). */
-let active: DuelSession | null = null;
-
-export function getActiveSession(): DuelSession | null {
-  return active;
-}
-
-export function setActiveSession(s: DuelSession | null) {
-  if (active && active !== s) active.dispose();
-  active = s;
-}
 
 export function errorText(e: DuelError | null): string {
   if (!e) return t('duelError');
@@ -56,6 +45,7 @@ function makeBinding(session: DuelSession): OnlineBinding {
   return {
     driver,
     bind(ctrl: GameController) {
+      setViewing(slotIdOf(session));
       const offs = [
         session.onRemoteFight((ev) => ctrl.remoteFight(ev)),
         session.onRemotePower((ev) => ctrl.remotePower(ev.cell, ev.amount, ev.player)),
@@ -77,20 +67,15 @@ function makeBinding(session: DuelSession): OnlineBinding {
         session.onStatus(() => ctrl.replaceState(session.state ?? ctrl.state)),
       ];
       if (session.state && session.state !== ctrl.state) ctrl.replaceState(session.state);
-      return () => offs.forEach((f) => f());
+      return () => {
+        setViewing(null);
+        offs.forEach((f) => f());
+      };
     },
     Extra: ({ ctrl }) => <OnlineHud session={session} ctrl={ctrl} />,
     ResultActions: () => <RematchBox session={session} />,
-    onExit() {
-      if (session.state?.ended) {
-        session.leave();
-        if (active === session) active = null;
-      } else {
-        // keep the session resumable from the duels screen
-        session.dispose();
-        if (active === session) active = null;
-      }
-    },
+    // the match keeps running in the background; it stays listed in the duels lobby
+    exitTo: { name: 'duels', online: true },
   };
 }
 

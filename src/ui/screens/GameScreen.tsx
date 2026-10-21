@@ -3,7 +3,7 @@ import { BoardRenderer } from '../board/renderer';
 import { attachBoardInput } from '../board/input';
 import { GameController, type MatchDriver } from '../game/controller';
 import { t } from '../../i18n';
-import { getSettings, navigate, updateSettings, useSettings, type Launch } from '../store';
+import { getSettings, navigate, updateSettings, useSettings, type Launch, type Route } from '../store';
 import { playerName } from '../names';
 import { playerColor } from '../theme';
 import { alivePlayers, anyAttackLeft, cellCount, scoreOf } from '../../core/engine';
@@ -33,7 +33,8 @@ export interface OnlineBinding {
   Extra?: (p: { ctrl: GameController }) => preact.JSX.Element | null;
   /** result-screen actions instead of restart/new */
   ResultActions?: (p: { ctrl: GameController }) => preact.JSX.Element | null;
-  onExit?(): void;
+  /** where "menu" leads from this match */
+  exitTo?: Route;
 }
 
 function isSaveable(state: MatchState) {
@@ -194,8 +195,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   };
 
   const exitToMenu = () => {
-    online?.onExit?.();
-    navigate({ name: 'menu' });
+    navigate(online?.exitTo ?? { name: 'menu' });
   };
 
   const restartSame = () => {

@@ -48,10 +48,10 @@ export function duelSettings(kind: MatchSettings['kind'], o: DuelOptions, player
   };
 }
 
-export function DuelsScreen({ join }: { join?: string }) {
+export function DuelsScreen({ join, online: openOnline }: { join?: string; online?: boolean }) {
   useSettings();
   const [opts, setOpts] = useState<DuelOptions>(loadDuelOptions());
-  const [online, setOnline] = useState<boolean>(!!join);
+  const [online, setOnline] = useState<boolean>(!!join || !!openOnline);
   const { guard, modal } = useDiscardGuard();
   const update = (p: Partial<DuelOptions>) => {
     const n = { ...opts, ...p };
