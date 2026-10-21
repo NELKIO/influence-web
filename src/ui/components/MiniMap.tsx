@@ -2,7 +2,7 @@ import { cellCenter, cellRadius } from '../board/renderer';
 import type { Field } from '../../core/types';
 
 /** Static SVG thumbnail of a field: owned cells in player colours, the rest as empty hexes. */
-export function MiniMap({ field, highlightStarts = 0, maxHeight = 200 }: { field: Field; highlightStarts?: number; maxHeight?: number }) {
+export function MiniMap({ field, starts: startCells = [], maxHeight = 200 }: { field: Field; starts?: number[]; maxHeight?: number }) {
   const pts = field.cells.map((c) => cellCenter(c.x, c.y));
   const xs = pts.map((p) => p[0]);
   const ys = pts.map((p) => p[1]);
@@ -15,7 +15,7 @@ export function MiniMap({ field, highlightStarts = 0, maxHeight = 200 }: { field
       const a = (Math.PI / 3) * i - Math.PI / 2;
       return `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`;
     }).join(' ');
-  const starts = field.starts.slice(0, highlightStarts);
+  const starts = startCells;
   return (
     <svg viewBox={`${minX} ${minY} ${w} ${h}`} style={{ width: '100%', maxHeight, display: 'block' }} aria-hidden="true">
       {field.cells.map((c, i) => {

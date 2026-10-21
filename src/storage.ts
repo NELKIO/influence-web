@@ -156,7 +156,8 @@ export function addRecord(r: GameRecord) {
   const s = loadStats();
   s.records.push(r);
   if (s.records.length > 2000) s.records.splice(0, s.records.length - 2000);
-  if (r.humans === 1 && r.kind !== 'duelLocal') {
+  // the streak counts classic battles and daily maps against bots
+  if (r.humans === 1 && (r.kind === 'single' || r.kind === 'daily')) {
     s.streak = r.win ? s.streak + 1 : 0;
     s.bestStreak = Math.max(s.bestStreak, s.streak);
   }

@@ -64,6 +64,8 @@ export interface Field {
   walls: [number, number][];
   /** 5 start positions (cell indices) */
   starts: number[];
+  /** special symmetric layout (rotational maps for 3 / 5 players) */
+  layout?: 'triangle' | 'star';
 }
 
 export type MatchKind = 'single' | 'daily' | 'duelTraining' | 'duelLocal' | 'duelOnline';

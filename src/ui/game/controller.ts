@@ -1,7 +1,6 @@
 import {
   addPower,
   alivePlayers,
-  anyAttackLeft,
   attack,
   autoPower,
   canAttackFrom,
@@ -333,7 +332,7 @@ export class GameController {
     if (!this.isLocalTurn || this.running) return;
     if (this.overlay.kind !== 'none' && this.overlay.kind !== 'confirmEndAttack' && this.overlay.kind !== 'confirmAuto') return;
     if (s.phase === 'attack') {
-      if (!force && this.settings.confirmEnd && anyAttackLeft(s) && this.overlay.kind !== 'confirmEndAttack') {
+      if (!force && this.settings.confirmEnd && this.overlay.kind !== 'confirmEndAttack') {
         this.overlay = { kind: 'confirmEndAttack' };
         this.emit();
         return;

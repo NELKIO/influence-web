@@ -2,49 +2,85 @@ import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
 import { loadDaily, loadStats, type GameRecord } from '../../storage';
-import { SIZE_ORDER, type PlayerType } from '../../core/types';
+import { SIZE_ORDER, type MatchKind, type PlayerType } from '../../core/types';
 
-function rate(list: GameRecord[]) {
-  return list.length ? Math.round((list.filter((r) => r.win).length / list.length) * 100) : 0;
+interface Tally {
+  n: number;
+  w: number;
 }
+
+function tally(list: GameRecord[]): Tally {
+  return { n: list.length, w: list.filter((r) => r.win).length };
+}
+
+function pct(x: Tally) {
+  return x.n ? Math.round((x.w / x.n) * 100) : 0;
+}
+
+function BarLine({ label, x }: { label: string; x: Tally }) {
+  return (
+    <div class="bar-line">
+      <span style={{ width: 92, flex: 'none' }}>{label}</span>
+      <div class="bar">
+        <div style={{ width: `${pct(x)}%` }} />
+      </div>
+      <span class="muted" style={{ width: 96, textAlign: 'right', flex: 'none', fontSize: 13 }}>
+        {x.n ? t('statWinsOf', { w: x.w, n: x.n }) : '—'}
+      </span>
+    </div>
+  );
+}
+
+/** Matches against bots with one human: classic battles and daily maps. */
+const BATTLE_KINDS: MatchKind[] = ['single', 'daily'];
 
 export function StatsScreen() {
   useSettings();
   const stats = loadStats();
-  const solo = stats.records.filter((r) => r.humans === 1 && r.kind !== 'duelOnline');
-  const duels = stats.records.filter((r) => r.kind === 'duelOnline' || r.kind === 'duelTraining');
+  const records = stats.records;
+  const battles = records.filter((r) => r.humans === 1 && BATTLE_KINDS.includes(r.kind));
+  const all = tally(battles);
   const daily = loadDaily();
   const dailyWon = Object.values(daily).filter((d) => d.bestRounds !== null).length;
-  const captured = stats.records.reduce((a, r) => a + r.captured, 0);
-  const recent = [...stats.records].reverse().slice(0, 12);
+  const dailyTries = Object.values(daily).reduce((a, d) => a + d.attempts, 0);
+  const captured = battles.reduce((a, r) => a + r.captured, 0);
+  const recent = [...records].reverse().slice(0, 15);
 
-  const strongest = (r: GameRecord): PlayerType | null => {
-    const order: PlayerType[] = ['master', 'hunter', 'duelHunter', 'dummy', 'freak'];
-    return order.find((o) => r.opponents.includes(o)) ?? null;
+  const byBot = (['freak', 'dummy', 'hunter', 'master'] as PlayerType[]).map((b) => ({
+    b,
+    x: tally(battles.filter((r) => r.opponents.includes(b))),
+  }));
+  const online = tally(records.filter((r) => r.kind === 'duelOnline'));
+  const training = tally(records.filter((r) => r.kind === 'duelTraining'));
+  const local = records.filter((r) => r.kind === 'duelLocal' || (r.kind === 'single' && r.humans > 1)).length;
+
+  const kindLabel = (r: GameRecord) => {
+    if (r.kind === 'daily') return t('daily');
+    if (r.kind === 'duelOnline') return t('duelOnline');
+    if (r.kind === 'duelTraining') return t('duelTraining');
+    if (r.kind === 'duelLocal') return t('duelLocal');
+    return t(`size${r.size}` as 'sizeS');
   };
-  const byBot = (['freak', 'dummy', 'hunter', 'master'] as PlayerType[]).map((b) => {
-    const list = solo.filter((r) => strongest(r) === b);
-    return { b, n: list.length, rate: rate(list) };
-  });
 
   return (
     <div class="screen">
       <div class="screen-inner">
         <TopBar title={t('statsTitle')} onBack={() => navigate({ name: 'menu' })} />
-        {stats.records.length === 0 ? (
+        {records.length === 0 ? (
           <div class="card muted" style={{ textAlign: 'center', padding: 28 }}>
             {t('sNoGames')}
           </div>
         ) : (
           <>
+            <div class="section-title">{t('statBattles')}</div>
             <div class="big-stats">
               <div>
-                <b>{solo.length}</b>
+                <b>{all.n}</b>
                 <span>{t('sGames')}</span>
               </div>
               <div>
-                <b style={{ color: 'var(--good)' }}>{rate(solo)}%</b>
-                <span>{t('sWinRate')}</span>
+                <b style={{ color: 'var(--good)' }}>{all.n ? `${pct(all)}%` : '—'}</b>
+                <span>{t('statWinsShort', { w: all.w })}</span>
               </div>
               <div>
                 <b style={{ color: 'var(--warn)' }}>{stats.bestStreak}</b>
@@ -53,48 +89,42 @@ export function StatsScreen() {
             </div>
 
             <div class="section-title">{t('sVsBots')}</div>
-            <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {byBot.map(({ b, n, rate: r }) => (
-                <div class="bar-line" key={b}>
-                  <span style={{ width: 84 }}>{t(`player_${b}` as 'player_human')}</span>
-                  <div class="bar">
-                    <div style={{ width: `${r}%` }} />
-                  </div>
-                  <span class="muted" style={{ width: 70, textAlign: 'right' }}>
-                    {n ? `${r}% · ${n}` : '—'}
-                  </span>
-                </div>
+            <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {byBot.map(({ b, x }) => (
+                <BarLine key={b} label={t(`player_${b}` as 'player_human')} x={x} />
               ))}
+              <div class="muted" style={{ fontSize: 12, lineHeight: 1.4 }}>
+                {t('statBotsNote')}
+              </div>
             </div>
 
             <div class="section-title">{t('sBySize')}</div>
-            <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {SIZE_ORDER.map((sz) => {
-                const list = solo.filter((r) => r.size === sz);
-                return (
-                  <div class="bar-line" key={sz}>
-                    <span style={{ width: 84 }}>{t(`size${sz}` as 'sizeS')}</span>
-                    <div class="bar">
-                      <div style={{ width: `${rate(list)}%` }} />
-                    </div>
-                    <span class="muted" style={{ width: 70, textAlign: 'right' }}>
-                      {list.length ? `${rate(list)}% · ${list.length}` : '—'}
-                    </span>
-                  </div>
-                );
-              })}
+            <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {SIZE_ORDER.map((sz) => (
+                <BarLine key={sz} label={t(`size${sz}` as 'sizeS')} x={tally(battles.filter((r) => r.size === sz))} />
+              ))}
+            </div>
+
+            <div class="section-title">{t('sDuels')}</div>
+            <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <BarLine label={t('statOnline')} x={online} />
+              <BarLine label={t('statTraining')} x={training} />
+              <div class="bar-line">
+                <span style={{ flex: 1 }}>{t('statLocal')}</span>
+                <span class="muted" style={{ fontSize: 13 }}>
+                  {local || '—'}
+                </span>
+              </div>
             </div>
 
             <div class="big-stats">
               <div>
-                <b>{duels.length ? `${rate(duels)}%` : '—'}</b>
-                <span>
-                  {t('sDuels')} · {duels.length}
-                </span>
+                <b>{dailyWon}</b>
+                <span>{t('dailySolvedLabel')}</span>
               </div>
               <div>
-                <b>{dailyWon}</b>
-                <span>{t('sDaily')}</span>
+                <b>{dailyTries}</b>
+                <span>{t('statDailyTries')}</span>
               </div>
               <div>
                 <b>{captured}</b>
@@ -104,22 +134,43 @@ export function StatsScreen() {
 
             <div class="section-title">{t('sRecent')}</div>
             <div class="list">
-              {recent.map((r, i) => (
-                <div class="list-item" key={i} style={{ minHeight: 48 }}>
-                  <span style={{ color: r.humans > 1 ? 'var(--muted)' : r.win ? 'var(--good)' : 'var(--bad)', fontWeight: 800, width: 22 }}>
-                    {r.humans > 1 ? '•' : r.win ? 'W' : 'L'}
-                  </span>
-                  <div class="grow">
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>
-                      {r.kind === 'daily' ? t('daily') : r.kind.startsWith('duel') ? t('duels') : t(`size${r.size}` as 'sizeS')} ·{' '}
-                      {r.opponents.map((o) => t(`player_${o}` as 'player_human')).join(', ')}
-                    </div>
-                    <div class="desc">
-                      {new Date(r.at).toLocaleDateString()} · {t('round', { n: r.rounds })}
+              {recent.map((r, i) => {
+                const mark = r.humans > 1 ? '•' : r.win ? t('statW') : t('statL');
+                return (
+                  <div class="list-item" key={i} style={{ minHeight: 52 }}>
+                    <span
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 8,
+                        display: 'grid',
+                        placeItems: 'center',
+                        fontWeight: 800,
+                        fontSize: 13,
+                        flex: 'none',
+                        background: r.humans > 1 ? 'var(--surface-3)' : r.win ? 'color-mix(in srgb, var(--good) 22%, transparent)' : 'color-mix(in srgb, var(--bad) 20%, transparent)',
+                        color: r.humans > 1 ? 'var(--muted)' : r.win ? 'var(--good)' : 'var(--bad)',
+                      }}
+                    >
+                      {mark}
+                    </span>
+                    <div class="grow">
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>
+                        {kindLabel(r)}
+                        {r.opponents.length > 0 && (
+                          <span class="muted" style={{ fontWeight: 600 }}>
+                            {' · '}
+                            {r.opponents.map((o) => t(`player_${o}` as 'player_human')).join(', ')}
+                          </span>
+                        )}
+                      </div>
+                      <div class="desc">
+                        {new Date(r.at).toLocaleDateString()} · {t('round', { n: r.rounds })}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}

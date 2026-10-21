@@ -238,10 +238,14 @@ function centreDist(w: number, h: number, c: Cell) {
 export interface GenerateOptions {
   size: FieldSize;
   symmetry: boolean;
+  /** number of players: symmetric maps for 3 and 5 players use rotational layouts */
+  players?: number;
 }
 
 /** Generate a connected map with 5 start positions. Deterministic for a given rng state. */
 export function generateField(opts: GenerateOptions, rng: Rng): Field {
+  if (opts.symmetry && opts.players === 3) return generateRotational(opts.size, 'triangle', rng);
+  if (opts.symmetry && opts.players === 5) return generateRotational(opts.size, 'star', rng);
   const info = SIZES[opts.size];
   let fallback: Field | null = null;
   for (let attempt = 0; attempt < 60; attempt++) {
@@ -292,4 +296,151 @@ export function cloneField(f: Field): Field {
     walls: f.walls.map(([a, b]) => [a, b] as [number, number]),
     starts: [...f.starts],
   };
+}
+
+// ---------------------------------------------------------------- rotational maps (3 and 5 players)
+
+type Cube = [number, number, number];
+
+/** 60° rotation of cube coordinates around the origin. */
+function rot60([q, r, s]: Cube): Cube {
+  return [-r, -s, -q];
+}
+
+function cubeKey([q, r]: Cube) {
+  return `${q},${r}`;
+}
+
+function orbit(c: Cube, k: 3 | 6): Cube[] {
+  const out: Cube[] = [];
+  let cur = c;
+  const step = k === 6 ? 1 : 2; // 3-fold symmetry = rotation by 120°
+  for (let i = 0; i < 6; i += step) {
+    if (!out.some((o) => o[0] === cur[0] && o[1] === cur[1])) out.push(cur);
+    for (let j = 0; j < step; j++) cur = rot60(cur);
+  }
+  return out;
+}
+
+const CUBE_DIRS: Cube[] = [
+  [1, -1, 0],
+  [1, 0, -1],
+  [0, 1, -1],
+  [-1, 1, 0],
+  [-1, 0, 1],
+  [0, -1, 1],
+];
+
+export type RotShape = 'triangle' | 'star';
+
+function inShape(shape: RotShape, a: number, [q, r, s]: Cube): boolean {
+  const tri = q <= a && r <= a && s <= a;
+  if (shape === 'triangle') return tri;
+  return tri || (-q <= a && -r <= a && -s <= a);
+}
+
+function shapeCells(shape: RotShape, a: number): Cube[] {
+  const out: Cube[] = [];
+  const R = a * 2 + 2;
+  for (let q = -R; q <= R; q++) for (let r = -R; r <= R; r++) {
+    const c: Cube = [q, r, -q - r];
+    if (inShape(shape, a, c)) out.push(c);
+  }
+  return out;
+}
+
+function cubeDist([q, r, s]: Cube) {
+  return Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+}
+
+/**
+ * Map with exact rotational symmetry: a triangle (120°, three players) or a six-pointed star
+ * (60°; five players take five of its rays). Built by carving random symmetric holes out of the
+ * full shape while keeping it connected.
+ */
+export function generateRotational(size: FieldSize, shape: RotShape, rng: Rng): Field {
+  const k: 3 | 6 = shape === 'triangle' ? 3 : 6;
+  const target = SIZES[size].cells + 1;
+  let a = 1;
+  while (shapeCells(shape, a).length < target * 1.22) a++;
+  const all = shapeCells(shape, a);
+  const present = new Map<string, Cube>(all.map((c) => [cubeKey(c), c]));
+  const cap = new Map<string, number>();
+  const done = new Set<string>();
+  for (const c of all) {
+    const key = cubeKey(c);
+    if (done.has(key)) continue;
+    const mp = rollMaxPower(rng);
+    for (const o of orbit(c, k)) {
+      cap.set(cubeKey(o), mp);
+      done.add(cubeKey(o));
+    }
+  }
+
+  // start cells: far out on the rays/corners, pairwise apart
+  const byDist = [...all].sort((x, y) => cubeDist(y) - cubeDist(x));
+  const far = byDist.filter((c) => cubeDist(c) >= cubeDist(byDist[0]) - 1 - Math.floor(a / 4));
+  const startOrbit = orbit(rng.pick(far.length ? far : byDist), k);
+  const protectedKeys = new Set<string>();
+  for (const c of startOrbit) {
+    protectedKeys.add(cubeKey(c));
+    for (const d of CUBE_DIRS) protectedKeys.add(cubeKey([c[0] + d[0], c[1] + d[1], c[2] + d[2]]));
+  }
+  protectedKeys.add('0,0');
+
+  const connected = () => {
+    const keys = [...present.keys()];
+    if (!keys.length) return false;
+    const seen = new Set<string>([keys[0]]);
+    const stack = [present.get(keys[0])!];
+    while (stack.length) {
+      const c = stack.pop()!;
+      for (const d of CUBE_DIRS) {
+        const nk = cubeKey([c[0] + d[0], c[1] + d[1], c[2] + d[2]]);
+        if (present.has(nk) && !seen.has(nk)) {
+          seen.add(nk);
+          stack.push(present.get(nk)!);
+        }
+      }
+    }
+    return seen.size === present.size;
+  };
+
+  // carve symmetric holes until the target size is reached
+  const candidates = rng.shuffle(all.filter((c) => !protectedKeys.has(cubeKey(c))));
+  for (const c of candidates) {
+    if (present.size <= target) break;
+    const orb = orbit(c, k);
+    if (orb.some((o) => !present.has(cubeKey(o)))) continue;
+    for (const o of orb) present.delete(cubeKey(o));
+    if (!connected()) for (const o of orb) present.set(cubeKey(o), o);
+  }
+
+  // cube -> odd-r offset grid (row shift kept even so the half-cell offset of rows is preserved)
+  const list = [...present.values()];
+  const minR = Math.min(...list.map((c) => c[1]));
+  const yShift = minR % 2 === 0 ? -minR : -minR + 1;
+  const off = list.map((c) => {
+    const y = c[1] + yShift;
+    return { c, x: c[0] + Math.floor(c[1] / 2), y };
+  });
+  const minX = Math.min(...off.map((o) => o.x));
+  for (const o of off) o.x -= minX;
+  const w = Math.max(...off.map((o) => o.x)) + 2;
+  const h = Math.max(...off.map((o) => o.y)) + 1;
+  // generator order: by x, then y
+  off.sort((p, q) => p.x - q.x || p.y - q.y);
+  const cells: Cell[] = off.map((o) => ({ id: o.y * w + o.x, x: o.x, y: o.y, power: 0, maxPower: cap.get(cubeKey(o.c))!, owner: NEUTRAL }));
+  const index = new Map(off.map((o, i) => [cubeKey(o.c), i]));
+  const pairs = geometricPairs(w, cells);
+  const adj = buildAdjacency(cells.length, pairs);
+  const s = startOrbit.map((c) => index.get(cubeKey(c))!);
+  // engine placement: 3 players use [P0,P1]|[P2,P3] + P4; 5 players use P0..P4
+  let starts: number[];
+  if (k === 3) starts = [s[0], s[1], s[0], s[1], s[2]];
+  else {
+    const free = rng.int(6);
+    starts = s.filter((_, i) => i !== free);
+  }
+  return { size, w, h, cells, adj, walls: [], starts, layout: shape };
 }

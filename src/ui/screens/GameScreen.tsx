@@ -13,7 +13,7 @@ import { createMatch } from '../../core/engine';
 import { createDailyMatch } from '../../daily';
 import { Modal } from '../components/controls';
 import {
-  IconArrow,
+  IconSkip,
   IconFlag,
   IconHome,
   IconPause,
@@ -56,6 +56,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const [zoomed, setZoomed] = useState(false);
   const [canZoom, setCanZoom] = useState(false);
   const [dontAsk, setDontAsk] = useState(false);
+  const [askConcede, setAskConcede] = useState(false);
   const online = launch.online as OnlineBinding | undefined;
 
   const ctrl = useMemo(() => {
@@ -292,7 +293,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
       {ov.kind === 'confirmEndAttack' && (
         <Modal onBackdrop={() => ctrl.closeOverlay()}>
           <h2>{t('confirmEndAttack')}</h2>
-          <p>{t('confirmEndAttackText')}</p>
+          <p>{anyAttackLeft(s) ? t('confirmEndAttackText') : t('confirmEndAttackNone')}</p>
           <label class="check">
             <input type="checkbox" checked={dontAsk} onChange={(e) => setDontAsk((e.target as HTMLInputElement).checked)} />
             {t('dontAskAgain')}
@@ -316,8 +317,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
 
       {ov.kind === 'confirmAuto' && (
         <Modal onBackdrop={() => ctrl.closeOverlay()}>
-          <h2>{t('confirmAutoPower')}</h2>
-          <p>{t('confirmAutoPowerText')}</p>
+          <h2>{t('confirmAutoPower', { n: s.powerLeft })}</h2>
+          <p>{t('confirmAutoPowerText', { n: s.powerLeft })}</p>
           <label class="check">
             <input type="checkbox" checked={dontAsk} onChange={(e) => setDontAsk((e.target as HTMLInputElement).checked)} />
             {t('dontAskAgain')}
@@ -367,7 +368,28 @@ export function GameScreen({ launch }: { launch: Launch }) {
         </div>
       )}
 
-      {ov.kind === 'pause' && (
+      {ov.kind === 'pause' && askConcede && (
+        <Modal onBackdrop={() => setAskConcede(false)}>
+          <h2>{t('concedeConfirm')}</h2>
+          <p>{t('concedeText')}</p>
+          <div class="row">
+            <button class="btn ghost" onClick={() => setAskConcede(false)}>
+              {t('cancel')}
+            </button>
+            <button
+              class="btn red"
+              onClick={() => {
+                setAskConcede(false);
+                ctrl.concedeMatch();
+              }}
+            >
+              {t('concede')}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {ov.kind === 'pause' && !askConcede && (
         <Modal onBackdrop={() => ctrl.resume()}>
           <h2>{t('pause')}</h2>
           <p>{t('round', { n: s.turn + 1 })}</p>
@@ -382,9 +404,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
           {!s.ended && (s.settings.kind === 'duelOnline' || s.settings.kind === 'daily' || s.settings.kind === 'duelTraining') && (
             <button
               class="btn red"
-              onClick={() => {
-                if (confirm(t('concedeConfirm'))) ctrl.concedeMatch();
-              }}
+              onClick={() => setAskConcede(true)}
             >
               <IconFlag width={18} height={18} /> {t('concede')}
             </button>
@@ -451,7 +471,7 @@ function EndButton({
       onPointerLeave={() => clearTimeout(timer.current)}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {label ?? <IconArrow />}
+      {label ?? <IconSkip />}
     </button>
   );
 }

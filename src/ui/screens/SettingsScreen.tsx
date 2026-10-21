@@ -1,6 +1,7 @@
 import { t } from '../../i18n';
 import { navigate, updateSettings, useSettings } from '../store';
-import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
+import { useState } from 'preact/hooks';
+import { Modal, Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { resetAllData, type GameSpeed, type Palette } from '../../storage';
 import { PALETTES } from '../theme';
 import { PlayerToken } from '../components/icons';
@@ -8,6 +9,7 @@ import { PlayerToken } from '../components/icons';
 
 export function SettingsScreen() {
   const s = useSettings();
+  const [askReset, setAskReset] = useState(false);
   return (
     <div class="screen">
       <div class="screen-inner">
@@ -85,14 +87,29 @@ export function SettingsScreen() {
           </SettingRow>
         </div>
 
-        <button
-          class="btn ghost small"
-          onClick={() => {
-            if (confirm(t('resetConfirm'))) resetAllData();
-          }}
-        >
+        <button class="btn ghost small" onClick={() => setAskReset(true)}>
           {t('resetData')}
         </button>
+        {askReset && (
+          <Modal onBackdrop={() => setAskReset(false)}>
+            <h2>{t('resetData')}</h2>
+            <p>{t('resetConfirm')}</p>
+            <div class="row">
+              <button class="btn ghost" onClick={() => setAskReset(false)}>
+                {t('cancel')}
+              </button>
+              <button
+                class="btn red"
+                onClick={() => {
+                  resetAllData();
+                  setAskReset(false);
+                }}
+              >
+                {t('resetDo')}
+              </button>
+            </div>
+          </Modal>
+        )}
         <div class="fan-note">
           {t('version', { v: __APP_VERSION__ })}
           <br />

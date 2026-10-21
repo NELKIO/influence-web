@@ -9,6 +9,7 @@ const base = (children: JSX.Element | JSX.Element[], p: P) => (
 );
 
 export const IconBack = (p: P) => base(<path d="M15 5l-7 7 7 7" />, p);
+export const IconSkip = (p: P) => base([<path d="M5 6l7 6-7 6" />, <path d="M12 6l7 6-7 6" />], p);
 export const IconChevron = (p: P) => base(<path d="M9 5l7 7-7 7" />, p);
 export const IconPause = (p: P) => base([<rect x="6" y="5" width="4" height="14" rx="1" />, <rect x="14" y="5" width="4" height="14" rx="1" />], p);
 export const IconPlay = (p: P) => base(<path d="M7 4.5v15l12-7.5z" fill="currentColor" />, p);

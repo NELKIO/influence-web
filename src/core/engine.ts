@@ -33,7 +33,7 @@ export function createMatch(settings: MatchSettings, opts: CreateOptions = {}): 
   }
   const field = opts.field
     ? structuredClone(opts.field)
-    : generateField({ size: s.size, symmetry: s.symmetry }, rng);
+    : generateField({ size: s.size, symmetry: s.symmetry, players: s.players.length }, rng);
   if (!opts.keepPlacement) placeStarts(field, s, rng);
 
   const n = s.players.length;

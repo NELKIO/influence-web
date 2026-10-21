@@ -14,9 +14,20 @@ import { sfx } from '../../audio/sfx';
 const TYPES: PlayerType[] = ['freak', 'dummy', 'hunter', 'master', 'human'];
 const LEVEL: Partial<Record<PlayerType, number>> = { freak: 1, dummy: 2, hunter: 3, master: 4 };
 
-function MapPreview({ size, symmetry }: { size: FieldSize; symmetry: boolean }) {
-  const field = useMemo(() => generateField({ size, symmetry }, new Rng(7 + SIZE_ORDER.indexOf(size) * 31 + (symmetry ? 1 : 0))), [size, symmetry]);
-  return <MiniMap field={field} highlightStarts={4} />;
+/** Start cells the engine will use for n players (see engine placeStarts). */
+function startCells(starts: number[], n: number): number[] {
+  if (n === 2) return [starts[0], starts[1]];
+  if (n === 3) return [starts[0], starts[1], starts[4]];
+  if (n === 4) return starts.slice(0, 4);
+  return starts;
+}
+
+function MapPreview({ size, symmetry, players }: { size: FieldSize; symmetry: boolean; players: number }) {
+  const field = useMemo(
+    () => generateField({ size, symmetry, players }, new Rng(7 + SIZE_ORDER.indexOf(size) * 31 + (symmetry ? 1 : 0) + players * 7)),
+    [size, symmetry, players],
+  );
+  return <MiniMap field={field} starts={startCells(field.starts, players)} />;
 }
 
 export function SetupScreen() {
@@ -77,9 +88,15 @@ export function SetupScreen() {
               ))}
             </div>
             <div class="card map-preview">
-              <MapPreview size={prefs.size} symmetry={prefs.symmetry} />
-              <div class="muted" style={{ fontSize: 13, marginTop: 8 }}>
+              <MapPreview size={prefs.size} symmetry={prefs.symmetry} players={prefs.players.length} />
+              <div class="muted" style={{ fontSize: 13, marginTop: 8, textAlign: 'center' }}>
                 {t('sizeInfo', { w: info.w, h: info.h, n: info.cells })}
+                {prefs.symmetry && (prefs.players.length === 3 || prefs.players.length === 5) && (
+                  <>
+                    <br />
+                    {t(prefs.players.length === 3 ? 'layoutTriangle' : 'layoutStar')}
+                  </>
+                )}
               </div>
             </div>
           </>
@@ -157,7 +174,7 @@ export function SetupScreen() {
             <SettingRow title={t('darkness')} desc={t('darknessDesc')}>
               <Toggle on={prefs.darkness} onChange={(v) => update({ darkness: v })} />
             </SettingRow>
-            <SettingRow title={t('symmetry')} desc={t('symmetryDesc')}>
+            <SettingRow title={t('symmetry')} desc={t('symmetryDesc2')}>
               <Toggle on={prefs.symmetry} onChange={(v) => update({ symmetry: v })} />
             </SettingRow>
             <SettingRow title={t('crowded')} desc={t('crowdedDesc')}>
