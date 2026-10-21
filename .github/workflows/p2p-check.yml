@@ -1,0 +1,23 @@
+name: Real P2P duel check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  p2p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: REAL_P2P=1 npx playwright test duel-online --project=desktop
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2p-results
+          path: test-results
