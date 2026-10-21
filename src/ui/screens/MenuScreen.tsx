@@ -31,7 +31,8 @@ export function MenuScreen() {
 
   return (
     <div class="screen menu">
-      <div class="screen-inner" style={{ justifyContent: 'center' }}>
+      <div class="screen-inner">
+        <div class="menu-main">
         <div class="logo">
           <LogoMark />
           <div class="name">
@@ -80,6 +81,7 @@ export function MenuScreen() {
           </button>
         </div>
 
+        </div>
         <div class="fan-note">{t('fanNote')}</div>
       </div>
 

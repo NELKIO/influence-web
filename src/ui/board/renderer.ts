@@ -357,7 +357,7 @@ export class BoardRenderer {
     }
 
     // walls: a short bar across the gap between two neighbouring cells
-    ctx.strokeStyle = 'rgba(255,90,90,0.55)';
+    ctx.strokeStyle = 'rgba(255,120,100,0.32)';
     ctx.lineWidth = Math.max(2, s * 0.12);
     ctx.lineCap = 'round';
     for (const [i, j] of walls) {
