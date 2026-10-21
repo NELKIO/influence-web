@@ -19,11 +19,16 @@ export function App() {
   const route = useRoute();
 
   useEffect(() => {
-    const code = readInvite();
-    if (code) {
-      history.replaceState(null, '', location.pathname + location.search);
-      navigate({ name: 'duels', join: code });
-    }
+    const check = () => {
+      const code = readInvite();
+      if (code) {
+        history.replaceState(null, '', location.pathname + location.search);
+        navigate({ name: 'duels', join: code });
+      }
+    };
+    check();
+    window.addEventListener('hashchange', check);
+    return () => window.removeEventListener('hashchange', check);
   }, []);
 
   switch (route.name) {
@@ -42,6 +47,6 @@ export function App() {
     case 'daily':
       return <DailyScreen />;
     case 'duels':
-      return <DuelsScreen join={route.join} />;
+      return <DuelsScreen key={route.join ?? 'duels'} join={route.join} />;
   }
 }
