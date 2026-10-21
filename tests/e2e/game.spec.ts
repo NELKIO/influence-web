@@ -107,7 +107,7 @@ test('daily map: same map on replay, result stored', async ({ page }) => {
   await autoplay(page);
   await expect(page.locator('.result-title')).toBeVisible({ timeout: 10_000 });
   await page.locator('.modal').getByRole('button', { name: /Ещё попытка/ }).click();
-  await page.waitForFunction((prev) => (window as any).__infweb?.ctrl?.state && !(window as any).__infweb.ctrl.state.ended, a);
+  await page.waitForFunction(() => (window as any).__infweb?.ctrl?.state && !(window as any).__infweb.ctrl.state.ended);
   const b = await page.evaluate(() => JSON.stringify((window as any).__infweb.ctrl.state.field));
   expect(JSON.parse(b).adj).toEqual(JSON.parse(a).adj);
   await page.getByRole('button', { name: 'Пауза' }).click();

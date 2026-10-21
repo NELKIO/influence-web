@@ -6,6 +6,7 @@ import { createDailyMatch, dailySettings, dayId, dayNumber, parseDay } from '../
 import { loadDaily, loadSavedGame } from '../../storage';
 import { IconBack, IconArrow } from '../components/icons';
 import { MiniMap } from '../components/MiniMap';
+import { useDiscardGuard } from '../components/DiscardGuard';
 import { SIZES } from '../../core/types';
 import { sfx, unlockAudio } from '../../audio/sfx';
 
@@ -13,6 +14,7 @@ const FIRST_DAY = '2026-01-01';
 
 export function DailyScreen() {
   useSettings();
+  const { guard, modal } = useDiscardGuard();
   const today = dayId();
   const [sel, setSel] = useState(today);
   const [month, setMonth] = useState(() => {
@@ -44,8 +46,10 @@ export function DailyScreen() {
       navigate({ name: 'game', launch: { state: saved.state, initial: saved.initial } });
       return;
     }
-    const st = createDailyMatch(sel);
-    navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    guard(() => {
+      const st = createDailyMatch(sel);
+      navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    });
   };
 
   // calendar grid (Monday first)
@@ -167,6 +171,7 @@ export function DailyScreen() {
           </div>
         </div>
       </div>
+      {modal}
     </div>
   );
 }

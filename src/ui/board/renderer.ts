@@ -447,7 +447,7 @@ export class BoardRenderer {
         ctx.fillStyle = '#1a1d23';
         ctx.fill();
       } else {
-        ctx.fillStyle = mix(col, '#0b0c0f', 0.72);
+        ctx.fillStyle = mix(col, '#17191f', 0.8);
         ctx.fill();
       }
 
@@ -626,12 +626,12 @@ export class BoardRenderer {
         if (!this.centers[e.cell]) continue;
         const [x, y] = P(e.cell);
         const ease = 1 - (1 - t) * (1 - t);
-        const fs = Math.max(12, s * 0.5);
+        const fs = Math.max(11, Math.min(18, s * 0.42));
         ctx.font = `800 ${fs}px Manrope, system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
-        const ty = y - s * 0.7 - ease * s * 0.9;
+        const ty = y - s * 0.95 - ease * s * 0.6;
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillText(e.text, x, ty + 1.5);
         ctx.fillStyle = shade(e.color, 0.25);

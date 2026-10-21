@@ -7,6 +7,7 @@ import type { FieldSize, MatchSettings } from '../../core/types';
 import { IconBot, IconChevron, IconUsers, IconWifi } from '../components/icons';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import { OnlinePanel } from './OnlinePanel';
+import { useDiscardGuard } from '../components/DiscardGuard';
 
 export interface DuelOptions {
   size: FieldSize;
@@ -51,6 +52,7 @@ export function DuelsScreen({ join }: { join?: string }) {
   useSettings();
   const [opts, setOpts] = useState<DuelOptions>(loadDuelOptions());
   const [online, setOnline] = useState<boolean>(!!join);
+  const { guard, modal } = useDiscardGuard();
   const update = (p: Partial<DuelOptions>) => {
     const n = { ...opts, ...p };
     setOpts(n);
@@ -59,9 +61,11 @@ export function DuelsScreen({ join }: { join?: string }) {
 
   const launch = (s: MatchSettings) => {
     unlockAudio();
-    sfx.versus();
-    const st = createMatch(s);
-    navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    guard(() => {
+      sfx.versus();
+      const st = createMatch(s);
+      navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    });
   };
 
   const training = () => {
@@ -134,6 +138,7 @@ export function DuelsScreen({ join }: { join?: string }) {
           ))}
         </div>
       </div>
+      {modal}
     </div>
   );
 }
