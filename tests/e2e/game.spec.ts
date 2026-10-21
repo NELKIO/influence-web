@@ -49,8 +49,7 @@ test('battle setup: size, players, modes and a real canvas attack', async ({ pag
   });
   await page.mouse.click(pts.a[0], pts.a[1]);
   await page.mouse.click(pts.b[0], pts.b[1]);
-  const owner = await page.evaluate((t) => (window as any).__infweb.ctrl.state.field.cells[t].owner, pts.target);
-  expect(owner).toBe(0);
+  await expect.poll(() => page.evaluate((t) => (window as any).__infweb.ctrl.state.field.cells[t].owner, pts.target)).toBe(0);
   await expectNoErrors(errors);
 });
 
