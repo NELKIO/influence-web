@@ -60,7 +60,7 @@ async function selectBest(p) {
     let bestN = 0;
     s.field.cells.forEach((cell, i) => {
       if (cell.owner !== 0 || cell.power < 2) return;
-      const n = s.field.adj[i].filter((d) => s.field.cells[d].owner > 0).length;
+      const n = s.field.adj[i].filter((d) => s.field.cells[d].owner > 0).length * 10 + cell.power;
       if (n > bestN) (bestN = n), (best = i);
     });
     if (best >= 0) c.tap(best);
@@ -89,25 +89,23 @@ async function selectBest(p) {
   await p.screenshot({ path: OUT + 'battle.png' });
 }
 
-// 3. phone: triangle map for three players
-{
-  const p = await page(
-    { width: 390, height: 844 },
-    { setup: { size: 'M', players: ['human', 'hunter', 'master'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false } },
-  );
-  await p.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
-  await p.waitForFunction(() => !!window.__infweb);
-  await play(p, 4);
-  await selectBest(p);
-  await p.screenshot({ path: OUT + 'triangle.png' });
-}
-
-// 4. phone: rules
+// 3. phone: a puzzle scenario at its start (the goal is shown on top)
 {
   const p = await page({ width: 390, height: 844 }, {});
-  await p.locator('.mode-card', { hasText: 'Правила' }).click();
-  await p.waitForTimeout(500);
-  await p.screenshot({ path: OUT + 'rules.png' });
+  await p.getByText('Новая битва').click();
+  await p.locator('.puzzle-card', { hasText: 'Острие' }).click();
+  await p.waitForFunction(() => !!window.__infweb);
+  await p.waitForTimeout(400);
+  await selectBest(p);
+  await p.screenshot({ path: OUT + 'scenario.png' });
+}
+
+// 4. phone: map of the day
+{
+  const p = await page({ width: 390, height: 844 }, {});
+  await p.locator('.mode-card', { hasText: 'Карта дня' }).click();
+  await p.waitForTimeout(700);
+  await p.screenshot({ path: OUT + 'daily.png' });
 }
 
 await browser.close();

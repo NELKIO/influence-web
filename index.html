@@ -3,19 +3,88 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>Influence Web — стратегия по мотивам «Влияния» онлайн в браузере</title>
+    <meta
+      name="description"
+      content="Бесплатный фанатский браузерный ремейк пошаговой стратегии «Влияние» (Influence): битвы с ботами, игра вдвоём на одном устройстве, онлайн-дуэли с другом и карта дня. Работает на iPhone, Android, ПК и Mac без установки."
+    />
+    <meta
+      name="keywords"
+      content="влияние игра, influence игра, влияние онлайн, influence teremok, влияние в браузере, влияние на пк, влияние на iphone, стратегия гексы, захват территории, influence web"
+    />
+    <link rel="canonical" href="https://nelkio.github.io/influence-web/" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- link previews (Telegram, VK, X, Discord...) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Influence Web" />
+    <meta property="og:title" content="Influence Web — «Влияние» в браузере" />
+    <meta
+      property="og:description"
+      content="Пошаговая стратегия о захвате территории: боты, игра вдвоём, онлайн-дуэли, карта дня. Бесплатно, без установки, на любом устройстве."
+    />
+    <meta property="og:url" content="https://nelkio.github.io/influence-web/" />
+    <meta property="og:image" content="https://nelkio.github.io/influence-web/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="ru_RU" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Influence Web — «Влияние» в браузере" />
+    <meta name="twitter:description" content="Turn-based territory strategy in the browser: bots, hot-seat, online duels, daily map." />
+    <meta name="twitter:image" content="https://nelkio.github.io/influence-web/og.png" />
+
     <meta name="theme-color" content="#0b0c0f" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Influence" />
-    <meta name="description" content="Influence Web — turn-based territory strategy. Play vs bots, with friends on one device, online duels and a daily map." />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Influence Web</title>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Influence Web",
+        "alternateName": ["Влияние онлайн", "Influence в браузере"],
+        "url": "https://nelkio.github.io/influence-web/",
+        "image": "https://nelkio.github.io/influence-web/og.png",
+        "description": "Бесплатный фанатский браузерный ремейк пошаговой стратегии «Влияние» (Influence) о захвате территории на гексагональном поле.",
+        "genre": ["Strategy", "Turn-based strategy", "Puzzle"],
+        "gamePlatform": ["Web browser", "iOS", "Android", "Windows", "macOS", "Linux"],
+        "applicationCategory": "Game",
+        "operatingSystem": "Any",
+        "playMode": ["SinglePlayer", "MultiPlayer"],
+        "inLanguage": ["ru", "en"],
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <!-- shown to search engines and before the app starts; replaced by the game -->
+      <main style="font-family: system-ui, sans-serif; color: #eceef2; background: #0b0c0f; max-width: 640px; margin: 0 auto; padding: 32px 20px">
+        <h1>Influence Web — «Влияние» в браузере</h1>
+        <p>
+          Пошаговая стратегия о захвате территории на поле из шестиугольников: атакуйте соседние клетки, получайте силу за
+          каждую свою клетку и захватите всё поле. Бесплатный фанатский ремейк мобильной игры «Влияние» (Influence) от
+          Teremok Games — играйте онлайн на iPhone, Android, ПК и Mac без установки.
+        </p>
+        <ul>
+          <li>Битвы с ботами: Псих, Тупица, Охотник и Мастер, 5 размеров карт, до 5 игроков.</li>
+          <li>Режимы: тьма, толкотня, союзы, симметричные карты.</li>
+          <li>Несколько игроков на одном устройстве и онлайн-дуэли с другом по ссылке.</li>
+          <li>Карта дня: необычные сценарии — осада, лабиринт, троянский конь и другие.</li>
+        </ul>
+        <p>
+          A free fan-made browser remake of the turn-based territory strategy “Influence”: play vs bots, with friends on one
+          device, online duels and daily puzzles. Not affiliated with Teremok Games.
+        </p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
