@@ -8,7 +8,7 @@ import { Rng } from '../../core/rng';
 import { SIZES, SIZE_ORDER, type FieldSize, type PlayerType } from '../../core/types';
 import { SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconPlus, IconX, PlayerToken } from '../components/icons';
-import { cellCenter } from '../board/renderer';
+import { MiniMap } from '../components/MiniMap';
 import { sfx } from '../../audio/sfx';
 
 const TYPES: PlayerType[] = ['freak', 'dummy', 'hunter', 'master', 'human'];
@@ -16,31 +16,7 @@ const LEVEL: Partial<Record<PlayerType, number>> = { freak: 1, dummy: 2, hunter:
 
 function MapPreview({ size, symmetry }: { size: FieldSize; symmetry: boolean }) {
   const field = useMemo(() => generateField({ size, symmetry }, new Rng(7 + SIZE_ORDER.indexOf(size) * 31 + (symmetry ? 1 : 0))), [size, symmetry]);
-  const pts = field.cells.map((c) => cellCenter(c.x, c.y));
-  const xs = pts.map((p) => p[0]);
-  const ys = pts.map((p) => p[1]);
-  const minX = Math.min(...xs) - 1;
-  const minY = Math.min(...ys) - 1;
-  const w = Math.max(...xs) - minX + 1;
-  const h = Math.max(...ys) - minY + 1;
-  const hex = (cx: number, cy: number, r: number) =>
-    Array.from({ length: 6 }, (_, i) => {
-      const a = (Math.PI / 3) * i - Math.PI / 2;
-      return `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`;
-    }).join(' ');
-  return (
-    <svg viewBox={`${minX} ${minY} ${w} ${h}`} style={{ width: '100%', maxHeight: 200 }}>
-      {field.cells.map((c, i) => (
-        <polygon
-          key={i}
-          points={hex(pts[i][0], pts[i][1], c.maxPower > 8 ? 0.88 : 0.74)}
-          fill={field.starts.slice(0, 4).includes(i) ? 'rgba(26,163,255,0.5)' : 'rgba(120,140,190,0.12)'}
-          stroke={field.starts.slice(0, 4).includes(i) ? 'var(--p0)' : 'rgba(150,170,220,0.4)'}
-          stroke-width="0.09"
-        />
-      ))}
-    </svg>
-  );
+  return <MiniMap field={field} highlightStarts={4} />;
 }
 
 export function SetupScreen() {
@@ -77,7 +53,8 @@ export function SetupScreen() {
         <div class="steps">
           {[t('stepMap'), t('stepPlayers'), t('stepModes')].map((label, i) => (
             <button key={i} class={step === i ? 'on' : ''} onClick={() => setStep(i)}>
-              {i + 1}. {label}
+              <span class="n">{i + 1}</span>
+              {label}
             </button>
           ))}
         </div>
@@ -198,12 +175,12 @@ export function SetupScreen() {
               <button class="btn ghost" onClick={start}>
                 {t('start')}
               </button>
-              <button class="btn" onClick={() => setStep(step + 1)}>
+              <button class="btn primary" onClick={() => setStep(step + 1)}>
                 {t('next')}
               </button>
             </>
           ) : (
-            <button class="btn green" onClick={start}>
+            <button class="btn primary" onClick={start}>
               {t('start')} · {t('playersCount', { n: prefs.players.length })}
             </button>
           )}

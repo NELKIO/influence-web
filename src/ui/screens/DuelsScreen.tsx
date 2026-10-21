@@ -4,7 +4,7 @@ import { getSettings, navigate, updateSettings, useSettings } from '../store';
 import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { createMatch } from '../../core/engine';
 import type { FieldSize, MatchSettings } from '../../core/types';
-import { IconBot, IconUsers, IconWifi } from '../components/icons';
+import { IconBot, IconChevron, IconUsers, IconWifi } from '../components/icons';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import { OnlinePanel } from './OnlinePanel';
 
@@ -77,30 +77,37 @@ export function DuelsScreen({ join }: { join?: string }) {
     <div class="screen">
       <div class="screen-inner">
         <TopBar title={t('duelsTitle')} onBack={() => navigate({ name: 'menu' })} />
-        <p class="muted" style={{ margin: '0 4px', fontSize: 14 }}>
-          {t('duelsDesc')}
-        </p>
+        <p class="lead">{t('duelsDesc')}</p>
 
         <button class="choice red" onClick={() => setOnline(true)}>
-          <IconWifi />
+          <span class="ic">
+            <IconWifi />
+          </span>
           <div>
             <div class="t">{t('duelOnline')}</div>
             <div class="d">{t('duelOnlineDesc')}</div>
           </div>
+          <IconChevron class="chev" />
         </button>
         <button class="choice" onClick={training}>
-          <IconBot />
+          <span class="ic">
+            <IconBot />
+          </span>
           <div>
             <div class="t">{t('duelTraining')}</div>
             <div class="d">{t('duelTrainingDesc')}</div>
           </div>
+          <IconChevron class="chev" />
         </button>
         <button class="choice yellow" onClick={() => launch(duelSettings('duelLocal', opts, ['human', 'human']))}>
-          <IconUsers />
+          <span class="ic">
+            <IconUsers />
+          </span>
           <div>
             <div class="t">{t('duelLocal')}</div>
             <div class="d">{t('duelLocalDesc')}</div>
           </div>
+          <IconChevron class="chev" />
         </button>
 
         <div class="section-title">{t('settings')}</div>

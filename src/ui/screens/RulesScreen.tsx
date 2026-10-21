@@ -1,87 +1,151 @@
 import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
+import { Bridge, HexCell } from '../components/HexCell';
 
-function MiniHex({ fill, color, n, x, y }: { fill: number; color: string; n?: number; x: number; y: number }) {
-  const r = 9;
-  const pts = Array.from({ length: 6 }, (_, i) => {
-    const a = (Math.PI / 3) * i - Math.PI / 2;
-    return `${(x + r * Math.cos(a)).toFixed(2)},${(y + r * Math.sin(a)).toFixed(2)}`;
-  }).join(' ');
-  const id = `c${x}${y}${color.replace(/\W/g, '')}`;
+const DX = 42; // horizontal spacing of the diagram hexes
+const DY = 36;
+
+function Diagram({ children, h = 96 }: { children: preact.ComponentChildren; h?: number }) {
   return (
-    <g>
-      <clipPath id={id}>
-        <polygon points={pts} />
-      </clipPath>
-      <polygon points={pts} fill={color} fill-opacity="0.12" />
-      <rect x={x - r} y={y + r - fill * 2 * r} width={2 * r} height={fill * 2 * r} fill={color} fill-opacity="0.8" clip-path={`url(#${id})`} />
-      <polygon points={pts} fill="none" stroke={color} stroke-width="1.6" />
-      {n !== undefined && (
-        <text x={x} y={y + 3.5} text-anchor="middle" font-size="10" font-weight="800" fill="#fff">
-          {n}
-        </text>
-      )}
+    <svg viewBox={`0 0 300 ${h}`} style={{ width: '100%', height: h, display: 'block' }} aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+function Arrow({ x1, y, x2 }: { x1: number; y: number; x2: number }) {
+  return (
+    <g stroke="#eceef2" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d={`M${x1} ${y}H${x2}`} />
+      <path d={`M${x2 - 5} ${y - 5}l5 5-5 5`} />
     </g>
   );
 }
 
-const ICONS = [
-  <svg viewBox="0 0 40 40">
-    <MiniHex x={12} y={12} fill={1} color="var(--p0)" n={8} />
-    <MiniHex x={28} y={12} fill={1} color="var(--p0)" n={6} />
-    <MiniHex x={20} y={27} fill={0.8} color="var(--p0)" n={6} />
-  </svg>,
-  <svg viewBox="0 0 40 40">
-    <MiniHex x={10} y={20} fill={0.7} color="var(--p0)" n={6} />
-    <path d="M20 20h6" stroke="#fff" stroke-width="2" />
-    <MiniHex x={31} y={20} fill={0.3} color="var(--p3)" n={2} />
-  </svg>,
-  <svg viewBox="0 0 40 40">
-    <text x="20" y="25" text-anchor="middle" font-size="13" font-weight="800" fill="var(--warn)">
-      %
-    </text>
-    <circle cx="20" cy="20" r="15" fill="none" stroke="var(--warn)" stroke-width="2" stroke-dasharray="70 30" />
-  </svg>,
-  <svg viewBox="0 0 40 40">
-    <MiniHex x={10} y={20} fill={0.12} color="var(--p0)" n={1} />
-    <MiniHex x={30} y={20} fill={0.6} color="var(--p0)" n={4} />
-  </svg>,
-  <svg viewBox="0 0 40 40">
-    <MiniHex x={20} y={22} fill={0.55} color="var(--p1)" n={5} />
-    <text x="30" y="11" font-size="10" font-weight="800" fill="var(--p1)">
-      +1
-    </text>
-  </svg>,
-  <svg viewBox="0 0 40 40">
-    <MiniHex x={12} y={20} fill={0.5} color="var(--p4)" />
-    <MiniHex x={28} y={20} fill={0} color="#333a4d" />
-  </svg>,
+const ODDS: [number, number, number][] = [
+  [6, 3, 100],
+  [6, 5, 75],
+  [6, 6, 50],
+  [6, 7, 25],
+  [6, 8, 0],
 ];
 
 export function RulesScreen() {
   useSettings();
-  const rules = [1, 2, 3, 4, 5, 6] as const;
   return (
     <div class="screen">
       <div class="screen-inner">
         <TopBar title={t('rulesTitle')} onBack={() => navigate({ name: 'menu' })} />
-        <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {rules.map((n, i) => (
-            <div class="rule" key={n}>
-              {ICONS[i]}
-              <div>
-                <h3>{t(`rule${n}t` as 'rule1t')}</h3>
-                <p>{t(`rule${n}` as 'rule1')}</p>
-              </div>
-            </div>
-          ))}
+
+        <div class="card rule-card">
+          <Diagram>
+            <Bridge x1={96} y1={30} x2={96 + DX} y2={30} owner={0} />
+            <Bridge x1={96} y1={30} x2={96 + DX / 2} y2={30 + DY} owner={0} />
+            <Bridge x1={96 + DX} y1={30} x2={96 + DX / 2} y2={30 + DY} owner={0} />
+            <HexCell x={96} y={30} owner={0} power={8} />
+            <HexCell x={96 + DX} y={30} owner={0} power={5} />
+            <HexCell x={96 + DX / 2} y={30 + DY} owner={0} power={3} />
+            <HexCell x={96 + DX * 2} y={30} power={0} />
+            <HexCell x={96 + DX * 1.5} y={30 + DY} owner={3} power={2} />
+          </Diagram>
+          <h3>{t('rule1t')}</h3>
+          <p>{t('rule1')}</p>
         </div>
+
+        <div class="card rule-card">
+          <Diagram>
+            <HexCell x={70} y={48} owner={0} power={6} ring="#fff" />
+            <Arrow x1={98} y={48} x2={124} />
+            <HexCell x={150} y={48} owner={3} power={2} ring="var(--p0)" />
+            <Arrow x1={178} y={48} x2={204} />
+            <HexCell x={230} y={48} owner={0} power={4} />
+          </Diagram>
+          <h3>{t('rule2t')}</h3>
+          <p>{t('rule2')}</p>
+        </div>
+
+        <div class="card rule-card">
+          <div class="odds">
+            {ODDS.map(([a, d, p]) => (
+              <div key={d} class="odds-col">
+                <svg viewBox="0 0 60 92" width="60" height="92" aria-hidden="true">
+                  <HexCell x={30} y={22} r={18} owner={0} power={a} />
+                  <HexCell x={30} y={68} r={18} owner={3} power={d} max={12} />
+                </svg>
+                <b style={{ color: p >= 75 ? 'var(--good)' : p >= 50 ? 'var(--text)' : p > 0 ? 'var(--warn)' : 'var(--bad)' }}>{p}%</b>
+              </div>
+            ))}
+          </div>
+          <h3>{t('rule3t')}</h3>
+          <p>{t('rule3')}</p>
+        </div>
+
+        <div class="card rule-card">
+          <Diagram>
+            <text x="40" y="18" class="dg-cap">
+              {t('rulesBefore')}
+            </text>
+            <HexCell x={60} y={56} owner={0} power={7} />
+            <HexCell x={60 + DX} y={56} owner={3} power={3} />
+            <Arrow x1={135} y={56} x2={160} />
+            <text x="190" y="18" class="dg-cap">
+              {t('rulesAfter')}
+            </text>
+            <Bridge x1={200} y1={56} x2={200 + DX} y2={56} owner={0} />
+            <HexCell x={200} y={56} owner={0} power={1} />
+            <HexCell x={200 + DX} y={56} owner={0} power={4} />
+          </Diagram>
+          <h3>{t('rule4t')}</h3>
+          <p>{t('rule4')}</p>
+        </div>
+
+        <div class="card rule-card">
+          <Diagram>
+            <Bridge x1={80} y1={48} x2={80 + DX} y2={48} owner={1} />
+            <Bridge x1={80 + DX} y1={48} x2={80 + DX * 2} y2={48} owner={1} />
+            <HexCell x={80} y={48} owner={1} power={2} />
+            <HexCell x={80 + DX} y={48} owner={1} power={5} max={12} r={23} />
+            <HexCell x={80 + DX * 2} y={48} owner={1} power={8} />
+            <text x={80 + DX * 3 + 4} y="54" class="dg-plus">
+              +3
+            </text>
+          </Diagram>
+          <h3>{t('rule5t')}</h3>
+          <p>{t('rule5')}</p>
+        </div>
+
+        <div class="card rule-card">
+          <Diagram>
+            <HexCell x={70} y={48} owner={4} power={4} />
+            <HexCell x={70 + DX} y={48} power={0} />
+            <HexCell x={70 + DX * 2} y={48} power={0} dim />
+            <g opacity="0.25">
+              <HexCell x={70 + DX * 3} y={48} power={0} />
+              <HexCell x={70 + DX * 4} y={48} power={0} />
+            </g>
+          </Diagram>
+          <h3>{t('rule6t')}</h3>
+          <p>{t('rule6')}</p>
+        </div>
+
         <div class="section-title">{t('duelRulesTitle')}</div>
-        <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <p class="muted" style={{ margin: 0, lineHeight: 1.45 }}>• {t('duelRule1')}</p>
-          <p class="muted" style={{ margin: 0, lineHeight: 1.45 }}>• {t('duelRule2')}</p>
-          <p class="muted" style={{ margin: 0, lineHeight: 1.45 }}>• {t('duelRule3')}</p>
+        <div class="card rule-card">
+          <Diagram>
+            <Bridge x1={60} y1={48} x2={60 + DX} y2={48} owner={0} />
+            <Bridge x1={60 + DX} y1={48} x2={60 + DX * 2} y2={48} owner={0} />
+            <HexCell x={60} y={48} owner={0} power={3} />
+            <HexCell x={60 + DX} y={48} owner={0} power={3} />
+            <HexCell x={60 + DX * 2} y={48} owner={0} power={3} />
+            <HexCell x={60 + DX * 3} y={48} power={0} />
+            <HexCell x={60 + DX * 4} y={48} owner={0} power={3} dim />
+            <text x={60 + DX} y="92" text-anchor="middle" class="dg-plus">
+              +3
+            </text>
+          </Diagram>
+          <p>{t('duelRule1')}</p>
+          <p>{t('duelRule2')}</p>
+          <p>{t('duelRule3')}</p>
         </div>
       </div>
     </div>

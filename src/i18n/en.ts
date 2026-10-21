@@ -6,6 +6,13 @@ export const en: typeof ru = {
   fanNote: 'A fan remake inspired by “Influence” by Teremok Games. Not affiliated with its authors.',
 
   play: 'New battle',
+  playSub: 'Map, opponents and modes',
+  duelsCardSub: 'One on one',
+  rulesCardSub: 'In 2 minutes',
+  botsWon: 'The bots won',
+  replayShort: 'Replay',
+  rulesBefore: 'before',
+  rulesAfter: 'after',
   continue: 'Continue',
   quickStart: 'Quick start',
   daily: 'Map of the day',

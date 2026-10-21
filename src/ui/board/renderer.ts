@@ -1,5 +1,5 @@
 import type { Field, MatchState } from '../../core/types';
-import { playerColor, withAlpha, NEUTRAL_COLOR } from '../theme';
+import { playerColor, withAlpha } from '../theme';
 
 const SQRT3 = Math.sqrt(3);
 
@@ -19,12 +19,36 @@ export interface BoardView {
   lowFx: boolean;
   /** cell under the pointer (desktop hover) */
   hover: number;
+  /** win chance (percent) per target cell, shown as badges */
+  chances: Map<number, number> | null;
 }
 
 type Effect =
-  | { kind: 'fight'; from: number; to: number; win: boolean; color: string; t0: number; dur: number }
+  | { kind: 'fight'; from: number; to: number; win: boolean; color: string; atkColor: string; seed: number; t0: number; dur: number }
   | { kind: 'text'; cell: number; text: string; color: string; t0: number; dur: number }
   | { kind: 'ring'; cell: number; color: string; t0: number; dur: number; big?: boolean };
+
+/** Drawn radius of a cell (world units): big cells (capacity 12) are visibly larger. */
+export function cellRadius(maxPower: number): number {
+  return maxPower > 8 ? 0.9 : 0.78;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** a*(1-t) + b*t for two hex colours */
+function mix(a: string, b: string, t: number): string {
+  const x = hexToRgb(a);
+  const y = hexToRgb(b);
+  return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(',')})`;
+}
+
+/** lighten (t>0) or darken (t<0) */
+function shade(hex: string, t: number): string {
+  return mix(hex, t > 0 ? '#ffffff' : '#000000', Math.abs(t));
+}
 
 /** Hex centre in world units (cell radius = 1). Odd-r offset layout, pointy-top. */
 export function cellCenter(x: number, y: number): [number, number] {
@@ -97,6 +121,8 @@ export class BoardRenderer {
   camY = 0;
   insets = { top: 0, bottom: 0, right: 0 };
   onAnimating: ((busy: boolean) => void) | null = null;
+  /** camera (zoom) changed — lets the HUD keep its zoom button in sync */
+  onCamera: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -122,12 +148,29 @@ export class BoardRenderer {
     const prevFit = this.fitScale;
     this.computeFit();
     if (!prevFit || this.scale <= prevFit * 1.001) this.resetCamera();
-    else this.clampCamera();
+    else {
+      this.scale = Math.min(this.maxScale, Math.max(this.fitScale, this.scale));
+      this.clampCamera();
+    }
+    this.onCamera?.();
     this.invalidate();
   }
 
   setView(view: BoardView) {
-    const fieldChanged = view.state.field !== this.fieldRef;
+    // a new field object with the same shape (online resync) keeps the camera
+    const prev = this.fieldRef;
+    const sameShape =
+      !!prev &&
+      prev.cells.length === view.state.field.cells.length &&
+      prev.w === view.state.field.w &&
+      prev.cells.every((c, i) => c.id === view.state.field.cells[i].id);
+    const fieldChanged = view.state.field !== prev;
+    if (fieldChanged && sameShape) {
+      this.fieldRef = view.state.field;
+      this.view = view;
+      this.invalidate();
+      return;
+    }
     this.view = view;
     if (fieldChanged) {
       this.fieldRef = view.state.field;
@@ -172,6 +215,7 @@ export class BoardRenderer {
     this.camX = (this.bounds.minX + this.bounds.maxX) / 2;
     this.camY = (this.bounds.minY + this.bounds.maxY) / 2;
     this.invalidate();
+    this.onCamera?.();
   }
 
   private screenCentre(): [number, number] {
@@ -198,6 +242,7 @@ export class BoardRenderer {
     this.camY = wy - (py - sy) / next;
     this.clampCamera();
     this.invalidate();
+    this.onCamera?.();
   }
 
   zoomTo(px: number, py: number, target: number) {
@@ -265,9 +310,9 @@ export class BoardRenderer {
 
   // ------------------------------------------------------------ effects
 
-  fight(from: number, to: number, win: boolean, winnerColor: string, dur = 420) {
+  fight(from: number, to: number, win: boolean, winnerColor: string, attackerColor = winnerColor, dur = 460) {
     if (this.view?.lowFx) dur = Math.min(dur, 160);
-    this.effects.push({ kind: 'fight', from, to, win, color: winnerColor, t0: performance.now(), dur });
+    this.effects.push({ kind: 'fight', from, to, win, color: winnerColor, atkColor: attackerColor, seed: Math.random() * 6, t0: performance.now(), dur });
     this.kick();
   }
 
@@ -309,7 +354,7 @@ export class BoardRenderer {
       this.dirty = false;
     }
     this.compose(now);
-    if (this.effects.length || this.view?.selected !== -1) this.raf = requestAnimationFrame(this.loop);
+    if (this.effects.length || (this.view && (this.view.selected !== -1 || this.view.targets.size))) this.raf = requestAnimationFrame(this.loop);
   }
 
   // ------------------------------------------------------------ drawing
@@ -322,45 +367,43 @@ export class BoardRenderer {
     if (!v) return;
     const { cells, adj, walls } = v.state.field;
     const s = this.scale;
-    const dpr = this.dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const pos = this.centers.map(([x, y]) => this.worldToScreen(x, y));
-    const darkness = v.state.settings.darkness;
+    const onScreen = (i: number) => {
+      const [x, y] = pos[i];
+      return x > -s * 2 && y > -s * 2 && x < this.cssW + s * 2 && y < this.cssH + s * 2;
+    };
 
-    // links
-    if (v.lineAlpha > 0) {
-      ctx.lineCap = 'round';
-      for (let i = 0; i < cells.length; i++) {
-        for (const j of adj[i]) {
-          if (j < i) continue;
-          if (!v.visible[i] && !v.visible[j]) continue;
-          const a = cells[i];
-          const b = cells[j];
-          const same = a.owner === b.owner && a.owner >= 0 && v.visible[i] && v.visible[j];
-          const neutralPair = a.owner < 0 && b.owner < 0;
-          let color = withAlpha(NEUTRAL_COLOR, neutralPair ? 0.35 : 0.6);
-          let width = Math.max(1, s * 0.06);
-          if (same) {
-            const grey = v.income && !(v.income.has(i) && v.income.has(j));
-            color = grey ? withAlpha(NEUTRAL_COLOR, 0.9) : withAlpha(playerColor(a.owner), 0.85);
-            width = Math.max(1.5, s * 0.13);
-          }
-          ctx.globalAlpha = v.lineAlpha;
-          ctx.strokeStyle = color;
-          ctx.lineWidth = width;
-          ctx.beginPath();
-          ctx.moveTo(pos[i][0], pos[i][1]);
-          ctx.lineTo(pos[j][0], pos[j][1]);
-          ctx.stroke();
-        }
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // walls: a short bar across the gap between two neighbouring cells
-    ctx.strokeStyle = 'rgba(255,120,100,0.32)';
-    ctx.lineWidth = Math.max(2, s * 0.12);
+    // --- links. Thin hairlines for every passage, thick "bridges" between cells of one owner.
     ctx.lineCap = 'round';
+    for (let i = 0; i < cells.length; i++) {
+      for (const j of adj[i]) {
+        if (j < i || (!v.visible[i] && !v.visible[j]) || (!onScreen(i) && !onScreen(j))) continue;
+        const a = cells[i];
+        const b = cells[j];
+        const bridge = a.owner >= 0 && a.owner === b.owner && v.visible[i] && v.visible[j];
+        if (bridge) {
+          const grey = v.income && !(v.income.has(i) && v.income.has(j));
+          ctx.strokeStyle = grey ? '#3a3e47' : shade(playerColor(a.owner), -0.18);
+          ctx.lineWidth = Math.max(2, s * 0.3);
+          ctx.globalAlpha = Math.max(0.35, v.lineAlpha);
+        } else {
+          if (v.lineAlpha <= 0) continue;
+          ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+          ctx.lineWidth = Math.max(1, s * 0.06);
+          ctx.globalAlpha = v.lineAlpha;
+        }
+        ctx.beginPath();
+        ctx.moveTo(pos[i][0], pos[i][1]);
+        ctx.lineTo(pos[j][0], pos[j][1]);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // --- walls: a short bar across the gap
+    ctx.strokeStyle = 'rgba(236,238,242,0.22)';
+    ctx.lineWidth = Math.max(1.5, s * 0.09);
     for (const [i, j] of walls) {
       if (!v.visible[i] && !v.visible[j]) continue;
       const mx = (pos[i][0] + pos[j][0]) / 2;
@@ -368,96 +411,85 @@ export class BoardRenderer {
       const dx = pos[j][0] - pos[i][0];
       const dy = pos[j][1] - pos[i][1];
       const len = Math.hypot(dx, dy) || 1;
-      const nx = (-dy / len) * s * 0.42;
-      const ny = (dx / len) * s * 0.42;
+      const nx = (-dy / len) * s * 0.36;
+      const ny = (dx / len) * s * 0.36;
       ctx.beginPath();
       ctx.moveTo(mx - nx, my - ny);
       ctx.lineTo(mx + nx, my + ny);
       ctx.stroke();
     }
 
-    // cells
-    const fontSize = Math.max(9, s * 0.62);
+    // --- cells
+    const fontSize = Math.max(8, s * 0.56);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (let i = 0; i < cells.length; i++) {
+      if (!onScreen(i)) continue;
       const c = cells[i];
       const [x, y] = pos[i];
-      if (x < -s * 2 || y < -s * 2 || x > this.cssW + s * 2 || y > this.cssH + s * 2) continue;
-      const big = c.maxPower > 8;
-      const r = s * (big ? 0.9 : 0.78);
+      const r = cellRadius(c.maxPower) * s;
       if (!v.visible[i]) {
         shapePath(ctx, -1, false, x, y, r);
-        ctx.fillStyle = 'rgba(8,12,24,0.9)';
+        ctx.fillStyle = '#101216';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(120,135,170,0.16)';
-        ctx.lineWidth = Math.max(1, s * 0.05);
+        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.lineWidth = 1;
         ctx.stroke();
         continue;
       }
       const owner = c.owner;
       const col = playerColor(owner);
-      const dim = (owner < 0 && c.power === 0) || (v.active !== null && owner === v.state.current && !v.active.has(i));
-      ctx.globalAlpha = dim ? 0.55 : 1;
+      const inactive = v.active !== null && owner === v.state.current && !v.active.has(i);
 
-      // body: opaque base so links never show through, then the owner tint
+      // base
       shapePath(ctx, owner, v.colorblind, x, y, r);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = '#080c18';
-      ctx.fill();
-      ctx.globalAlpha = dim ? 0.55 : 1;
-      ctx.fillStyle = owner < 0 ? 'rgba(52,60,80,0.5)' : withAlpha(col, 0.14);
-      ctx.fill();
+      if (owner < 0) {
+        ctx.fillStyle = '#1a1d23';
+        ctx.fill();
+      } else {
+        ctx.fillStyle = mix(col, '#0b0c0f', 0.72);
+        ctx.fill();
+      }
 
-      // liquid level
+      // power level: flat pigment rising from the bottom
       if (c.power > 0) {
         ctx.save();
         shapePath(ctx, owner, v.colorblind, x, y, r);
         ctx.clip();
         const frac = Math.min(1, c.power / c.maxPower);
         const top = y + r - frac * 2 * r;
-        const grad = ctx.createLinearGradient(0, top, 0, y + r);
-        grad.addColorStop(0, withAlpha(col, owner < 0 ? 0.35 : 0.95));
-        grad.addColorStop(1, withAlpha(col, owner < 0 ? 0.2 : 0.55));
-        ctx.fillStyle = grad;
-        ctx.fillRect(x - r * 1.2, top, r * 2.4, y + r - top + 1);
-        // surface line
-        ctx.fillStyle = 'rgba(255,255,255,0.28)';
-        ctx.fillRect(x - r * 1.2, top, r * 2.4, Math.max(1, s * 0.035));
+        ctx.fillStyle = owner < 0 ? '#3a3f49' : inactive ? mix(col, '#0b0c0f', 0.35) : col;
+        ctx.fillRect(x - r * 1.3, top, r * 2.6, y + r - top + 1);
+        // light rim on the surface of the level
+        if (frac < 1) {
+          ctx.fillStyle = 'rgba(255,255,255,0.22)';
+          ctx.fillRect(x - r * 1.3, top, r * 2.6, Math.max(1, s * 0.05));
+        }
+        // subtle top-left sheen for depth
+        const g = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
+        g.addColorStop(0, 'rgba(255,255,255,0.10)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
         ctx.restore();
       }
 
-      // outline (with glow)
+      // outline
       shapePath(ctx, owner, v.colorblind, x, y, r);
-      ctx.lineWidth = Math.max(1.2, s * (owner < 0 ? 0.06 : 0.1));
-      ctx.strokeStyle = owner < 0 ? 'rgba(150,160,185,0.45)' : col;
-      if (!v.lowFx && owner >= 0 && !darkness) {
-        ctx.shadowColor = col;
-        ctx.shadowBlur = Math.min(14, s * 0.35);
-      }
+      ctx.lineWidth = Math.max(1, s * (owner < 0 ? 0.05 : 0.08));
+      ctx.strokeStyle = owner < 0 ? '#2c3038' : inactive ? mix(col, '#0b0c0f', 0.3) : shade(col, 0.22);
       ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // targets
-      if (v.targets.has(i)) {
-        shapePath(ctx, owner, v.colorblind, x, y, r * 1.12);
-        ctx.setLineDash([Math.max(2, s * 0.18), Math.max(2, s * 0.12)]);
-        ctx.lineWidth = Math.max(1.5, s * 0.08);
-        ctx.strokeStyle = withAlpha(playerColor(v.state.current), 0.95);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
 
       // number
-      if (c.power > 0 && s > 7) {
-        ctx.font = `700 ${fontSize * (big ? 1.06 : 1)}px "Exo 2", system-ui, sans-serif`;
-        ctx.lineWidth = Math.max(2, fontSize * 0.18);
-        ctx.strokeStyle = 'rgba(4,6,14,0.75)';
-        ctx.strokeText(String(c.power), x, y + fontSize * 0.04);
-        ctx.fillStyle = owner < 0 ? '#c9cfdb' : '#ffffff';
-        ctx.fillText(String(c.power), x, y + fontSize * 0.04);
+      if (c.power > 0 && s > 6) {
+        const fs = fontSize * (c.maxPower > 8 ? 1.08 : 1);
+        ctx.font = `600 ${fs}px Unbounded, Manrope, system-ui, sans-serif`;
+        const ty = y + fs * 0.06;
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillText(String(c.power), x, ty + Math.max(1, fs * 0.06));
+        ctx.fillStyle = owner < 0 ? '#aab0bb' : inactive ? 'rgba(255,255,255,0.6)' : '#ffffff';
+        ctx.fillText(String(c.power), x, ty);
       }
-      ctx.globalAlpha = 1;
     }
   }
 
@@ -466,27 +498,74 @@ export class BoardRenderer {
     const v = this.view;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.drawImage(this.staticLayer, 0, 0);
     if (!v) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const s = this.scale;
     const P = (i: number) => this.worldToScreen(...this.centers[i]);
+    const cells = v.state.field.cells;
 
-    // selection: pulsing ring
+    // shake the target of a failed attack
+    let shakeCell = -1;
+    let shake = 0;
+    for (const e of this.effects) {
+      if (e.kind !== 'fight' || e.win) continue;
+      const t = (now - e.t0) / e.dur;
+      if (t > 0.38 && t < 0.75) {
+        shakeCell = e.to;
+        shake = Math.sin((t - 0.38) * 60) * (1 - (t - 0.38) / 0.37) * Math.max(1.5, s * 0.08);
+      }
+    }
+    if (shakeCell >= 0) {
+      // draw the static layer, then re-draw the shaken cell area offset
+      ctx.drawImage(this.staticLayer, 0, 0, this.canvas.width, this.canvas.height, 0, 0, this.cssW, this.cssH);
+      const [x, y] = P(shakeCell);
+      const r = cellRadius(cells[shakeCell].maxPower) * s * 1.05;
+      ctx.save();
+      shapePath(ctx, -1, false, x, y, r);
+      ctx.clip();
+      ctx.fillStyle = '#0d0e12';
+      ctx.fill();
+      ctx.drawImage(this.staticLayer, 0, 0, this.canvas.width, this.canvas.height, shake, 0, this.cssW, this.cssH);
+      ctx.restore();
+    } else {
+      ctx.drawImage(this.staticLayer, 0, 0, this.canvas.width, this.canvas.height, 0, 0, this.cssW, this.cssH);
+    }
+
+    // targets: dashed outline + win chance badge
+    if (v.targets.size) {
+      const col = playerColor(v.state.current);
+      const k = 0.5 + 0.5 * Math.sin(now / 260);
+      for (const i of v.targets) {
+        if (!this.centers[i]) continue;
+        const [x, y] = P(i);
+        const c = cells[i];
+        const r = cellRadius(c.maxPower) * s;
+        shapePath(ctx, c.owner, v.colorblind, x, y, r + Math.max(2, s * 0.1));
+        ctx.setLineDash([Math.max(3, s * 0.22), Math.max(2, s * 0.14)]);
+        ctx.lineDashOffset = -now / 40;
+        ctx.lineWidth = Math.max(1.5, s * 0.07);
+        ctx.strokeStyle = withAlpha(col, 0.6 + 0.35 * k);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const p = v.chances?.get(i);
+        if (p !== undefined && s > 11) this.badge(ctx, x, y - r - Math.max(4, s * 0.12), `${p}%`, p >= 75 ? col : p >= 50 ? '#c9ced8' : '#8d939e', s);
+      }
+    }
+
+    // selection
     if (v.selected >= 0 && this.centers[v.selected]) {
       const [x, y] = P(v.selected);
-      const c = v.state.field.cells[v.selected];
-      const r = s * (c.maxPower > 8 ? 0.9 : 0.78);
-      const k = 0.5 + 0.5 * Math.sin(now / 180);
-      shapePath(ctx, c.owner, v.colorblind, x, y, r * (1.1 + 0.05 * k));
-      ctx.lineWidth = Math.max(2, s * 0.12);
-      ctx.strokeStyle = `rgba(255,255,255,${0.55 + 0.4 * k})`;
+      const c = cells[v.selected];
+      const r = cellRadius(c.maxPower) * s;
+      shapePath(ctx, c.owner, v.colorblind, x, y, r + Math.max(2.5, s * 0.12));
+      ctx.lineWidth = Math.max(2, s * 0.1);
+      ctx.strokeStyle = '#ffffff';
       ctx.stroke();
     }
     if (v.hover >= 0 && v.hover !== v.selected && this.centers[v.hover] && v.visible[v.hover]) {
       const [x, y] = P(v.hover);
-      const c = v.state.field.cells[v.hover];
-      shapePath(ctx, c.owner, v.colorblind, x, y, s * (c.maxPower > 8 ? 0.97 : 0.85));
+      const c = cells[v.hover];
+      shapePath(ctx, c.owner, v.colorblind, x, y, cellRadius(c.maxPower) * s + 2);
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.stroke();
@@ -498,60 +577,96 @@ export class BoardRenderer {
         if (!this.centers[e.from] || !this.centers[e.to]) continue;
         const [ax, ay] = P(e.from);
         const [bx, by] = P(e.to);
-        const travel = Math.min(1, t / 0.4);
-        if (t < 0.55) {
-          const hx = ax + (bx - ax) * travel;
-          const hy = ay + (by - ay) * travel;
-          const tx = ax + (bx - ax) * Math.max(0, travel - 0.35);
-          const ty = ay + (by - ay) * Math.max(0, travel - 0.35);
-          ctx.strokeStyle = withAlpha(e.color, 0.9 * (1 - t));
-          ctx.lineWidth = Math.max(2, s * 0.22);
+        const ease = (u: number) => 1 - (1 - u) * (1 - u);
+        if (t < 0.4) {
+          // projectile with a short tail in the attacker's colour
+          const u = ease(t / 0.4);
+          const hx = ax + (bx - ax) * u;
+          const hy = ay + (by - ay) * u;
+          const tu = Math.max(0, u - 0.35);
+          const tx = ax + (bx - ax) * tu;
+          const ty = ay + (by - ay) * tu;
+          ctx.strokeStyle = e.atkColor;
           ctx.lineCap = 'round';
+          ctx.lineWidth = Math.max(2, s * 0.16);
+          ctx.globalAlpha = 0.9;
           ctx.beginPath();
           ctx.moveTo(tx, ty);
           ctx.lineTo(hx, hy);
           ctx.stroke();
-        }
-        if (t >= 0.38) {
-          const k = (t - 0.38) / 0.62;
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = '#fff';
           ctx.beginPath();
-          ctx.arc(bx, by, Math.max(0.1, s * (0.6 + k * 1.1)), 0, Math.PI * 2);
-          ctx.strokeStyle = withAlpha(e.color, (1 - k) * 0.9);
-          ctx.lineWidth = Math.max(2, s * 0.18 * (1 - k) + 1);
-          ctx.stroke();
-          if (!e.win) {
-            // shield flash on a failed attack
-            ctx.beginPath();
-            ctx.arc(bx, by, s * 0.95, 0, Math.PI * 2);
-            ctx.fillStyle = withAlpha(e.color, 0.25 * (1 - k));
-            ctx.fill();
+          ctx.arc(hx, hy, Math.max(1.5, s * 0.1), 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          const k = (t - 0.4) / 0.6;
+          const c = cells[e.to];
+          const r = cellRadius(c?.maxPower ?? 8) * s;
+          // impact flash on the target
+          ctx.save();
+          shapePath(ctx, -1, false, bx, by, r);
+          ctx.clip();
+          ctx.fillStyle = withAlpha(e.win ? '#ffffff' : '#000000', (e.win ? 0.45 : 0.35) * (1 - k));
+          ctx.fillRect(bx - r, by - r, r * 2, r * 2);
+          ctx.restore();
+          // shards
+          const n = this.view?.lowFx ? 0 : 9;
+          for (let q = 0; q < n; q++) {
+            const ang = (q / n) * Math.PI * 2 + e.seed;
+            const dist = r * (0.8 + ease(k) * 1.1);
+            const px = bx + Math.cos(ang) * dist;
+            const py = by + Math.sin(ang) * dist;
+            const sz = Math.max(1.5, s * 0.12) * (1 - k);
+            ctx.fillStyle = withAlpha(e.color, 1 - k);
+            ctx.fillRect(px - sz / 2, py - sz / 2, sz, sz);
           }
         }
       } else if (e.kind === 'text') {
         if (!this.centers[e.cell]) continue;
         const [x, y] = P(e.cell);
         const ease = 1 - (1 - t) * (1 - t);
-        const fs = Math.max(12, s * 0.55);
-        ctx.font = `800 ${fs}px "Exo 2", system-ui, sans-serif`;
+        const fs = Math.max(12, s * 0.5);
+        ctx.font = `800 ${fs}px Manrope, system-ui, sans-serif`;
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-        ctx.strokeText(e.text, x, y - s * 0.6 - ease * s * 1.1);
-        ctx.fillStyle = e.color;
-        ctx.fillText(e.text, x, y - s * 0.6 - ease * s * 1.1);
+        const ty = y - s * 0.7 - ease * s * 0.9;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillText(e.text, x, ty + 1.5);
+        ctx.fillStyle = shade(e.color, 0.25);
+        ctx.fillText(e.text, x, ty);
         ctx.globalAlpha = 1;
       } else if (e.kind === 'ring') {
         if (!this.centers[e.cell]) continue;
         const [x, y] = P(e.cell);
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(0.1, s * (0.8 + t * (e.big ? 3 : 0.9))), 0, Math.PI * 2);
+        const ease = 1 - (1 - t) * (1 - t);
+        hexPath(ctx, x, y, Math.max(0.1, s * (0.9 + ease * (e.big ? 2.6 : 0.8))));
         ctx.strokeStyle = withAlpha(e.color, 1 - t);
-        ctx.lineWidth = Math.max(2, s * 0.15 * (1 - t) + 1);
+        ctx.lineWidth = Math.max(1.5, s * 0.1 * (1 - t) + 1);
         ctx.stroke();
       }
     }
-    const busy = this.busy;
-    this.onAnimating?.(busy);
+    this.onAnimating?.(this.busy);
+  }
+
+  private badge(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, color: string, s: number) {
+    const fs = Math.max(9, Math.min(13, s * 0.36));
+    ctx.font = `800 ${fs}px Manrope, system-ui, sans-serif`;
+    const w = ctx.measureText(text).width + fs * 0.9;
+    const h = fs * 1.55;
+    const bx = x - w / 2;
+    const by = y - h / 2;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, w, h, h / 2);
+    ctx.fillStyle = '#0b0c0f';
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = withAlpha(color.startsWith('#') ? color : '#8d939e', 0.7);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y + 0.5);
   }
 }

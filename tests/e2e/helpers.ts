@@ -81,3 +81,8 @@ export async function autoplay(page: Page, maxSteps = 20000) {
 export async function expectNoErrors(errors: string[]) {
   expect(errors, errors.join('\n')).toEqual([]);
 }
+
+/** Wait until a game screen is mounted (debug hook available). */
+export async function waitGame(page: Page) {
+  await page.waitForFunction(() => !!(window as unknown as { __infweb?: unknown }).__infweb);
+}

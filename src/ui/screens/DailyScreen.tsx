@@ -4,14 +4,15 @@ import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
 import { createDailyMatch, dailySettings, dayId, dayNumber, parseDay } from '../../daily';
 import { loadDaily, loadSavedGame } from '../../storage';
-import { IconBack, IconArrow, PlayerToken } from '../components/icons';
+import { IconBack, IconArrow } from '../components/icons';
+import { MiniMap } from '../components/MiniMap';
 import { SIZES } from '../../core/types';
 import { sfx, unlockAudio } from '../../audio/sfx';
 
 const FIRST_DAY = '2026-01-01';
 
 export function DailyScreen() {
-  const settings = useSettings();
+  useSettings();
   const today = dayId();
   const [sel, setSel] = useState(today);
   const [month, setMonth] = useState(() => {
@@ -20,6 +21,7 @@ export function DailyScreen() {
   });
   const results = loadDaily();
   const cfg = useMemo(() => dailySettings(sel), [sel]);
+  const preview = useMemo(() => createDailyMatch(sel), [sel]);
   const res = results[sel];
 
   const streak = useMemo(() => {
@@ -62,43 +64,39 @@ export function DailyScreen() {
     <div class="screen">
       <div class="screen-inner">
         <TopBar title={t('dailyTitle')} onBack={() => navigate({ name: 'menu' })} />
-        <p class="muted" style={{ margin: '0 4px', fontSize: 14, lineHeight: 1.45 }}>
-          {t('dailyDesc')}
-        </p>
+        <p class="lead">{t('dailyDesc')}</p>
 
-        <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>
-              #{dayNumber(sel)}{' '}
-              <span class="muted" style={{ fontSize: 14, fontWeight: 600 }}>
+        <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 18 }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div class="result-sub" style={{ marginBottom: 8 }}>
                 {sel === today ? t('today') : parseDay(sel).toLocaleDateString(locale, { day: 'numeric', month: 'long' })}
-              </span>
+              </div>
+              <div class="daily-num">#{dayNumber(sel)}</div>
+              <div class="muted" style={{ fontSize: 13, fontWeight: 600, marginTop: 8 }}>
+                {t(`size${cfg.size}` as 'sizeM')} · {SIZES[cfg.size].w}×{SIZES[cfg.size].h}
+              </div>
             </div>
-            <div class="muted" style={{ fontSize: 13 }}>
-              {cfg.size} · {SIZES[cfg.size].w}×{SIZES[cfg.size].h}
+            <div style={{ width: 120, flex: 'none' }}>
+              <MiniMap field={preview.field} maxHeight={130} />
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span class="muted" style={{ fontSize: 13 }}>
-              {t('dailyOpponents')}:
-            </span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {cfg.players.slice(1).map((p, i) => (
-              <span key={i} class="pchip" style={{ '--c': `var(--p${i + 1})` }}>
-                <PlayerToken slot={i + 1} size={14} shape={settings.colorblind} />
+              <span key={i} class="tag" style={{ '--c': `var(--p${i + 1})` }}>
+                <span class="sw" />
                 {t(`player_${p}` as 'player_human')}
               </span>
             ))}
+            {cfg.darkness && <span class="tag">{t('darkness')}</span>}
+            {cfg.symmetry && <span class="tag">{t('symmetry')}</span>}
+            {cfg.unions && <span class="tag">{t('unions')}</span>}
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {cfg.darkness && <span class="pchip">{t('darkness')}</span>}
-            {cfg.symmetry && <span class="pchip">{t('symmetry')}</span>}
-            {cfg.unions && <span class="pchip">{t('unions')}</span>}
-          </div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: res?.bestRounds ? 'var(--good)' : 'var(--muted)' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: res?.bestRounds ? 'var(--good)' : 'var(--muted)' }}>
             {res?.bestRounds ? t('dailyBest', { n: res.bestRounds }) : t('dailyNoWin')}
-            {res?.attempts ? <span class="muted" style={{ fontWeight: 500 }}> · {t('dailyAttempts', { n: res.attempts })}</span> : null}
+            {res?.attempts ? <span class="muted" style={{ fontWeight: 600 }}> · {t('dailyAttempts', { n: res.attempts })}</span> : null}
           </div>
-          <button class="btn green" onClick={play}>
+          <button class="btn primary" onClick={play}>
             {res?.attempts ? t('dailyRetry') : t('dailyPlay')}
           </button>
         </div>

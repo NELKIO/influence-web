@@ -14,7 +14,6 @@ import { createDailyMatch } from '../../daily';
 import { Modal } from '../components/controls';
 import {
   IconArrow,
-  IconCheck,
   IconFlag,
   IconHome,
   IconPause,
@@ -97,9 +96,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
       setZoomed(r.zoomed);
     };
     ctrl.attach(r);
+    r.onCamera = () => setZoomed(r.zoomed);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(wrap.current!);
+    if (topRef.current) ro.observe(topRef.current);
+    if (bottomRef.current) ro.observe(bottomRef.current);
     const detach = attachBoardInput(canvas.current!, r, {
       tap: (c) => {
         unlockAudio();
@@ -135,6 +137,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
     const tm = window.setTimeout(measure, 300);
     return () => {
       window.removeEventListener('keydown', key);
+      const w = window as unknown as { __infweb?: { ctrl: unknown } };
+      if (w.__infweb?.ctrl === ctrl) delete w.__infweb;
       clearTimeout(tm);
       unbind?.();
       ro.disconnect();
@@ -225,12 +229,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
 
       <div class="hud-top" ref={topRef}>
         <div class="hud-row">
-          <button class="side-btn" aria-label={t('pause')} onClick={() => ctrl.pause()} style={{ width: 40, height: 40 }}>
+          <button class="side-btn" aria-label={t('pause')} onClick={() => ctrl.pause()} style={{ width: 40, height: 40, borderRadius: 12 }}>
             <IconPause />
           </button>
           <div class="scorebar" aria-hidden="true">
             {scores.map((sc, i) =>
-              sc > 0 ? <div key={i} style={{ flexGrow: sc / totalScore, background: playerColor(i), boxShadow: `0 0 8px ${playerColor(i)}` }} /> : null,
+              sc > 0 ? <div key={i} style={{ flexGrow: sc / totalScore, background: playerColor(i) }} /> : null,
             )}
           </div>
           <div class="round-label">{t('round', { n: s.turn + 1 })}</div>
@@ -240,9 +244,9 @@ export function GameScreen({ launch }: { launch: Launch }) {
             const out = !alive.includes(i);
             return (
               <div key={i} class={`pchip ${i === cur && !s.ended ? 'cur' : ''} ${out ? 'out' : ''}`} style={{ '--c': playerColor(i) }}>
-                {settings.colorblind ? <PlayerToken slot={i} size={14} shape /> : <i />}
-                <span>{playerName(s.settings, i)}</span>
-                {!out && <span style={{ color: 'var(--text)', opacity: 0.8 }}>{cellCount(s, i)}</span>}
+                {settings.colorblind ? <PlayerToken slot={i} size={12} shape /> : <span class="sw" />}
+                <span class="nm">{playerName(s.settings, i)}</span>
+                {!out && <span class="n">{cellCount(s, i)}</span>}
                 {i === cur && ctrl.thinking && (
                   <span class="thinking">
                     <i />
@@ -353,10 +357,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
       {ov.kind === 'handover' && (
         <div class="overlay solid" onClick={() => ctrl.dismissHandover()}>
           <div class="handover">
-            <div class="muted" style={{ letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 700 }}>
-              {t('handoverTitle')}
-            </div>
-            <PlayerToken slot={ov.next} size={96} shape={settings.colorblind} />
+            <div class="kicker">{t('handoverTitle')}</div>
+            <PlayerToken slot={ov.next} size={84} shape={settings.colorblind} />
             <div class="big" style={{ color: playerColor(ov.next) }}>
               {t('handoverNext', { name: playerName(s.settings, ov.next) })}
             </div>
@@ -369,7 +371,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
         <Modal onBackdrop={() => ctrl.resume()}>
           <h2>{t('pause')}</h2>
           <p>{t('round', { n: s.turn + 1 })}</p>
-          <button class="btn green" onClick={() => ctrl.resume()}>
+          <button class="btn primary" onClick={() => ctrl.resume()}>
             <IconPlay width={18} height={18} /> {t('resume')}
           </button>
           {s.settings.kind !== 'duelOnline' && !s.ended && (
@@ -473,8 +475,13 @@ function ResultModal({
   let title: string;
   let color: string;
   if (humans > 1) {
-    title = end.winner >= 0 ? t('winnerIs', { name: playerName(s.settings, end.winner) }) : t('draw');
-    color = end.winner >= 0 ? playerColor(end.winner) : 'var(--text)';
+    if (end.winner >= 0) {
+      title = t('winnerIs', { name: playerName(s.settings, end.winner) });
+      color = playerColor(end.winner);
+    } else {
+      title = end.humanWon ? t('draw') : t('botsWon');
+      color = 'var(--bad)';
+    }
   } else {
     title = end.humanWon ? t('win') : t('lose');
     color = end.humanWon ? 'var(--good)' : 'var(--bad)';
@@ -482,20 +489,18 @@ function ResultModal({
   const ch = s.chronicle;
   return (
     <Modal>
-      <div class="result-title" style={{ color, textShadow: `0 0 24px ${color}`, fontSize: humans > 1 ? 30 : undefined }}>
-        {title}
+      <div class="result-banner">
+        <ResultEmblem color={color} win={humans > 1 ? end.winner >= 0 : end.humanWon} />
+        <div class="result-title" style={{ color, fontSize: humans > 1 ? 24 : undefined }}>
+          {title}
+        </div>
+        <div class="result-sub">
+          {t('round', { n: end.turn + 1 })} · {formatDuration((ctrl.endedAt || Date.now()) - s.startedAt)}
+        </div>
       </div>
       {end.reason === 'concede' && s.settings.kind === 'duelOnline' && end.humanWon && <p>{t('oppConceded')}</p>}
       {end.reason === 'timeout' && end.humanWon && <p>{t('timeoutWin')}</p>}
       <div class="result-stats">
-        <div>
-          <b>{end.turn + 1}</b>
-          <span>{t('rounds')}</span>
-        </div>
-        <div>
-          <b>{formatDuration(Date.now() - s.startedAt)}</b>
-          <span>{t('duration')}</span>
-        </div>
         {humans === 1 && (
           <>
             <div>
@@ -519,29 +524,41 @@ function ResultModal({
           )}
       </div>
       {extra}
-      {onRestart && (
-        <div class="row">
-          <button class="btn ghost small" onClick={onRestart}>
-            <IconRestart width={16} height={16} /> {t('restartSame')}
-          </button>
-        </div>
+      {onNew && (
+        <button class="btn primary" onClick={onNew}>
+          {s.settings.kind === 'daily' ? t('dailyRetry') : t('newGame')}
+        </button>
       )}
       <div class="row">
         <button class="btn ghost" onClick={onMenu}>
-          <IconHome width={18} height={18} />
+          <IconHome width={18} height={18} /> {t('toMenu')}
         </button>
-        {onNew && (
-          <button class="btn green" onClick={onNew} style={{ flex: 3 }}>
-            {s.settings.kind === 'daily' ? t('dailyRetry') : t('newGame')}
-          </button>
-        )}
-        {!onNew && (
-          <button class="btn" onClick={() => ctrl.resume()} style={{ flex: 3 }}>
-            <IconCheck width={18} height={18} />
+        {onRestart && (
+          <button class="btn ghost" onClick={onRestart}>
+            <IconRestart width={18} height={18} /> {t('replayShort')}
           </button>
         )}
       </div>
     </Modal>
+  );
+}
+
+function ResultEmblem({ color, win }: { color: string; win: boolean }) {
+  const hex = (r: number) =>
+    Array.from({ length: 6 }, (_, i) => {
+      const a = (Math.PI / 3) * i - Math.PI / 2;
+      return `${(40 + r * Math.cos(a)).toFixed(2)},${(40 + r * Math.sin(a)).toFixed(2)}`;
+    }).join(' ');
+  return (
+    <svg viewBox="0 0 80 80" width="72" height="72" style={{ color }}>
+      <polygon points={hex(34)} fill="currentColor" opacity="0.14" />
+      <polygon points={hex(26)} fill="currentColor" opacity={win ? 1 : 0.35} />
+      {win ? (
+        <path d="M28 41l8 8 16-17" stroke="#0b0c0f" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      ) : (
+        <path d="M31 31l18 18M49 31L31 49" stroke="currentColor" stroke-width="5" stroke-linecap="round" />
+      )}
+    </svg>
   );
 }
 

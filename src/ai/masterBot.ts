@@ -91,7 +91,10 @@ export class MasterBot implements Bot {
     });
   }
 
+  private disposed = false;
+
   async nextAttack(state: MatchState, ctx: BotContext): Promise<AttackMove | null> {
+    if (this.disposed) return null;
     let move: AttackMove | null = null;
     let done = false;
     if (this.worker) {
@@ -106,6 +109,7 @@ export class MasterBot implements Bot {
         this.failWorker(new Error('worker failed'));
       }
     }
+    if (this.disposed) return null;
     if (!done) {
       const brain = this.localBrain();
       move = brain.decideAttack(state, ctx);
@@ -116,6 +120,7 @@ export class MasterBot implements Bot {
   }
 
   async placePower(state: MatchState, ctx: BotContext): Promise<Map<number, number>> {
+    if (this.disposed) return new Map();
     let placement: Map<number, number> | null = null;
     if (this.worker) {
       try {
@@ -128,6 +133,7 @@ export class MasterBot implements Bot {
         this.failWorker(new Error('worker failed'));
       }
     }
+    if (this.disposed) return new Map();
     if (!placement) {
       const brain = this.localBrain();
       placement = brain.decidePower(state, ctx);
@@ -137,6 +143,7 @@ export class MasterBot implements Bot {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.failWorker(new Error('disposed'));
   }
 }

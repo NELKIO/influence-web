@@ -3,13 +3,17 @@ import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { loadSavedGame, loadSetup, saveGame, setupToSettings } from '../../storage';
 import { createMatch } from '../../core/engine';
-import { IconBolt, IconBook, IconCalendar, IconChart, IconGear, IconPlay, IconSwords, LogoMark } from '../components/icons';
+import { IconArrow, IconChart, IconGear, IconPlay, LogoMark, ModeArt } from '../components/icons';
 import { Modal } from '../components/controls';
+import { AmbientBoard } from '../components/AmbientBoard';
 import { sfx, unlockAudio } from '../../audio/sfx';
+import { dayNumber, dayId } from '../../daily';
+import { playerName } from '../names';
 
 export function MenuScreen() {
   useSettings();
   const saved = loadSavedGame();
+  const setup = loadSetup();
   const [confirmNew, setConfirmNew] = useState<null | (() => void)>(null);
 
   const go = (fn: () => void) => {
@@ -24,65 +28,94 @@ export function MenuScreen() {
   };
 
   const quick = () => {
-    const st = createMatch(setupToSettings(loadSetup()));
+    const st = createMatch(setupToSettings(setup));
     saveGame(null);
     navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
   };
 
+  const savedLabel = () => {
+    if (!saved) return '';
+    const s = saved.state.settings;
+    const kind = s.kind === 'daily' ? t('daily') : s.kind.startsWith('duel') ? t('duels') : t(`size${s.size}` as 'sizeM');
+    return `${kind} · ${t('round', { n: saved.state.turn + 1 })}`;
+  };
+
+  const opponents = setup.players.slice(1);
+  const quickSub = `${t(`size${setup.size}` as 'sizeM')} · ${opponents.map((_, i) => playerName({ ...setupToSettings(setup) }, i + 1)).join(', ')}`;
+
   return (
-    <div class="screen menu">
-      <div class="screen-inner">
-        <div class="menu-main">
-        <div class="logo">
-          <LogoMark />
-          <div class="name">
-            Influence<span> web</span>
+    <div class="menu-screen">
+      <AmbientBoard />
+      <div class="menu-shade" />
+      <div class="menu-content">
+        <div class="menu-head">
+          <div class="wordmark">
+            <LogoMark />
+            <div class="name">
+              Influence
+              <small>web edition</small>
+            </div>
           </div>
-          <div class="tag">{t('tagline')}</div>
+          <div class="menu-tagline">{t('tagline')}</div>
         </div>
 
-        {saved && (
-          <button class="btn green" onClick={() => go(() => navigate({ name: 'game', launch: { state: saved.state, initial: saved.initial } }))}>
-            <IconPlay width={18} height={18} />
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-              {t('continue')}
-              <span class="sub">{t('round', { n: saved.state.turn + 1 })}</span>
-            </span>
+        <div class="menu-actions">
+          {saved && (
+            <button class="play-btn cont" onClick={() => go(() => navigate({ name: 'game', launch: { state: saved.state, initial: saved.initial } }))}>
+              <div>
+                <div class="big" style={{ fontSize: 17 }}>
+                  {t('continue')}
+                </div>
+                <div class="small">{savedLabel()}</div>
+              </div>
+              <div class="arrow">
+                <IconPlay />
+              </div>
+            </button>
+          )}
+          <button class="play-btn" onClick={() => go(() => guardNew(() => navigate({ name: 'setup' })))}>
+            <div>
+              <div class="big">{t('play')}</div>
+              <div class="small">{t('playSub')}</div>
+            </div>
+            <div class="arrow">
+              <IconArrow />
+            </div>
           </button>
-        )}
-        <button class={`btn ${saved ? '' : 'green'}`} onClick={() => go(() => guardNew(() => navigate({ name: 'setup' })))}>
-          {t('play')}
-        </button>
-        <div class="row">
-          <button class="btn yellow" onClick={() => go(() => guardNew(quick))}>
-            <IconBolt width={18} height={18} /> {t('quickStart')}
-          </button>
-          <button class="btn red" onClick={() => go(() => navigate({ name: 'duels' }))}>
-            <IconSwords width={18} height={18} /> {t('duels')}
-          </button>
-        </div>
 
-        <div class="menu-grid">
-          <button class="tile" onClick={() => go(() => navigate({ name: 'daily' }))}>
-            <IconCalendar style={{ color: 'var(--good)' }} />
-            {t('daily')}
-          </button>
-          <button class="tile" onClick={() => go(() => navigate({ name: 'stats' }))}>
-            <IconChart style={{ color: 'var(--warn)' }} />
-            {t('stats')}
-          </button>
-          <button class="tile" onClick={() => go(() => navigate({ name: 'rules' }))}>
-            <IconBook style={{ color: 'var(--p4)' }} />
-            {t('rules')}
-          </button>
-          <button class="tile" onClick={() => go(() => navigate({ name: 'settings' }))}>
-            <IconGear style={{ color: 'var(--accent)' }} />
-            {t('settings')}
-          </button>
-        </div>
+          <div class="mode-grid">
+            <button class="mode-card" onClick={() => go(() => guardNew(quick))}>
+              <ModeArt kind="quick" />
+              <div class="t">{t('quickStart')}</div>
+              <div class="d">{quickSub}</div>
+            </button>
+            <button class="mode-card" onClick={() => go(() => navigate({ name: 'duels' }))}>
+              <ModeArt kind="duel" />
+              <div class="t">{t('duels')}</div>
+              <div class="d">{t('duelsCardSub')}</div>
+            </button>
+            <button class="mode-card" onClick={() => go(() => navigate({ name: 'daily' }))}>
+              <ModeArt kind="daily" />
+              <div class="t">{t('daily')}</div>
+              <div class="d">#{dayNumber(dayId())}</div>
+            </button>
+            <button class="mode-card" onClick={() => go(() => navigate({ name: 'rules' }))}>
+              <ModeArt kind="rules" />
+              <div class="t">{t('rules')}</div>
+              <div class="d">{t('rulesCardSub')}</div>
+            </button>
+          </div>
 
+          <div class="menu-links">
+            <button onClick={() => go(() => navigate({ name: 'stats' }))}>
+              <IconChart /> {t('stats')}
+            </button>
+            <button onClick={() => go(() => navigate({ name: 'settings' }))}>
+              <IconGear /> {t('settings')}
+            </button>
+          </div>
+          <div class="fan-note">{t('fanNote')}</div>
         </div>
-        <div class="fan-note">{t('fanNote')}</div>
       </div>
 
       {confirmNew && (

@@ -9,6 +9,7 @@ const base = (children: JSX.Element | JSX.Element[], p: P) => (
 );
 
 export const IconBack = (p: P) => base(<path d="M15 5l-7 7 7 7" />, p);
+export const IconChevron = (p: P) => base(<path d="M9 5l7 7-7 7" />, p);
 export const IconPause = (p: P) => base([<rect x="6" y="5" width="4" height="14" rx="1" />, <rect x="14" y="5" width="4" height="14" rx="1" />], p);
 export const IconPlay = (p: P) => base(<path d="M7 4.5v15l12-7.5z" fill="currentColor" />, p);
 export const IconCalendar = (p: P) =>
@@ -44,39 +45,88 @@ export const IconBot = (p: P) =>
   base([<rect x="4" y="8" width="16" height="12" rx="3" />, <path d="M12 4v4M9 13h.01M15 13h.01M9 17h6" />, <circle cx="12" cy="3" r="1" />], p);
 export const IconWifi = (p: P) => base([<path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0" />, <circle cx="12" cy="19" r="1" fill="currentColor" />], p);
 
-/** The game's logo mark: a cluster of three glowing hexes. */
+/** Logo mark: two hexes of different owners joined by a bridge — the core idea of the game. */
 export function LogoMark(p: P) {
-  const hex = (cx: number, cy: number, r: number) => {
-    const pts = Array.from({ length: 6 }, (_, i) => {
+  const hex = (cx: number, cy: number, r: number) =>
+    Array.from({ length: 6 }, (_, i) => {
       const a = (Math.PI / 3) * i - Math.PI / 2;
       return `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`;
-    });
-    return pts.join(' ');
-  };
+    }).join(' ');
   return (
-    <svg viewBox="0 0 120 120" {...p}>
+    <svg viewBox="0 0 64 64" {...p}>
       <defs>
-        <linearGradient id="lg0" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="var(--p0)" stop-opacity="0.95" />
-          <stop offset="1" stop-color="var(--p0)" stop-opacity="0.45" />
-        </linearGradient>
-        <clipPath id="lc">
-          <polygon points={hex(60, 44, 27)} />
+        <clipPath id="lm-a">
+          <polygon points={hex(24, 26, 17)} />
+        </clipPath>
+        <clipPath id="lm-b">
+          <polygon points={hex(43, 42, 13)} />
         </clipPath>
       </defs>
-      <g stroke-width="3.5" fill="none">
-        <line x1="60" y1="44" x2="36" y2="85" stroke="var(--p0)" stroke-width="4" opacity="0.8" />
-        <line x1="60" y1="44" x2="84" y2="85" stroke="var(--p0)" stroke-width="4" opacity="0.8" />
-        <polygon points={hex(36, 85, 21)} fill="rgba(166,77,255,0.15)" stroke="var(--p4)" />
-        <polygon points={hex(84, 85, 21)} fill="url(#lg0)" stroke="var(--p0)" />
-        <polygon points={hex(60, 44, 27)} fill="rgba(26,163,255,0.12)" stroke="var(--p0)" />
-        <rect x="30" y="38" width="60" height="40" fill="url(#lg0)" clip-path="url(#lc)" />
-      </g>
-      <text x="60" y="52" text-anchor="middle" font-size="22" font-weight="800" fill="#fff" font-family="Exo 2, sans-serif">
-        7
-      </text>
-      <text x="84" y="92" text-anchor="middle" font-size="16" font-weight="800" fill="#fff" font-family="Exo 2, sans-serif">
-        4
+      <line x1="24" y1="26" x2="43" y2="42" stroke="var(--p0)" stroke-width="7" stroke-linecap="round" opacity="0.75" />
+      <polygon points={hex(24, 26, 17)} fill="#0f1a2e" />
+      <rect x="4" y="17" width="40" height="30" fill="var(--p0)" clip-path="url(#lm-a)" />
+      <polygon points={hex(24, 26, 17)} fill="none" stroke="#8fbaff" stroke-width="1.6" />
+      <polygon points={hex(43, 42, 13)} fill="#2a1a17" />
+      <rect x="28" y="44" width="30" height="14" fill="var(--p3)" clip-path="url(#lm-b)" />
+      <polygon points={hex(43, 42, 13)} fill="none" stroke="#f7a093" stroke-width="1.6" />
+    </svg>
+  );
+}
+
+/** Small illustrations for the mode cards. */
+export function ModeArt({ kind }: { kind: 'quick' | 'duel' | 'daily' | 'rules' }) {
+  const hex = (cx: number, cy: number, r: number) =>
+    Array.from({ length: 6 }, (_, i) => {
+      const a = (Math.PI / 3) * i - Math.PI / 2;
+      return `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`;
+    }).join(' ');
+  const cell = (cx: number, cy: number, c: string, fill = 0.6, r = 9) => (
+    <g>
+      <clipPath id={`ma-${kind}-${cx}-${cy}`}>
+        <polygon points={hex(cx, cy, r)} />
+      </clipPath>
+      <polygon points={hex(cx, cy, r)} fill="#1b1e24" />
+      <rect x={cx - r} y={cy + r - fill * 2 * r} width={r * 2} height={fill * 2 * r} fill={c} clip-path={`url(#ma-${kind}-${cx}-${cy})`} />
+      <polygon points={hex(cx, cy, r)} fill="none" stroke={c} stroke-opacity="0.9" stroke-width="1.2" />
+    </g>
+  );
+  if (kind === 'quick')
+    return (
+      <svg class="art" viewBox="0 0 64 52">
+        <line x1="16" y1="16" x2="32" y2="16" stroke="var(--p1)" stroke-width="4" opacity="0.7" />
+        <line x1="32" y1="16" x2="24" y2="30" stroke="var(--p1)" stroke-width="4" opacity="0.7" />
+        {cell(16, 16, 'var(--p1)', 0.9)}
+        {cell(32, 16, 'var(--p1)', 0.5)}
+        {cell(24, 30, 'var(--p1)', 0.3)}
+        {cell(48, 16, 'var(--p2)', 0.6)}
+        {cell(40, 30, '#3a3f49', 0)}
+        {cell(56, 30, 'var(--p2)', 0.8)}
+      </svg>
+    );
+  if (kind === 'duel')
+    return (
+      <svg class="art" viewBox="0 0 64 52">
+        {cell(14, 24, 'var(--p0)', 0.8, 11)}
+        {cell(50, 24, 'var(--p3)', 0.8, 11)}
+        <path d="M27 24h10" stroke="#eceef2" stroke-width="2" stroke-linecap="round" />
+        <path d="M33 20l4 4-4 4" stroke="#eceef2" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    );
+  if (kind === 'daily')
+    return (
+      <svg class="art" viewBox="0 0 64 52">
+        {cell(44, 26, 'var(--p2)', 0.45, 18)}
+        <text x="44" y="32" text-anchor="middle" font-family="Unbounded, sans-serif" font-size="15" font-weight="600" fill="#fff">
+          {new Date().getDate()}
+        </text>
+      </svg>
+    );
+  return (
+    <svg class="art" viewBox="0 0 64 52">
+      {cell(22, 26, 'var(--p4)', 0.75)}
+      {cell(40, 26, '#3a3f49', 0)}
+      <text x="40" y="30" text-anchor="middle" font-family="Unbounded, sans-serif" font-size="10" font-weight="600" fill="#8d939e">
+        ?
       </text>
     </svg>
   );
@@ -98,8 +148,8 @@ export function PlayerToken({ slot, size = 22, shape = false }: { slot: number; 
   else if (slot === 3) path = poly(5, -Math.PI / 2);
   else path = poly(4, Math.PI / 4);
   return (
-    <svg viewBox="0 0 24 24" width={size} height={size} style={{ filter: `drop-shadow(0 0 4px ${c})`, flex: 'none' }}>
-      <polygon points={path} fill={c} fill-opacity="0.35" stroke={c} stroke-width="2" />
+    <svg viewBox="0 0 24 24" width={size} height={size} style={{ flex: 'none' }}>
+      <polygon points={path} fill={c} stroke={c} stroke-width="1.5" stroke-linejoin="round" />
     </svg>
   );
 }

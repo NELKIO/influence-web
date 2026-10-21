@@ -75,6 +75,8 @@ export class GameController {
   pressing = -1;
   hover = -1;
   thinking = false;
+  /** wall time when the match ended (for the result screen) */
+  endedAt = 0;
   private renderer: BoardRenderer | null = null;
   private bots = new Map<number, Bot>();
   private listeners = new Set<() => void>();
@@ -178,11 +180,21 @@ export class GameController {
       income = new Set();
       for (const p of alivePlayers(s)) for (const i of incomeCells(s, p)) income.add(i);
     }
+    let chances: Map<number, number> | null = null;
+    if (selected >= 0 && this.settings.showChance) {
+      chances = new Map();
+      const a = s.field.cells[selected].power;
+      for (const ti of targets) {
+        const d = s.field.cells[ti];
+        if (d.owner >= 0 || d.power > 0) chances.set(ti, Math.round(winChance(a, d.power) * 100));
+      }
+    }
     return {
       state: s,
       visible,
       selected,
       targets,
+      chances,
       active,
       income,
       colorblind: this.settings.colorblind,
@@ -276,7 +288,7 @@ export class GameController {
       return;
     }
     // attack phase: show the chance against this cell
-    if (s.selected >= 0 && c.owner !== s.current) this.showChance(s.selected, cell);
+    if (s.selected >= 0 && c.owner !== s.current && targetsFrom(s, s.selected).includes(cell)) this.showChance(s.selected, cell);
     else if (c.owner === s.current) this.tap(cell);
   }
 
@@ -413,7 +425,7 @@ export class GameController {
     const vis = visibleCells(this.state);
     const seen = vis[ev.from] || vis[ev.to];
     if (seen) {
-      this.renderer?.fight(ev.from, ev.to, ev.win, playerColor(winnerSlot));
+      this.renderer?.fight(ev.from, ev.to, ev.win, playerColor(winnerSlot), playerColor(ev.player));
       if (ev.win) sfx.capture();
       else sfx.fail();
       this.renderer?.ensureVisible(ev.to);
@@ -421,7 +433,7 @@ export class GameController {
     if (local || isHuman(this.state, ev.defOwnerBefore)) buzz(ev.win ? 10 : [10, 40, 10]);
     if (ev.eliminated !== null) {
       sfx.eliminated();
-      this.renderer?.ring(ev.to, playerColor(ev.eliminated), true);
+      if (seen) this.renderer?.ring(ev.to, playerColor(ev.eliminated), true);
       this.showHint(this.opts.t('eliminated', { name: this.name(ev.eliminated) }), playerColor(ev.eliminated), 3000);
     }
   }
@@ -433,7 +445,7 @@ export class GameController {
   }
 
   remotePower(cell: number, amount: number, slot: number) {
-    this.renderer?.floatText(cell, `+${amount}`, playerColor(slot));
+    if (visibleCells(this.state)[cell]) this.renderer?.floatText(cell, `+${amount}`, playerColor(slot));
     this.emit();
   }
 
@@ -456,17 +468,22 @@ export class GameController {
     if (s.ended) {
       if (!this.resultShown) {
         this.resultShown = true;
+        this.endedAt = Date.now();
         this.opts.onEnd?.(s);
         const won = s.ended.humanWon;
         window.setTimeout(() => {
           if (this.disposed) return;
-          if (won || this.humansCount > 1) sfx.win();
+          if (won || (this.humansCount > 1 && s.ended && s.ended.winner >= 0 && isHuman(s, s.ended.winner))) sfx.win();
           else sfx.lose();
           if (!this.paused) this.overlay = { kind: 'result' };
           this.emit();
         }, 650);
       }
       return;
+    }
+    if ((this.overlay.kind === 'confirmAuto' || this.overlay.kind === 'confirmEndAttack') && !this.isLocalTurn) {
+      this.overlay = { kind: 'none' };
+      this.emit();
     }
     if (this.paused || this.overlay.kind !== 'none') return;
     const cur = s.current;
@@ -521,6 +538,7 @@ export class GameController {
           this.thinking = false;
           if (this.disposed) return;
           await this.waitWhilePaused();
+          if (this.disposed || this.state !== s) return;
           if (mv) {
             const vis = visibleCells(this.state);
             const seen = vis[mv.from] || vis[mv.to];
@@ -529,8 +547,13 @@ export class GameController {
               this.renderer?.ensureVisible(mv.from);
               this.emit();
               await this.sleep(speed * 0.6);
+              if (this.disposed) return;
+              await this.waitWhilePaused();
+              if (this.disposed) return;
             }
+            if (this.state !== s) continue;
             const ev = attack(this.state, mv.from, mv.to);
+            this.state.selected = -1;
             if (typeof ev === 'string') {
               // illegal move from a bot: end its attack instead of looping
               console.warn('bot produced illegal attack', mv, ev);
@@ -539,6 +562,7 @@ export class GameController {
               this.onFight(ev, false);
               this.emit();
               if (seen && speed > 0) await this.sleep(speed);
+              if (this.disposed) return;
             }
           } else {
             this.botEndAttack();
@@ -547,6 +571,7 @@ export class GameController {
           const placement = await bot.placePower(s, ctx);
           if (this.disposed) return;
           await this.waitWhilePaused();
+          if (this.disposed || this.state !== s) return;
           const vis = visibleCells(this.state);
           for (const [cell, n] of placement) {
             const added = addPower(this.state, cell, n);
@@ -555,9 +580,11 @@ export class GameController {
           if (this.state.powerLeft > 0) autoPower(this.state);
           finishTurn(this.state);
           this.opts.onSave?.(this.state);
+          // a human moves next: stop here so the hand-over screen (if any) appears before the new view
+          if (isHuman(this.state, this.state.current)) break;
           this.emit();
           if (speed > 0 && placement.size) await this.sleep(Math.min(500, speed));
-          if (isHuman(this.state, this.state.current)) break;
+          if (this.disposed) return;
         }
       }
     } finally {

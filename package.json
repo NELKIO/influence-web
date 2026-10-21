@@ -20,7 +20,8 @@
     "vitest": "^3.2.7"
   },
   "dependencies": {
-    "@fontsource/exo-2": "^5.3.0",
+    "@fontsource/manrope": "^5.3.0",
+    "@fontsource/unbounded": "^5.3.0",
     "peerjs": "^1.5.5",
     "preact": "^10.29.8"
   }

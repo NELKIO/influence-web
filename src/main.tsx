@@ -1,8 +1,12 @@
 import { render } from 'preact';
-import '@fontsource/exo-2/400.css';
-import '@fontsource/exo-2/600.css';
-import '@fontsource/exo-2/700.css';
-import '@fontsource/exo-2/800.css';
+import '@fontsource/manrope/400.css';
+import '@fontsource/manrope/500.css';
+import '@fontsource/manrope/600.css';
+import '@fontsource/manrope/700.css';
+import '@fontsource/manrope/800.css';
+import '@fontsource/unbounded/500.css';
+import '@fontsource/unbounded/600.css';
+import '@fontsource/unbounded/700.css';
 import './ui/styles.css';
 import './ui/store';
 import { App } from './ui/App';

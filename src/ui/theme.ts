@@ -1,12 +1,13 @@
 import type { Palette } from '../storage';
 
+/** Pigment palettes: saturated but not neon, readable on the warm near-black board. */
 export const PALETTES: Record<Palette, string[]> = {
-  main: ['#1aa3ff', '#14d65a', '#ffcc1a', '#ff4b26', '#a64dff'],
-  classic: ['#35b7de', '#1fae6a', '#ffd95d', '#e05656', '#9868fc'],
-  soft: ['#5b8def', '#4cbf8f', '#e9c46a', '#e76f51', '#c084fc'],
+  main: ['#3f8cff', '#2fbf83', '#f2b33d', '#f0604d', '#a070f5'],
+  classic: ['#2ea3d9', '#57b346', '#f5cf4b', '#de4b5b', '#8c63e6'],
+  soft: ['#6f9be8', '#62b89a', '#e3bd6f', '#e07c6a', '#b08fe0'],
 };
 
-export const NEUTRAL_COLOR = '#5a6273';
+export const NEUTRAL_COLOR = '#3a3f49';
 
 let current: string[] = PALETTES.main;
 
@@ -14,6 +15,7 @@ export function setPalette(p: Palette) {
   current = PALETTES[p] ?? PALETTES.main;
   const root = document.documentElement.style;
   current.forEach((c, i) => root.setProperty(`--p${i}`, c));
+  root.setProperty('--accent', current[0]);
 }
 
 export function playerColor(slot: number): string {

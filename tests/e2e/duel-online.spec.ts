@@ -31,14 +31,15 @@ async function playDuel(host: Page, guest: Page, base: string) {
 
   const snap = (p: Page) =>
     p.evaluate(() => {
-      const s = (window as any).__infweb.ctrl.state;
+      const s = (window as any).__infweb?.ctrl?.state;
+      if (!s) return 'none';
       return JSON.stringify({ c: s.current, t: s.turn, ph: s.phase, cells: s.field.cells.map((c: any) => [c.owner, c.power]) });
     });
 
   // play several turns: whoever's turn it is attacks greedily and ends the turn
   for (let k = 0; k < 6; k++) {
     for (const p of [host, guest]) {
-      const mine = await p.evaluate(() => (window as any).__infweb.ctrl.isLocalTurn);
+      const mine = await p.evaluate(() => !!(window as any).__infweb?.ctrl?.isLocalTurn);
       if (!mine) continue;
       await p.evaluate(() => {
         const c = (window as any).__infweb.ctrl;
@@ -68,7 +69,7 @@ async function playDuel(host: Page, guest: Page, base: string) {
       await expect.poll(async () => (await snap(host)) === (await snap(guest)), { timeout: 20_000 }).toBe(true);
     }
   }
-  const turn = await host.evaluate(() => (window as any).__infweb.ctrl.state.turn);
+  const turn = await host.evaluate(() => (window as any).__infweb?.ctrl?.state?.turn ?? -1);
   expect(turn).toBeGreaterThanOrEqual(3);
 
   // guest reloads mid-match and resumes from the duels screen
@@ -89,8 +90,8 @@ async function playDuel(host: Page, guest: Page, base: string) {
   // rematch
   await host.getByRole('button', { name: 'Реванш' }).click();
   await guest.getByRole('button', { name: 'Реванш' }).click();
-  await expect.poll(async () => host.evaluate(() => !(window as any).__infweb.ctrl.state.ended), { timeout: 20_000 }).toBe(true);
-  await expect.poll(async () => guest.evaluate(() => !(window as any).__infweb.ctrl.state.ended), { timeout: 20_000 }).toBe(true);
+  await expect.poll(async () => host.evaluate(() => (window as any).__infweb?.ctrl?.state?.ended === null), { timeout: 20_000 }).toBe(true);
+  await expect.poll(async () => guest.evaluate(() => (window as any).__infweb?.ctrl?.state?.ended === null), { timeout: 20_000 }).toBe(true);
   await expect.poll(async () => (await snap(host)) === (await snap(guest)), { timeout: 20_000 }).toBe(true);
 }
 

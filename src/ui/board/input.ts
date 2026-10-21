@@ -35,6 +35,7 @@ export function attachBoardInput(canvas: HTMLCanvasElement, r: BoardRenderer, h:
   };
 
   const down = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     canvas.setPointerCapture(e.pointerId);
     const [x, y] = local(e);
     pts.set(e.pointerId, { x, y, sx: x, sy: y });

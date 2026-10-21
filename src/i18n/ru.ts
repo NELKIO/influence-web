@@ -5,6 +5,13 @@ export const ru = {
 
   // menu
   play: 'Новая битва',
+  playSub: 'Карта, соперники и режимы',
+  duelsCardSub: 'Один на один',
+  rulesCardSub: 'За 2 минуты',
+  botsWon: 'Победили боты',
+  replayShort: 'Заново',
+  rulesBefore: 'до',
+  rulesAfter: 'после',
   continue: 'Продолжить',
   quickStart: 'Быстрый старт',
   daily: 'Карта дня',
