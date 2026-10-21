@@ -259,7 +259,7 @@ describe('darkness', () => {
 });
 
 describe('daily map', () => {
-  it('is the same for everyone and alternates puzzles and battles around the anchor day', async () => {
+  it('is the same for everyone: three puzzles, then a battle, around the anchor day', async () => {
     const { createDailyMatch, dailyKind, dailyLevel, PUZZLE_ANCHOR } = await import('../../src/daily');
     const a = createDailyMatch('2026-11-03');
     const b = createDailyMatch('2026-11-03');
@@ -286,8 +286,8 @@ describe('daily map', () => {
         expect(m.settings.players.slice(1)).toContain('master');
       }
     }
-    // strictly alternating, the anchor (i = 0) is a puzzle; one full cycle covers every scenario once
-    kinds.forEach((k, j) => expect(k).toBe((j - 6) % 2 === 0 ? 'puzzle' : 'battle'));
+    // three puzzles, then a battle; the anchor (i = 0) is a puzzle; one full cycle covers every scenario once
+    kinds.forEach((k, j) => expect(k).toBe((((j - 6) % 4) + 4) % 4 === 3 ? 'battle' : 'puzzle'));
     const { SCENARIOS } = await import('../../src/core/scenarios');
     expect(scenarios.size).toBe(SCENARIOS.length);
   });

@@ -23,8 +23,8 @@ export function dayNumber(id: string): number {
 
 
 /**
- * Days alternate between a puzzle scenario (an unusual map with preset forces) and a battle against
- * Masters. This date is a puzzle day; the alternation runs both ways from it.
+ * Daily maps are mostly puzzle scenarios (an unusual map with preset forces); every fourth day is a
+ * battle against Masters. The schedule is counted both ways from this date (a puzzle day).
  */
 export const PUZZLE_ANCHOR = '2026-10-21';
 
@@ -81,11 +81,13 @@ export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle';
 /** What the map of a given day is. */
 export function dailyKind(id: string): DailyKind {
   const n = dayNumber(id) - dayNumber(PUZZLE_ANCHOR);
-  if (((n % 2) + 2) % 2 === 0) {
-    // puzzles go through all scenarios in a shuffled order before any repeats
-    const i = Math.floor(n / 2);
+  // three puzzle days, then a battle: battles fall on n ≡ 3 (mod 4)
+  if (((n % 4) + 4) % 4 !== 3) {
+    // index among puzzle days only, so the scenario sequence has no gaps
+    const i = n - Math.floor((n + 1) / 4);
     const len = SCENARIOS.length;
     const cycle = Math.floor(i / len);
+    // all scenarios in a shuffled order before any repeats
     const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...SCENARIOS]);
     return { kind: 'puzzle', scenario: order[((i % len) + len) % len] };
   }

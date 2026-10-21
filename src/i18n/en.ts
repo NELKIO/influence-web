@@ -225,7 +225,7 @@ export const en: typeof ru = {
   playerN: 'Player {n}',
 
   dailyTitle: 'Map of the day',
-  dailyDesc: 'One map for everyone: every other day an unusual scenario or a battle against Masters. Retry as often as you like — your best result counts.',
+  dailyDesc: 'One map for everyone. Mostly an unusual scenario, every fourth day a battle against Masters. Retry as often as you like — your best result counts.',
   dailyBest: 'Best: won in {n} rounds',
   dailyNoWin: 'Not won yet',
   dailyAttempts: 'Attempts: {n}',
