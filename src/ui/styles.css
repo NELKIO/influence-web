@@ -1254,3 +1254,73 @@ input {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ---------------------------------------------------------------- polish */
+
+.footer-actions > * {
+  flex: 1;
+}
+
+.type-pick {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.type-pick button {
+  padding: 7px 2px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.choice {
+  --c: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  min-height: 72px;
+  border-radius: var(--radius);
+  border: 1.5px solid var(--c);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 18%, transparent), color-mix(in srgb, var(--c) 4%, transparent));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--c) 22%, transparent);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.1s;
+  width: 100%;
+}
+
+.choice:active {
+  transform: scale(0.98);
+}
+
+.choice svg {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  color: var(--c);
+}
+
+.choice .t {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.choice .d {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+.choice.red {
+  --c: var(--bad);
+}
+.choice.yellow {
+  --c: var(--warn);
+}
+.choice.green {
+  --c: var(--good);
+}

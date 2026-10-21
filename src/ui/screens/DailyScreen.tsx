@@ -106,11 +106,11 @@ export function DailyScreen() {
         <div class="big-stats" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div>
             <b style={{ color: 'var(--warn)' }}>{streak}</b>
-            <span>{t('dailyStreak', { n: '' }).replace(/[:\s]+$/, '')}</span>
+            <span>{t('dailyStreakLabel')}</span>
           </div>
           <div>
             <b style={{ color: 'var(--good)' }}>{solved}</b>
-            <span>{t('dailySolved', { n: '' }).replace(/[:\s]+$/, '')}</span>
+            <span>{t('dailySolvedLabel')}</span>
           </div>
         </div>
 

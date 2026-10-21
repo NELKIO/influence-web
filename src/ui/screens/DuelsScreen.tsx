@@ -81,30 +81,26 @@ export function DuelsScreen({ join }: { join?: string }) {
           {t('duelsDesc')}
         </p>
 
-        <button class="btn red" onClick={() => setOnline(true)} style={{ justifyContent: 'flex-start', minHeight: 64 }}>
-          <IconWifi width={24} height={24} />
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            {t('duelOnline')}
-            <span class="sub">{t('duelOnlineDesc')}</span>
-          </span>
+        <button class="choice red" onClick={() => setOnline(true)}>
+          <IconWifi />
+          <div>
+            <div class="t">{t('duelOnline')}</div>
+            <div class="d">{t('duelOnlineDesc')}</div>
+          </div>
         </button>
-        <button class="btn" onClick={training} style={{ justifyContent: 'flex-start', minHeight: 64 }}>
-          <IconBot width={24} height={24} />
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            {t('duelTraining')}
-            <span class="sub">{t('duelTrainingDesc')}</span>
-          </span>
+        <button class="choice" onClick={training}>
+          <IconBot />
+          <div>
+            <div class="t">{t('duelTraining')}</div>
+            <div class="d">{t('duelTrainingDesc')}</div>
+          </div>
         </button>
-        <button
-          class="btn yellow"
-          onClick={() => launch(duelSettings('duelLocal', opts, ['human', 'human']))}
-          style={{ justifyContent: 'flex-start', minHeight: 64 }}
-        >
-          <IconUsers width={24} height={24} />
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            {t('duelLocal')}
-            <span class="sub">{t('duelLocalDesc')}</span>
-          </span>
+        <button class="choice yellow" onClick={() => launch(duelSettings('duelLocal', opts, ['human', 'human']))}>
+          <IconUsers />
+          <div>
+            <div class="t">{t('duelLocal')}</div>
+            <div class="d">{t('duelLocalDesc')}</div>
+          </div>
         </button>
 
         <div class="section-title">{t('settings')}</div>
