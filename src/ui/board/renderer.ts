@@ -648,13 +648,19 @@ export class BoardRenderer {
       }
     }
     // win-chance badges go on top of every outline and effect
-    if (v.chances && s > 11) {
+    if (v.chances && s > 11 && v.selected >= 0 && this.centers[v.selected]) {
       const col = playerColor(v.state.current);
+      const [sx, sy] = P(v.selected);
       for (const [i, p] of v.chances) {
         if (!this.centers[i]) continue;
         const [x, y] = P(i);
         const r = cellRadius(cells[i].maxPower) * s;
-        this.badge(ctx, x, y - r - Math.max(4, s * 0.12), `${p}%`, p >= 75 ? col : p >= 50 ? '#c9ced8' : '#8d939e', s);
+        // on the far side of the target, away from the selected cell and its white frame
+        const dx = x - sx;
+        const dy = y - sy;
+        const len = Math.hypot(dx, dy) || 1;
+        const off = r * 0.98;
+        this.badge(ctx, x + (dx / len) * off, y + (dy / len) * off, `${p}%`, p >= 75 ? col : p >= 50 ? '#c9ced8' : '#8d939e', s);
       }
     }
     this.onAnimating?.(this.busy);
