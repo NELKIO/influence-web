@@ -1779,3 +1779,16 @@ button {
   font-size: 14px;
   font-weight: 600;
 }
+
+.seg button {
+  min-width: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 400px) {
+  .seg button {
+    font-size: 13px;
+  }
+}
