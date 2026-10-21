@@ -56,6 +56,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const [, setTick] = useState(0);
   const [zoomed, setZoomed] = useState(false);
   const [canZoom, setCanZoom] = useState(false);
+  const [hudTop, setHudTop] = useState(90);
   const [dontAsk, setDontAsk] = useState(false);
   const [askConcede, setAskConcede] = useState(false);
   const online = launch.online as OnlineBinding | undefined;
@@ -85,15 +86,32 @@ export function GameScreen({ launch }: { launch: Launch }) {
 
   useEffect(() => {
     const r = new BoardRenderer(canvas.current!);
+    // The board is fitted between the HUD panels. Panels only ever push the board away (insets never
+    // shrink for the same window size), so the camera does not jump when chips or texts change.
+    let last = { w: 0, h: 0, top: 0, bottom: 0, right: 0 };
     const measure = () => {
       const el = wrap.current!;
+      const w = el.clientWidth;
+      const h = el.clientHeight;
       // short landscape screens (phones on their side): controls move to a side column
-      const side = el.clientWidth > el.clientHeight && el.clientHeight < 600;
+      const side = w > h && h < 600;
       el.classList.toggle('side', side);
-      r.insets = side
-        ? { top: (topRef.current?.offsetHeight ?? 0) + 4, bottom: 0, right: (bottomRef.current?.offsetWidth ?? 0) }
-        : { top: (topRef.current?.offsetHeight ?? 0) + 6, bottom: (bottomRef.current?.offsetHeight ?? 0) + 2, right: 0 };
-      r.resize(el.clientWidth, el.clientHeight);
+      const sameWindow = w === last.w && h === last.h;
+      const top = (topRef.current?.offsetHeight ?? 0) + (side ? 4 : 6);
+      const bottom = side ? 0 : (bottomRef.current?.offsetHeight ?? 0) + 2;
+      const right = side ? (bottomRef.current?.offsetWidth ?? 0) : 0;
+      const next = {
+        w,
+        h,
+        top: sameWindow ? Math.max(last.top, top) : top,
+        bottom: sameWindow ? Math.max(last.bottom, bottom) : bottom,
+        right: sameWindow ? Math.max(last.right, right) : right,
+      };
+      if (JSON.stringify(next) === JSON.stringify(last)) return;
+      last = next;
+      setHudTop(next.top);
+      r.insets = { top: next.top, bottom: next.bottom, right: next.right };
+      r.resize(w, h);
       setCanZoom(r.canZoom);
       setZoomed(r.zoomed);
     };
@@ -244,28 +262,27 @@ export function GameScreen({ launch }: { launch: Launch }) {
           {s.settings.players.map((_, i) => {
             const out = !alive.includes(i);
             return (
-              <div key={i} class={`pchip ${i === cur && !s.ended ? 'cur' : ''} ${out ? 'out' : ''}`} style={{ '--c': playerColor(i) }}>
+              <div
+                key={i}
+                class={`pchip ${i === cur && !s.ended ? 'cur' : ''} ${out ? 'out' : ''} ${i === cur && ctrl.thinking ? 'busy' : ''}`}
+                style={{ '--c': playerColor(i) }}
+              >
                 {settings.colorblind ? <PlayerToken slot={i} size={12} shape /> : <span class="sw" />}
                 <span class="nm">{playerName(s.settings, i)}</span>
                 {!out && <span class="n">{cellCount(s, i)}</span>}
-                {i === cur && ctrl.thinking && (
-                  <span class="thinking">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                )}
               </div>
             );
           })}
         </div>
         {online?.Extra && <online.Extra ctrl={ctrl} />}
-        {ctrl.hint && (
+      </div>
+      {ctrl.hint && (
+        <div class="hint-layer" style={{ top: hudTop }}>
           <div key={ctrl.hint.id} class="hint" style={{ color: ctrl.hint.color ?? 'var(--text)' }}>
             {ctrl.hint.text}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div class="hud-bottom" ref={bottomRef}>
         <div class="hud-bottom-inner">

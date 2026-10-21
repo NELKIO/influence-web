@@ -235,3 +235,46 @@ test('hot-seat in darkness: hand-over appears after power is placed by tapping c
   await expect(page.getByTestId('handover')).toContainText('Игрок 2');
   await expectNoErrors(errors);
 });
+
+test('camera stays put while selecting cells, hovering and confirming', async ({ page }) => {
+  const errors = await fresh(page, { confirmEnd: true });
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'infweb.setup',
+      JSON.stringify({ size: 'M', players: ['human', 'hunter', 'dummy', 'freak'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+    ),
+  );
+  await page.reload();
+  await page.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
+  await waitGame(page);
+  await page.waitForTimeout(500);
+  const cam = () =>
+    page.evaluate(() => {
+      const r = (window as any).__infweb.renderer;
+      return [r.scale, r.camX, r.camY].map((v: number) => v.toFixed(3)).join(',');
+    });
+  const before = await cam();
+  const pos = (sel: string) =>
+    page.evaluate((which) => {
+      const { ctrl, renderer } = (window as any).__infweb;
+      const s = ctrl.state;
+      const mine = s.field.cells.findIndex((c: any) => c.owner === 0);
+      const target = s.field.adj[mine][0];
+      const rect = renderer.canvas.getBoundingClientRect();
+      const [x, y] = renderer.cellScreenPos(which === 'mine' ? mine : target);
+      return [x + rect.left, y + rect.top];
+    }, sel);
+  const [mx, my] = await pos('mine');
+  const [tx, ty] = await pos('target');
+  for (let k = 0; k < 3; k++) {
+    await page.mouse.click(mx, my); // select
+    await page.mouse.move(tx, ty); // hover a target -> chance hint
+    await page.waitForTimeout(250);
+    await page.mouse.move(mx + 200, my + 200);
+    await page.locator('.end-btn').click(); // confirmation dialog
+    await page.locator('.modal').getByRole('button', { name: 'Отмена' }).click();
+    await page.waitForTimeout(250);
+    expect(await cam()).toBe(before);
+  }
+  await expectNoErrors(errors);
+});

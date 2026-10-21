@@ -64,12 +64,12 @@ export interface MasterOptions {
 }
 
 export const DEFAULT_MASTER_OPTIONS: Required<Omit<MasterOptions, 'playouts'>> = {
-  firstAttackMs: 500,
+  firstAttackMs: 350,
   firstAttackRuns: 150,
-  attackSpeedFactor: 2,
+  attackSpeedFactor: 1.2,
   attackRuns: 60,
   powerMsPerSource: 50,
-  powerMaxMs: 500,
+  powerMaxMs: 350,
   powerRuns: 40,
   maxDecisionMs: 1500,
   maxRuns: 40_000,

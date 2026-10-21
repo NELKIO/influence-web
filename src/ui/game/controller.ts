@@ -550,7 +550,7 @@ export class GameController {
               this.state.selected = mv.from;
               this.renderer?.ensureVisible(mv.from);
               this.emit();
-              await this.sleep(speed * 0.6);
+              await this.sleep(speed * 0.5);
               if (this.disposed) return;
               await this.waitWhilePaused();
               if (this.disposed) return;
@@ -565,7 +565,7 @@ export class GameController {
             } else {
               this.onFight(ev, false);
               this.emit();
-              if (seen && speed > 0) await this.sleep(speed);
+              if (seen && speed > 0) await this.sleep(speed * 0.8);
               if (this.disposed) return;
             }
           } else {
@@ -587,7 +587,7 @@ export class GameController {
           // a human moves next: stop here so the hand-over screen (if any) appears before the new view
           if (isHuman(this.state, this.state.current)) break;
           this.emit();
-          if (speed > 0 && placement.size) await this.sleep(Math.min(500, speed));
+          if (speed > 0 && placement.size) await this.sleep(Math.min(400, speed));
           if (this.disposed) return;
         }
       }

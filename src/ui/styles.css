@@ -1885,3 +1885,42 @@ button {
   padding-top: 12px;
   border-top: 1px solid var(--hair);
 }
+
+/* hints float over the board and never change the HUD height */
+.hint-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  padding: 0 12px;
+  z-index: 5;
+}
+
+/* the status keeps the same height whatever the text */
+.status .text {
+  min-height: 2.6em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status .phase {
+  min-height: 1.2em;
+}
+
+.pchip .n {
+  min-width: 2ch;
+  text-align: right;
+}
+
+.pchip.busy {
+  animation: chipBusy 1s ease-in-out infinite;
+}
+
+@keyframes chipBusy {
+  50% {
+    background: color-mix(in srgb, var(--c) 30%, rgba(21, 23, 28, 0.95));
+  }
+}

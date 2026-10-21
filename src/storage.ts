@@ -45,7 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lang: null,
   sound: true,
   vibration: true,
-  speed: 'normal',
+  speed: 'fast',
   confirmEnd: true,
   showChance: true,
   inactiveCells: true,
@@ -56,14 +56,19 @@ export const DEFAULT_SETTINGS: Settings = {
   trainingLocalFirst: false,
 };
 
-export const SPEED_MS: Record<GameSpeed, number> = { instant: 0, fast: 250, normal: 400, slow: 600 };
+export const SPEED_MS: Record<GameSpeed, number> = { instant: 0, fast: 200, normal: 350, slow: 600 };
 
 export function loadSettings(): Settings {
-  return { ...DEFAULT_SETTINGS, ...read<Partial<Settings>>('settings', {}) };
+  const saved = read<Partial<Settings> & { v?: number }>('settings', {});
+  // v2: the default bot speed became "fast"; an untouched old default moves along
+  if (!saved.v && saved.speed === 'normal') saved.speed = 'fast';
+  const { v: _v, ...rest } = saved;
+  void _v;
+  return { ...DEFAULT_SETTINGS, ...rest };
 }
 
 export function saveSettings(s: Settings) {
-  write('settings', s);
+  write('settings', { ...s, v: 2 });
 }
 
 // ---------------------------------------------------------------- battle setup
