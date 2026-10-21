@@ -3,37 +3,27 @@ import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { loadSetup, saveGame, saveSetup, setupToSettings, type SetupPrefs } from '../../storage';
 import { createMatch } from '../../core/engine';
-import { generateField } from '../../core/field';
-import { Rng } from '../../core/rng';
-import { SIZES, SIZE_ORDER, type FieldSize, type PlayerType } from '../../core/types';
+import { randomSeed } from '../../core/rng';
+import { SIZE_ORDER, type PlayerType } from '../../core/types';
 import { SettingRow, Toggle, TopBar } from '../components/controls';
-import { IconPlus, IconX, PlayerToken } from '../components/icons';
+import { IconPlus, IconRestart, IconX, PlayerToken } from '../components/icons';
 import { MiniMap } from '../components/MiniMap';
 import { sfx } from '../../audio/sfx';
 
 const TYPES: PlayerType[] = ['freak', 'dummy', 'hunter', 'master', 'human'];
 const LEVEL: Partial<Record<PlayerType, number>> = { freak: 1, dummy: 2, hunter: 3, master: 4 };
 
-/** Start cells the engine will use for n players (see engine placeStarts). */
-function startCells(starts: number[], n: number): number[] {
-  if (n === 2) return [starts[0], starts[1]];
-  if (n === 3) return [starts[0], starts[1], starts[4]];
-  if (n === 4) return starts.slice(0, 4);
-  return starts;
-}
-
-function MapPreview({ size, symmetry, players }: { size: FieldSize; symmetry: boolean; players: number }) {
-  const field = useMemo(
-    () => generateField({ size, symmetry, players }, new Rng(7 + SIZE_ORDER.indexOf(size) * 31 + (symmetry ? 1 : 0) + players * 7)),
-    [size, symmetry, players],
-  );
-  return <MiniMap field={field} starts={startCells(field.starts, players)} />;
-}
-
 export function SetupScreen() {
   const settings = useSettings();
   const [prefs, setPrefs] = useState<SetupPrefs>(loadSetup());
   const [step, setStep] = useState(0);
+  const [mapSeed, setMapSeed] = useState(() => randomSeed());
+
+  // the preview IS the match that will start: same map, same start cells
+  const preview = useMemo(
+    () => createMatch(setupToSettings(prefs), { seed: mapSeed }),
+    [mapSeed, prefs.size, prefs.symmetry, prefs.crowded, prefs.players.length, prefs.shuffle, prefs.players.join(',')],
+  );
 
   const update = (p: Partial<SetupPrefs>) => {
     const next = { ...prefs, ...p };
@@ -42,11 +32,11 @@ export function SetupScreen() {
   };
 
   const humans = prefs.players.filter((p) => p === 'human').length;
-  const info = SIZES[prefs.size];
 
   const start = () => {
     sfx.click();
-    const st = createMatch(setupToSettings(prefs));
+    // same seed as the preview -> the same map and start cells, with the current modes
+    const st = createMatch(setupToSettings(prefs), { seed: mapSeed });
     saveGame(null);
     navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
   };
@@ -88,15 +78,27 @@ export function SetupScreen() {
               ))}
             </div>
             <div class="card map-preview">
-              <MapPreview size={prefs.size} symmetry={prefs.symmetry} players={prefs.players.length} />
-              <div class="muted" style={{ fontSize: 13, marginTop: 8, textAlign: 'center' }}>
-                {t('sizeInfo', { w: info.w, h: info.h, n: info.cells })}
-                {prefs.symmetry && (prefs.players.length === 3 || prefs.players.length === 5) && (
-                  <>
-                    <br />
-                    {t(prefs.players.length === 3 ? 'layoutTriangle' : 'layoutStar')}
-                  </>
-                )}
+              <MiniMap field={preview.field} />
+              <div class="map-meta">
+                <div>
+                  <div class="title" style={{ fontSize: 14 }}>
+                    {preview.field.layout ? t(`layout_${preview.field.layout}` as 'layout_ring') : prefs.symmetry ? t('layout_mirror') : t('layout_random')}
+                  </div>
+                  <div class="desc">
+                    {t('mapCells', { n: preview.field.cells.length })}
+                    {preview.field.layout && ` · ${t(prefs.players.length === 3 ? 'layoutFair3' : 'layoutFair5')}`}
+                  </div>
+                </div>
+                <button
+                  class="btn small"
+                  aria-label={t('reroll')}
+                  onClick={() => {
+                    sfx.click();
+                    setMapSeed(randomSeed());
+                  }}
+                >
+                  <IconRestart width={16} height={16} /> {t('reroll')}
+                </button>
               </div>
             </div>
           </>

@@ -65,7 +65,7 @@ export interface Field {
   /** 5 start positions (cell indices) */
   starts: number[];
   /** special symmetric layout (rotational maps for 3 / 5 players) */
-  layout?: 'triangle' | 'star';
+  layout?: 'triangle' | 'star' | 'ring' | 'flower' | 'pinwheel' | 'islands' | 'honeycomb';
 }
 
 export type MatchKind = 'single' | 'daily' | 'duelTraining' | 'duelLocal' | 'duelOnline';
