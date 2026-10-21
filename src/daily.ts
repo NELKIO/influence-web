@@ -1,4 +1,5 @@
-import { Rng, hashString } from './core/rng';
+import { Rng, hashString, randomSeed } from './core/rng';
+import { buildScenario, SCENARIOS, type ScenarioId } from './core/scenarios';
 import { createMatch } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -32,42 +33,100 @@ const LINEUPS: PlayerType[][] = [
   ['master', 'hunter'],
 ];
 
-/** From this date on the daily map is a hard puzzle against Masters only (earlier days keep their maps). */
+/**
+ * From this date on, days alternate between a puzzle scenario (an unusual map with preset forces)
+ * and a battle against Masters. Earlier days keep their original maps.
+ */
 export const HARD_DAILY_FROM = '2026-10-22';
 
-interface DayPlan {
-  masters: number;
+interface BattlePlan {
+  bots: PlayerType[];
   sizes: FieldSize[];
   /** chance of darkness */
   dark: number;
   unions: boolean;
-  /** difficulty shown to the player, 1..5 */
   level: number;
 }
 
-/** Monday..Sunday: the week gets harder towards Sunday. */
-const WEEK: DayPlan[] = [
-  { masters: 1, sizes: ['M', 'L'], dark: 0, unions: false, level: 2 },
-  { masters: 1, sizes: ['L'], dark: 0.25, unions: false, level: 3 },
-  { masters: 2, sizes: ['L'], dark: 0, unions: false, level: 3 },
-  { masters: 1, sizes: ['XL'], dark: 0.5, unions: false, level: 4 },
-  { masters: 2, sizes: ['L', 'XL'], dark: 0.35, unions: false, level: 4 },
-  { masters: 3, sizes: ['XL'], dark: 0.2, unions: true, level: 5 },
-  { masters: 4, sizes: ['XL'], dark: 0, unions: true, level: 5 },
+/** Battles by weekday (Monday first): moderately hard, harder towards the weekend. */
+const BATTLES: BattlePlan[] = [
+  { bots: ['master'], sizes: ['M'], dark: 0, unions: false, level: 2 },
+  { bots: ['master', 'hunter'], sizes: ['L'], dark: 0, unions: false, level: 3 },
+  { bots: ['master'], sizes: ['L'], dark: 0.3, unions: false, level: 3 },
+  { bots: ['hunter', 'master', 'hunter'], sizes: ['L'], dark: 0, unions: false, level: 3 },
+  { bots: ['master'], sizes: ['XL'], dark: 0.3, unions: false, level: 4 },
+  { bots: ['master', 'master'], sizes: ['L'], dark: 0, unions: false, level: 4 },
+  { bots: ['master', 'hunter', 'hunter'], sizes: ['XL'], dark: 0, unions: true, level: 4 },
 ];
 
-function weekPlan(id: string): DayPlan {
-  return WEEK[(parseDay(id).getDay() + 6) % 7];
+/** Difficulty of each scenario (from the calibration: how often an average player wins). */
+const SCENARIO_LEVEL: Record<ScenarioId, number> = {
+  siege: 3,
+  cauldron: 3,
+  bastion: 4,
+  archipelago: 2,
+  labyrinth: 4,
+  spiral: 4,
+  twofronts: 3,
+  greysea: 3,
+  checker: 2,
+  dam: 4,
+  ringmap: 2,
+  hill: 3,
+  awakening: 3,
+};
+
+export type DailyKind = { kind: 'legacy' } | { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: ScenarioId };
+
+/** What the map of a given day is. */
+export function dailyKind(id: string): DailyKind {
+  if (id < HARD_DAILY_FROM) return { kind: 'legacy' };
+  const n = dayNumber(id) - dayNumber(HARD_DAILY_FROM);
+  if (n % 2 === 0) {
+    // puzzles go through all scenarios in a shuffled order before any repeats
+    const i = n / 2;
+    const cycle = Math.floor(i / SCENARIOS.length);
+    const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...SCENARIOS]);
+    return { kind: 'puzzle', scenario: order[i % SCENARIOS.length] };
+  }
+  return { kind: 'battle', plan: BATTLES[(parseDay(id).getDay() + 6) % 7] };
 }
 
 /** Difficulty of the daily map, 1..5. */
 export function dailyLevel(id: string): number {
-  return id >= HARD_DAILY_FROM ? weekPlan(id).level : 2;
+  const k = dailyKind(id);
+  if (k.kind === 'puzzle') return SCENARIO_LEVEL[k.scenario];
+  if (k.kind === 'battle') return k.plan.level;
+  return 2;
+}
+
+function battleSettings(id: string, plan: BattlePlan): MatchSettings {
+  const rng = new Rng(hashString(`daily-hard:${id}`));
+  return {
+    kind: 'daily',
+    size: rng.pick(plan.sizes),
+    players: ['human', ...plan.bots],
+    darkness: rng.float() < plan.dark,
+    // always a fair map: mirrored for 2 and 4 players, rotational for 3 and 5
+    symmetry: true,
+    crowded: false,
+    unions: plan.unions,
+    shuffle: false,
+    duelRules: false,
+    dailyId: id,
+  };
 }
 
 /** Deterministic settings of the daily map: same for every player on that date. */
 export function dailySettings(id: string): MatchSettings {
-  if (id >= HARD_DAILY_FROM) return hardDailySettings(id);
+  const k = dailyKind(id);
+  if (k.kind === 'battle') return battleSettings(id, k.plan);
+  if (k.kind === 'puzzle') return createDailyMatch(id).settings;
+  return legacySettings(id);
+}
+
+/** Deterministic settings of the daily map: same for every player on that date. */
+function legacySettings(id: string): MatchSettings {
   const rng = new Rng(hashString(`daily:${id}`));
   const sizes: FieldSize[] = ['M', 'M', 'L', 'L', 'L', 'XL'];
   const size = rng.pick(sizes);
@@ -87,29 +146,23 @@ export function dailySettings(id: string): MatchSettings {
   };
 }
 
-function hardDailySettings(id: string): MatchSettings {
-  const rng = new Rng(hashString(`daily-hard:${id}`));
-  const plan = weekPlan(id);
-  const masters: PlayerType[] = new Array(plan.masters).fill('master');
-  return {
-    kind: 'daily',
-    size: rng.pick(plan.sizes),
-    players: ['human', ...masters],
-    darkness: rng.float() < plan.dark,
-    // always a fair map: mirrored for 2 and 4 players, rotational for 3 and 5
-    symmetry: true,
-    crowded: false,
-    unions: plan.unions,
-    shuffle: false,
-    duelRules: false,
-    dailyId: id,
-  };
-}
-
 export function dailySeed(id: string): number {
   return hashString(`daily-map:${id}`);
 }
 
 export function createDailyMatch(id: string): MatchState {
+  const k = dailyKind(id);
+  if (k.kind === 'puzzle') {
+    const st = buildScenario(k.scenario, dailySeed(id));
+    st.settings = { ...st.settings, kind: 'daily', dailyId: id };
+    return st;
+  }
   return createMatch(dailySettings(id), { seed: dailySeed(id) });
 }
+
+/** A fresh random variation of a scenario (played outside the daily map). */
+export function createPuzzleMatch(scenario: ScenarioId): MatchState {
+  return buildScenario(scenario, randomSeed());
+}
+
+export { SCENARIOS, type ScenarioId };

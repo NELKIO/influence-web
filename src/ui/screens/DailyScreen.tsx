@@ -2,12 +2,14 @@ import { useMemo, useState } from 'preact/hooks';
 import { getLang, t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
-import { createDailyMatch, dailyLevel, dailySettings, dayId, dayNumber, parseDay } from '../../daily';
+import { createDailyMatch, createPuzzleMatch, dailyLevel, dayId, dayNumber, parseDay, SCENARIOS, type ScenarioId } from '../../daily';
+import { buildScenario } from '../../core/scenarios';
+import { hashString } from '../../core/rng';
+import type { MatchState } from '../../core/types';
 import { loadDaily, loadSavedGame } from '../../storage';
 import { IconBack, IconArrow } from '../components/icons';
 import { MiniMap } from '../components/MiniMap';
 import { useDiscardGuard } from '../components/DiscardGuard';
-import { SIZES } from '../../core/types';
 import { sfx, unlockAudio } from '../../audio/sfx';
 
 const FIRST_DAY = '2026-01-01';
@@ -22,8 +24,9 @@ export function DailyScreen() {
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
   const results = loadDaily();
-  const cfg = useMemo(() => dailySettings(sel), [sel]);
   const preview = useMemo(() => createDailyMatch(sel), [sel]);
+  const cfg = preview.settings;
+  const puzzle = cfg.puzzle as ScenarioId | undefined;
   const res = results[sel];
 
   const streak = useMemo(() => {
@@ -37,6 +40,17 @@ export function DailyScreen() {
     return n;
   }, [results, today]);
   const solved = Object.values(results).filter((r) => r.bestRounds !== null).length;
+
+  const samples = useMemo(() => Object.fromEntries(SCENARIOS.map((id) => [id, buildScenario(id, hashString(`sample:${id}`))])) as Record<ScenarioId, MatchState>, []);
+
+  const playPuzzle = (id: ScenarioId) => {
+    unlockAudio();
+    sfx.click();
+    guard(() => {
+      const st = createPuzzleMatch(id);
+      navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    });
+  };
 
   const play = () => {
     unlockAudio();
@@ -84,13 +98,19 @@ export function DailyScreen() {
                 <span>{t(`dailyLevel${dailyLevel(sel)}` as 'dailyLevel1')}</span>
               </div>
               <div class="muted" style={{ fontSize: 13, fontWeight: 600, marginTop: 8 }}>
-                {t(`size${cfg.size}` as 'sizeM')} · {SIZES[cfg.size].w}×{SIZES[cfg.size].h}
+                {puzzle ? t('dailyPuzzle') : t('dailyBattle')} · {t('mapCells', { n: preview.field.cells.length })}
               </div>
             </div>
             <div style={{ width: 120, flex: 'none' }}>
               <MiniMap field={preview.field} maxHeight={130} />
             </div>
           </div>
+          {puzzle && (
+            <div class="puzzle-brief">
+              <div class="title">{t(`puzzle_${puzzle}` as 'puzzle_siege')}</div>
+              <div class="desc">{t(`puzzleDesc_${puzzle}` as 'puzzleDesc_siege')}</div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {cfg.players.slice(1).map((p, i) => (
               <span key={i} class="tag" style={{ '--c': `var(--p${i + 1})` }}>
@@ -120,6 +140,19 @@ export function DailyScreen() {
             <b style={{ color: 'var(--good)' }}>{solved}</b>
             <span>{t('dailySolvedLabel')}</span>
           </div>
+        </div>
+
+        <div class="section-title">{t('puzzles')}</div>
+        <p class="lead" style={{ marginTop: -4 }}>
+          {t('puzzlesDesc')}
+        </p>
+        <div class="puzzle-grid">
+          {SCENARIOS.map((id) => (
+            <button key={id} class="puzzle-card" onClick={() => playPuzzle(id)}>
+              <MiniMap field={samples[id].field} maxHeight={84} />
+              <span>{t(`puzzle_${id}` as 'puzzle_siege')}</span>
+            </button>
+          ))}
         </div>
 
         <div class="section-title">{t('dailyArchive')}</div>

@@ -136,6 +136,11 @@ export function GameScreen({ launch }: { launch: Launch }) {
       setZoomed(r.zoomed);
     });
     const unbind = online?.bind(ctrl);
+    // puzzle: show the goal at the start
+    const pz = ctrl.state.settings.puzzle;
+    if (pz && ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack') {
+      ctrl.showHint(`${t(`puzzle_${pz}` as 'puzzle_siege')}: ${t(`puzzleDesc_${pz}` as 'puzzleDesc_siege')}`, undefined, 6000);
+    }
     if (isSaveable(ctrl.state) && !ctrl.state.ended) saveGame({ state: ctrl.state, initial: launch.initial });
     // test/debug hook
     (window as unknown as { __infweb?: unknown }).__infweb = { ctrl, renderer: r };

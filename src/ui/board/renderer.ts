@@ -402,8 +402,9 @@ export class BoardRenderer {
     ctx.globalAlpha = 1;
 
     // --- walls: a short bar across the gap
-    ctx.strokeStyle = 'rgba(236,238,242,0.22)';
-    ctx.lineWidth = Math.max(1.5, s * 0.09);
+    ctx.strokeStyle = 'rgba(200,206,216,0.75)';
+    ctx.lineWidth = Math.max(2, s * 0.16);
+    ctx.lineCap = 'round';
     for (const [i, j] of walls) {
       if (!v.visible[i] && !v.visible[j]) continue;
       const mx = (pos[i][0] + pos[j][0]) / 2;
@@ -411,8 +412,8 @@ export class BoardRenderer {
       const dx = pos[j][0] - pos[i][0];
       const dy = pos[j][1] - pos[i][1];
       const len = Math.hypot(dx, dy) || 1;
-      const nx = (-dy / len) * s * 0.36;
-      const ny = (dx / len) * s * 0.36;
+      const nx = (-dy / len) * s * 0.5;
+      const ny = (dx / len) * s * 0.5;
       ctx.beginPath();
       ctx.moveTo(mx - nx, my - ny);
       ctx.lineTo(mx + nx, my + ny);
@@ -481,7 +482,8 @@ export class BoardRenderer {
       ctx.stroke();
 
       // number
-      if (c.power > 0 && s > 6) {
+      // owned cells always show their number, even 0 (puzzles start some cells empty)
+      if ((c.power > 0 || owner >= 0) && s > 6) {
         const fs = fontSize * (c.maxPower > 8 ? 1.08 : 1);
         ctx.font = `600 ${fs}px Unbounded, Manrope, system-ui, sans-serif`;
         const ty = y + fs * 0.06;

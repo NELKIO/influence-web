@@ -86,6 +86,8 @@ export interface MatchSettings {
   turnTime?: number;
   /** daily map id (yyyy-mm-dd) */
   dailyId?: string;
+  /** puzzle scenario id (preset position) */
+  puzzle?: string;
 }
 
 export type Phase = 'attack' | 'power';

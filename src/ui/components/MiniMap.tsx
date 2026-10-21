@@ -26,7 +26,7 @@ export function MiniMap({ field, starts: startCells = [], maxHeight = 200 }: { f
           <polygon
             key={i}
             points={hex(pts[i][0], pts[i][1], cellRadius(c.maxPower))}
-            fill={col ?? '#1b1e24'}
+            fill={col ?? (c.power > 0 ? '#3f4450' : '#1b1e24')}
             stroke={col ?? '#2c3038'}
             stroke-width="0.08"
           />

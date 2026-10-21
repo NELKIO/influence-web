@@ -47,8 +47,9 @@ export function AmbientBoard() {
         size: window.innerWidth > 900 ? 'L' : 'M',
         players,
         darkness: false,
-        symmetry: round % 2 === 1,
-        crowded: false,
+        symmetry: true,
+        // every other match starts with the whole board split between the bots (more colour)
+        crowded: round % 2 === 1,
         unions: false,
         shuffle: false,
         duelRules: false,

@@ -71,7 +71,8 @@ async function selectBest(p) {
 // 1. hero: desktop menu with the living board
 {
   const p = await page({ width: 1440, height: 860 }, {});
-  await p.waitForTimeout(14000);
+  // the first background match starts crowded: wait for a few fights to happen
+  await p.waitForTimeout(9000);
   await p.screenshot({ path: OUT + 'hero.png' });
 }
 

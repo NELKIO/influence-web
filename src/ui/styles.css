@@ -1949,3 +1949,53 @@ button {
   font-weight: 700;
   color: var(--muted);
 }
+
+.puzzle-brief {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--hair);
+}
+
+.puzzle-brief .title {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.puzzle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.puzzle-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--hair);
+  background: var(--surface);
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.puzzle-card:hover {
+  background: var(--surface-2);
+}
+
+.puzzle-card:active {
+  transform: scale(0.97);
+}
+
+@media (min-width: 520px) {
+  .puzzle-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}

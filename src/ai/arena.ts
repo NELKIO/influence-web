@@ -32,6 +32,8 @@ export interface ArenaOptions {
   ctx?: BotContext;
   /** accept early-finish offers of the stuck check for human seats (default true) */
   acceptStuck?: boolean;
+  /** start from this position instead of a freshly generated match */
+  state?: MatchState;
 }
 
 export interface ArenaResult {
@@ -76,7 +78,7 @@ function reviveBotOnly(state: MatchState) {
 }
 
 export async function runMatch(settings: MatchSettings, opts: ArenaOptions): Promise<ArenaResult> {
-  const state = createMatch(settings, { seed: opts.seed });
+  const state = opts.state ? structuredClone(opts.state) : createMatch(settings, { seed: opts.seed });
   const maxRounds = opts.maxRounds ?? 300;
   const ctx = opts.ctx ?? { speedMs: 0 };
   const check = opts.checkInvariants ?? false;

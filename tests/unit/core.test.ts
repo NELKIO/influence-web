@@ -259,26 +259,37 @@ describe('darkness', () => {
 });
 
 describe('daily map', () => {
-  it('is the same for everyone on a date and hard from the cut-over on', async () => {
-    const { createDailyMatch, dailySettings, dailyLevel, HARD_DAILY_FROM } = await import('../../src/daily');
+  it('is the same for everyone, alternates puzzles and battles from the cut-over on', async () => {
+    const { createDailyMatch, dailySettings, dailyKind, dailyLevel, HARD_DAILY_FROM } = await import('../../src/daily');
     const a = createDailyMatch('2026-11-03');
     const b = createDailyMatch('2026-11-03');
     expect(JSON.stringify(a.field)).toBe(JSON.stringify(b.field));
     // the day before the cut-over keeps its old map
     expect(dailySettings('2026-10-21').players).toEqual(['human', 'master']);
     expect(dailySettings('2026-10-21').size).toBe('XL');
-    // a whole week of hard maps: only Masters, symmetric, harder towards Sunday
-    const levels: number[] = [];
-    for (let d = 26; d <= 32; d++) {
-      const id = `2026-10-${String(d).padStart(2, '0')}`.replace('2026-10-32', '2026-11-01');
-      const s = dailySettings(id);
+    const kinds: string[] = [];
+    const scenarios = new Set<string>();
+    for (let i = 0; i < 26; i++) {
+      const d = new Date(2026, 9, 22 + i);
+      const id = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       expect(id >= HARD_DAILY_FROM).toBe(true);
-      expect(s.players[0]).toBe('human');
-      expect(s.players.slice(1).every((p) => p === 'master')).toBe(true);
-      expect(s.symmetry).toBe(true);
-      levels.push(dailyLevel(id));
-      createDailyMatch(id); // generates without errors
+      const k = dailyKind(id);
+      kinds.push(k.kind);
+      const m = createDailyMatch(id);
+      expect(m.settings.kind).toBe('daily');
+      expect(m.settings.dailyId).toBe(id);
+      expect(dailyLevel(id)).toBeGreaterThanOrEqual(2);
+      expect(dailyLevel(id)).toBeLessThanOrEqual(4);
+      if (k.kind === 'puzzle') {
+        scenarios.add(k.scenario);
+        expect(m.settings.puzzle).toBe(k.scenario);
+      } else {
+        expect(m.settings.symmetry).toBe(true);
+        expect(m.settings.players.slice(1)).toContain('master');
+      }
     }
-    expect(levels[0]).toBeLessThan(levels[6]);
+    // strictly alternating, and 13 puzzle days cover all 13 scenarios without repeats
+    kinds.forEach((k, i) => expect(k).toBe(i % 2 === 0 ? 'puzzle' : 'battle'));
+    expect(scenarios.size).toBe(13);
   });
 });
