@@ -1,0 +1,585 @@
+import {
+  addPower,
+  alivePlayers,
+  anyAttackLeft,
+  attack,
+  autoPower,
+  canAttackFrom,
+  checkAttack,
+  checkStuck,
+  concede,
+  endAttack,
+  finishEarly,
+  finishTurn,
+  humansAlive,
+  incomeCells,
+  isHuman,
+  targetsFrom,
+  visibleCells,
+  winChance,
+  type StuckOffer,
+} from '../../core/engine';
+import type { FightEvent, MatchState, UnionEvent } from '../../core/types';
+import type { Bot } from '../../ai/types';
+import { createBot } from '../../ai';
+import { sfx, buzz } from '../../audio/sfx';
+import { playerColor } from '../theme';
+import type { BoardRenderer, BoardView } from '../board/renderer';
+import { SPEED_MS, type Settings } from '../../storage';
+
+export type Overlay =
+  | { kind: 'none' }
+  | { kind: 'handover'; next: number }
+  | { kind: 'stuck'; offer: StuckOffer }
+  | { kind: 'confirmEndAttack' }
+  | { kind: 'confirmAuto' }
+  | { kind: 'pause' }
+  | { kind: 'result' };
+
+export interface Hint {
+  text: string;
+  color?: string;
+  id: number;
+}
+
+/** Hooks for online play: actions are routed to the session instead of the local engine. */
+export interface MatchDriver {
+  /** perform a local human attack; returns the fight or a refusal */
+  attack(from: number, to: number): FightEvent | string;
+  endAttack(): UnionEvent | null;
+  addPower(cell: number, amount: number): number;
+  autoPower(): Map<number, number>;
+  finishTurn(): void;
+  concede(slot: number): void;
+  /** true when the local device may act for state.current */
+  canAct(): boolean;
+}
+
+export interface ControllerOptions {
+  state: MatchState;
+  settings: Settings;
+  /** used for name strings */
+  nameOf: (slot: number) => string;
+  driver?: MatchDriver;
+  onSave?: (state: MatchState) => void;
+  onEnd?: (state: MatchState) => void;
+  t: (k: string, p?: Record<string, string | number>) => string;
+}
+
+export class GameController {
+  state: MatchState;
+  settings: Settings;
+  overlay: Overlay = { kind: 'none' };
+  hint: Hint | null = null;
+  /** the cell being long-pressed (for UI feedback) */
+  pressing = -1;
+  hover = -1;
+  thinking = false;
+  private renderer: BoardRenderer | null = null;
+  private bots = new Map<number, Bot>();
+  private listeners = new Set<() => void>();
+  private running = false;
+  private disposed = false;
+  private hintTimer = 0;
+  private hintSeq = 0;
+  private paused = false;
+  private handoverDone = -1;
+  private stuckChecked = -1;
+  private resultShown = false;
+  private driver: MatchDriver;
+  private opts: ControllerOptions;
+
+  constructor(opts: ControllerOptions) {
+    this.opts = opts;
+    this.state = opts.state;
+    this.settings = opts.settings;
+    this.driver = opts.driver ?? this.localDriver();
+    opts.state.settings.players.forEach((p, slot) => {
+      if (p !== 'human' && p !== 'remote') this.bots.set(slot, createBot(p));
+    });
+  }
+
+  private localDriver(): MatchDriver {
+    return {
+      attack: (f, t) => attack(this.state, f, t),
+      endAttack: () => endAttack(this.state),
+      addPower: (c, n) => addPower(this.state, c, n),
+      autoPower: () => autoPower(this.state),
+      finishTurn: () => finishTurn(this.state),
+      concede: (slot) => concede(this.state, slot),
+      canAct: () => isHuman(this.state, this.state.current),
+    };
+  }
+
+  // ------------------------------------------------------------ wiring
+
+  attach(renderer: BoardRenderer) {
+    this.renderer = renderer;
+    this.pushView();
+  }
+
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  private emit() {
+    this.pushView();
+    for (const fn of this.listeners) fn();
+  }
+
+  /** External state replacement (online sync). */
+  replaceState(state: MatchState) {
+    this.state = state;
+    this.emit();
+    this.afterChange();
+  }
+
+  dispose() {
+    this.disposed = true;
+    clearTimeout(this.hintTimer);
+    for (const b of this.bots.values()) b.dispose?.();
+    this.listeners.clear();
+  }
+
+  start() {
+    this.emit();
+    this.afterChange();
+  }
+
+  // ------------------------------------------------------------ derived
+
+  get isLocalTurn(): boolean {
+    return !this.state.ended && this.driver.canAct();
+  }
+
+  get humansCount(): number {
+    return this.state.settings.players.filter((p) => p === 'human').length;
+  }
+
+  /** Viewer for darkness: in hot-seat the current human, otherwise the single human. */
+  get viewer(): number {
+    return this.state.viewer;
+  }
+
+  view(): BoardView {
+    const s = this.state;
+    const visible = visibleCells(s, s.viewer);
+    const local = this.isLocalTurn && this.overlay.kind !== 'handover';
+    const selected = local && s.phase === 'attack' ? s.selected : -1;
+    const targets = new Set<number>(selected >= 0 ? targetsFrom(s, selected) : []);
+    let active: Set<number> | null = null;
+    if (local && s.phase === 'attack' && this.settings.inactiveCells) {
+      active = new Set();
+      s.field.cells.forEach((c, i) => c.owner === s.current && canAttackFrom(s, i) && active!.add(i));
+    }
+    let income: Set<number> | null = null;
+    if (s.settings.duelRules) {
+      income = new Set();
+      for (const p of alivePlayers(s)) for (const i of incomeCells(s, p)) income.add(i);
+    }
+    return {
+      state: s,
+      visible,
+      selected,
+      targets,
+      active,
+      income,
+      colorblind: this.settings.colorblind,
+      lineAlpha: this.settings.cellLines / 100,
+      lowFx: this.settings.lowFx,
+      hover: this.hover,
+    };
+  }
+
+  private pushView() {
+    if (this.renderer) this.renderer.setView(this.view());
+  }
+
+  name(slot: number) {
+    return this.opts.nameOf(slot);
+  }
+
+  // ------------------------------------------------------------ hints
+
+  showHint(text: string, color?: string, ms = 2600) {
+    this.hint = { text, color, id: ++this.hintSeq };
+    clearTimeout(this.hintTimer);
+    this.hintTimer = window.setTimeout(() => {
+      this.hint = null;
+      this.emit();
+    }, ms);
+    this.emit();
+  }
+
+  // ------------------------------------------------------------ human input
+
+  tap(cell: number) {
+    const s = this.state;
+    if (!this.isLocalTurn || this.overlay.kind !== 'none' || this.running) return;
+    const c = s.field.cells[cell];
+    if (!c) return;
+    if (s.phase === 'attack') {
+      if (c.owner === s.current) {
+        s.selected = s.selected === cell && !canAttackFrom(s, cell) ? -1 : cell;
+        if (canAttackFrom(s, cell)) sfx.select();
+        this.emit();
+        return;
+      }
+      if (s.selected < 0) {
+        this.emit();
+        return;
+      }
+      const refusal = checkAttack(s, s.selected, cell);
+      if (refusal === 'greysFirst') {
+        this.showHint(this.opts.t('greysFirst'));
+        buzz(30);
+        return;
+      }
+      if (refusal) {
+        // tapping a non-adjacent foreign cell just clears the selection
+        s.selected = -1;
+        this.emit();
+        return;
+      }
+      const ev = this.driver.attack(s.selected, cell);
+      if (typeof ev !== 'string') this.onFight(ev, true);
+      this.saveAndEmit();
+      this.afterChange();
+    } else {
+      if (c.owner !== s.current) return;
+      const added = this.driver.addPower(cell, 1);
+      if (added) {
+        sfx.power();
+        this.renderer?.floatText(cell, `+${added}`, playerColor(s.current));
+        this.afterPowerAdded();
+      } else {
+        buzz(8);
+      }
+    }
+  }
+
+  longPress(cell: number) {
+    const s = this.state;
+    if (!this.isLocalTurn || this.overlay.kind !== 'none' || this.running) return;
+    const c = s.field.cells[cell];
+    if (!c) return;
+    if (s.phase === 'power') {
+      if (c.owner !== s.current) return;
+      const added = this.driver.addPower(cell, c.maxPower - c.power);
+      if (added) {
+        sfx.fill();
+        buzz(15);
+        this.renderer?.floatText(cell, `+${added}`, playerColor(s.current));
+        this.afterPowerAdded();
+      }
+      return;
+    }
+    // attack phase: show the chance against this cell
+    if (s.selected >= 0 && c.owner !== s.current) this.showChance(s.selected, cell);
+    else if (c.owner === s.current) this.tap(cell);
+  }
+
+  setHover(cell: number) {
+    if (cell === this.hover) return;
+    this.hover = cell;
+    const s = this.state;
+    if (
+      this.settings.showChance &&
+      cell >= 0 &&
+      this.isLocalTurn &&
+      s.phase === 'attack' &&
+      s.selected >= 0 &&
+      targetsFrom(s, s.selected).includes(cell)
+    ) {
+      this.showChance(s.selected, cell, 1600);
+    }
+    this.pushView();
+  }
+
+  private showChance(from: number, to: number, ms = 2200) {
+    const s = this.state;
+    const a = s.field.cells[from].power;
+    const d = s.field.cells[to].power;
+    if (!visibleCells(s)[to]) return;
+    this.showHint(this.opts.t('chance', { a, d, p: Math.round(winChance(a, d) * 100) }), undefined, ms);
+  }
+
+  private afterPowerAdded() {
+    if (this.state.powerLeft <= 0) {
+      this.driver.finishTurn();
+      this.saveAndEmit();
+      this.afterChange();
+    } else {
+      this.saveAndEmit();
+    }
+  }
+
+  /** End-turn button. `force` skips confirmations (long press). */
+  endButton(force = false) {
+    const s = this.state;
+    if (!this.isLocalTurn || this.running) return;
+    if (this.overlay.kind !== 'none' && this.overlay.kind !== 'confirmEndAttack' && this.overlay.kind !== 'confirmAuto') return;
+    if (s.phase === 'attack') {
+      if (!force && this.settings.confirmEnd && anyAttackLeft(s) && this.overlay.kind !== 'confirmEndAttack') {
+        this.overlay = { kind: 'confirmEndAttack' };
+        this.emit();
+        return;
+      }
+      this.overlay = { kind: 'none' };
+      const u = this.driver.endAttack();
+      if (u) this.onUnion(u);
+      sfx.phase();
+      if (this.state.powerLeft === 0) this.driver.finishTurn();
+      this.saveAndEmit();
+      this.afterChange();
+    } else {
+      if (!force && this.settings.confirmEnd && this.overlay.kind !== 'confirmAuto') {
+        this.overlay = { kind: 'confirmAuto' };
+        this.emit();
+        return;
+      }
+      this.overlay = { kind: 'none' };
+      const added = this.driver.autoPower();
+      for (const [cell, n] of added) this.renderer?.floatText(cell, `+${n}`, playerColor(s.current));
+      sfx.fill();
+      this.driver.finishTurn();
+      this.saveAndEmit();
+      this.afterChange();
+    }
+  }
+
+  closeOverlay() {
+    this.overlay = { kind: 'none' };
+    this.emit();
+  }
+
+  dismissHandover() {
+    if (this.overlay.kind !== 'handover') return;
+    this.handoverDone = this.overlay.next;
+    this.overlay = { kind: 'none' };
+    sfx.turn();
+    this.emit();
+    this.afterChange();
+  }
+
+  pause() {
+    if (this.overlay.kind !== 'none' && this.overlay.kind !== 'result') return;
+    this.paused = true;
+    this.overlay = { kind: 'pause' };
+    this.emit();
+  }
+
+  resume() {
+    this.paused = false;
+    this.overlay = this.state.ended && this.resultShown ? { kind: 'result' } : { kind: 'none' };
+    this.emit();
+    this.afterChange();
+  }
+
+  acceptStuck(finish: boolean) {
+    if (this.overlay.kind !== 'stuck') return;
+    const offer = this.overlay.offer;
+    this.overlay = { kind: 'none' };
+    if (finish) finishEarly(this.state, offer);
+    this.saveAndEmit();
+    this.afterChange();
+  }
+
+  concedeMatch() {
+    const slot = this.localHumanSlot();
+    if (slot < 0) return;
+    this.driver.concede(slot);
+    if (!this.state.ended) {
+      // hot-seat / multi-player concede: mark as defeat for humans
+      this.state.ended = { winner: -1, humanWon: false, reason: 'concede', turn: this.state.turn };
+    }
+    this.paused = false;
+    this.overlay = { kind: 'none' };
+    this.saveAndEmit();
+    this.afterChange();
+  }
+
+  localHumanSlot(): number {
+    const s = this.state;
+    if (isHuman(s, s.current)) return s.current;
+    return s.settings.players.findIndex((p) => p === 'human');
+  }
+
+  // ------------------------------------------------------------ events / effects
+
+  private onFight(ev: FightEvent, local: boolean) {
+    const winnerSlot = ev.win ? ev.player : ev.defOwnerBefore;
+    const vis = visibleCells(this.state);
+    const seen = vis[ev.from] || vis[ev.to];
+    if (seen) {
+      this.renderer?.fight(ev.from, ev.to, ev.win, playerColor(winnerSlot));
+      if (ev.win) sfx.capture();
+      else sfx.fail();
+      this.renderer?.ensureVisible(ev.to);
+    }
+    if (local || isHuman(this.state, ev.defOwnerBefore)) buzz(ev.win ? 10 : [10, 40, 10]);
+    if (ev.eliminated !== null) {
+      sfx.eliminated();
+      this.renderer?.ring(ev.to, playerColor(ev.eliminated), true);
+      this.showHint(this.opts.t('eliminated', { name: this.name(ev.eliminated) }), playerColor(ev.eliminated), 3000);
+    }
+  }
+
+  /** Called by the online driver when the opponent's fight arrives. */
+  remoteFight(ev: FightEvent) {
+    this.onFight(ev, false);
+    this.emit();
+  }
+
+  remotePower(cell: number, amount: number, slot: number) {
+    this.renderer?.floatText(cell, `+${amount}`, playerColor(slot));
+    this.emit();
+  }
+
+  private onUnion(u: UnionEvent) {
+    sfx.eliminated();
+    this.showHint(this.opts.t('united', { a: this.name(u.absorbed), b: this.name(u.absorber) }), playerColor(u.absorber), 3500);
+  }
+
+  private saveAndEmit() {
+    this.opts.onSave?.(this.state);
+    this.emit();
+  }
+
+  // ------------------------------------------------------------ flow
+
+  /** Re-evaluate what happens next (bot turn, hand-over, stuck offer, end). */
+  private afterChange() {
+    if (this.disposed) return;
+    const s = this.state;
+    if (s.ended) {
+      if (!this.resultShown) {
+        this.resultShown = true;
+        this.opts.onEnd?.(s);
+        const won = s.ended.humanWon;
+        window.setTimeout(() => {
+          if (this.disposed) return;
+          if (won || this.humansCount > 1) sfx.win();
+          else sfx.lose();
+          if (!this.paused) this.overlay = { kind: 'result' };
+          this.emit();
+        }, 650);
+      }
+      return;
+    }
+    if (this.paused || this.overlay.kind !== 'none') return;
+    const cur = s.current;
+    if (isHuman(s, cur)) {
+      // hot-seat hand-over
+      if (humansAlive(s).length > 1 && this.handoverDone !== cur && s.phase === 'attack' && s.powerLeft === 0) {
+        const others = s.settings.players.filter((p) => p === 'human').length > 1;
+        if (others) {
+          this.overlay = { kind: 'handover', next: cur };
+          this.emit();
+          return;
+        }
+      }
+      if (s.phase === 'attack' && this.stuckChecked !== s.turn * 10 + cur) {
+        this.stuckChecked = s.turn * 10 + cur;
+        const offer = checkStuck(s);
+        if (offer) {
+          this.overlay = { kind: 'stuck', offer };
+          this.emit();
+          return;
+        }
+      }
+      return;
+    }
+    if (this.bots.has(cur)) void this.runBots();
+  }
+
+  private sleep(ms: number) {
+    return new Promise<void>((r) => window.setTimeout(r, ms));
+  }
+
+  private async waitWhilePaused() {
+    while (this.paused && !this.disposed) await this.sleep(120);
+  }
+
+  private async runBots() {
+    if (this.running) return;
+    this.running = true;
+    this.emit();
+    try {
+      while (!this.disposed && !this.state.ended) {
+        await this.waitWhilePaused();
+        const s = this.state;
+        const slot = s.current;
+        const bot = this.bots.get(slot);
+        if (!bot) break;
+        const speed = SPEED_MS[this.settings.speed];
+        const ctx = { speedMs: speed };
+        if (s.phase === 'attack') {
+          this.thinking = true;
+          const mv = await bot.nextAttack(s, ctx);
+          this.thinking = false;
+          if (this.disposed) return;
+          await this.waitWhilePaused();
+          if (mv) {
+            const vis = visibleCells(this.state);
+            const seen = vis[mv.from] || vis[mv.to];
+            if (seen && speed > 0) {
+              this.state.selected = mv.from;
+              this.renderer?.ensureVisible(mv.from);
+              this.emit();
+              await this.sleep(speed * 0.6);
+            }
+            const ev = attack(this.state, mv.from, mv.to);
+            if (typeof ev === 'string') {
+              // illegal move from a bot: end its attack instead of looping
+              console.warn('bot produced illegal attack', mv, ev);
+              this.botEndAttack();
+            } else {
+              this.onFight(ev, false);
+              this.emit();
+              if (seen && speed > 0) await this.sleep(speed);
+            }
+          } else {
+            this.botEndAttack();
+          }
+        } else {
+          const placement = await bot.placePower(s, ctx);
+          if (this.disposed) return;
+          await this.waitWhilePaused();
+          const vis = visibleCells(this.state);
+          for (const [cell, n] of placement) {
+            const added = addPower(this.state, cell, n);
+            if (added && vis[cell]) this.renderer?.floatText(cell, `+${added}`, playerColor(slot));
+          }
+          if (this.state.powerLeft > 0) autoPower(this.state);
+          finishTurn(this.state);
+          this.opts.onSave?.(this.state);
+          this.emit();
+          if (speed > 0 && placement.size) await this.sleep(Math.min(500, speed));
+          if (isHuman(this.state, this.state.current)) break;
+        }
+      }
+    } finally {
+      this.running = false;
+      this.thinking = false;
+    }
+    this.emit();
+    if (isHuman(this.state, this.state.current) && !this.state.ended) sfx.turn();
+    this.afterChange();
+  }
+
+  private botEndAttack() {
+    const u = endAttack(this.state);
+    if (u) this.onUnion(u);
+    this.emit();
+  }
+
+  get busy() {
+    return this.running;
+  }
+
+  get board(): BoardRenderer | null {
+    return this.renderer;
+  }
+}
