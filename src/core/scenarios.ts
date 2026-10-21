@@ -92,6 +92,24 @@ class Board {
     return [...this.cells.values()];
   }
 
+  /** Rotate the whole board by k × 60° (to fit tall phone screens better). */
+  rotate(k: number) {
+    const cells = new Map<string, Slot>();
+    for (const c of this.cells.values()) {
+      const [q, r] = rot([c.q, c.r], k);
+      cells.set(key(q, r), { ...c, q, r });
+    }
+    this.cells = cells;
+    this.walls = this.walls.map(([a, b]) => {
+      const f = (x: string): string => {
+        const [q, r] = x.split(',').map(Number);
+        const [nq, nr] = rot([q, r], k);
+        return key(nq, nr);
+      };
+      return [f(a), f(b)];
+    });
+  }
+
   /** Keep only the part connected to `from` (walls respected). */
   prune(from: Ax) {
     const blocked = new Set(this.walls.flatMap(([a, b]) => [`${a}|${b}`, `${b}|${a}`]));
@@ -193,7 +211,18 @@ export type ScenarioId =
   | 'dam'
   | 'ringmap'
   | 'hill'
-  | 'awakening';
+  | 'awakening'
+  | 'hydra'
+  | 'trojan'
+  | 'thermopylae'
+  | 'minefield'
+  | 'hourglass'
+  | 'pincer'
+  | 'hive'
+  | 'overload'
+  | 'treasury'
+  | 'bridges'
+  | 'spear';
 
 export const SCENARIOS: ScenarioId[] = [
   'siege',
@@ -209,6 +238,17 @@ export const SCENARIOS: ScenarioId[] = [
   'ringmap',
   'hill',
   'awakening',
+  'hydra',
+  'trojan',
+  'thermopylae',
+  'minefield',
+  'hourglass',
+  'pincer',
+  'hive',
+  'overload',
+  'treasury',
+  'bridges',
+  'spear',
 ];
 
 interface Built {
@@ -236,6 +276,17 @@ export const TUNING: Record<ScenarioId, number> = {
   ringmap: 4,
   hill: 6.5,
   awakening: 3.5,
+  hydra: 6,
+  trojan: 5.5,
+  thermopylae: 2.5,
+  minefield: 5,
+  hourglass: 5.5,
+  pincer: 4,
+  hive: 4.5,
+  overload: 1.5,
+  treasury: 4,
+  bridges: 2,
+  spear: 3,
 };
 
 const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
@@ -465,6 +516,243 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     rng.pick(b.all().filter((c) => c.owner === 0)).power = 3;
     for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 5 && c.owner !== 0 && rng.float() < 0.3) b.remove(c.q, c.r);
     b.prune(camp);
+    return { board: b, players: ['human', 'hunter'], size: 'L' };
+  },
+
+  /** The enemy is scattered over six small colonies; you are one block in the middle. Hunt them down. */
+  hydra(rng, k) {
+    const b = new Board();
+    b.disk(5, [0, 0]);
+    for (const c of b.all()) c.max = rollMax(rng, 0.25);
+    for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) <= 1) Object.assign(c, { owner: 0, power: kp(rng, k) });
+    const turn = rng.int(6);
+    for (let i = 0; i < 6; i++) {
+      const at = rot([4, rng.int(2) - 1], i + turn);
+      b.set(at[0], at[1], { owner: 1, power: 5 + rng.int(3) });
+      for (const [dq, dr] of [DIRS[i % 6], DIRS[(i + 1) % 6]]) b.set(at[0] + dq, at[1] + dr, { owner: 1, power: 3 + rng.int(2) });
+    }
+    for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 5 && c.owner < 0 && rng.float() < 0.35) b.remove(c.q, c.r);
+    b.prune([0, 0]);
+    return { board: b, players: ['human', 'hunter'], size: 'L' };
+  },
+
+  /** One mighty cell hidden deep in enemy land, and a tiny base on the edge. */
+  trojan(rng, k) {
+    const b = new Board();
+    b.disk(5, [0, 0]);
+    const turn = rng.int(6);
+    const base = rot([5, -1], turn);
+    const horse = rot([-1, 1], turn);
+    for (const c of b.all()) {
+      c.max = rollMax(rng, 0.25);
+      const d = hexDist([c.q, c.r], base);
+      if (d <= 1) Object.assign(c, { owner: 0, power: kp(rng, k) });
+      // the enemy realm surrounds the horse
+      else if (hexDist([c.q, c.r], horse) <= 2) Object.assign(c, { owner: 1, power: 3 + rng.int(3) });
+    }
+    b.set(horse[0], horse[1], { owner: 0, max: 12, power: 12 });
+    b.prune(base);
+    return { board: b, players: ['human', 'hunter'], size: 'L' };
+  },
+
+  /** You hold a narrow pass; a large army waits on the other side, empty land behind you. */
+  thermopylae(rng, k) {
+    const b = new Board();
+    const west: Ax = [-5, 0];
+    const east: Ax = [5, 0];
+    b.disk(3, west);
+    b.disk(3, east);
+    // the pass: two rows wide
+    for (let q = -2; q <= 2; q++) {
+      b.add(q, 0, { max: 12 });
+      b.add(q, -1 + (q === 2 ? 1 : 0), { max: 12 });
+    }
+    for (const c of b.all()) {
+      if (c.q + c.r / 2 > 2.5) {
+        c.max = rollMax(rng, 0.2);
+        if (rng.float() < 0.85) Object.assign(c, { owner: 1, power: 2 + rng.int(3) });
+      } else if (c.q + c.r / 2 < -2.5) c.max = rollMax(rng, 0.3);
+      else Object.assign(c, { owner: 0, power: kp(rng, k) });
+    }
+    b.prune(west);
+    b.rotate(rng.bool() ? 1 : 2);
+    return { board: b, players: ['human', 'master'], size: 'L' };
+  },
+
+  /** Strong neutral "mines" scattered over open land: choose your path. */
+  minefield(rng, k) {
+    const b = new Board();
+    b.disk(5, [0, 0]);
+    for (const c of b.all()) {
+      c.max = rollMax(rng, 0.3);
+      if (rng.float() < 0.33) c.power = Math.min(c.max, 6 + rng.int(3));
+    }
+    const turn = rng.int(6);
+    const me = rot([5, 0], turn);
+    const foe = rot([5, 0], turn + 3);
+    for (const [who, at] of [
+      [0, me],
+      [1, foe],
+    ] as const) {
+      b.set(at[0], at[1], { owner: who, power: who === 0 ? kp(rng, k) : 5 });
+      const n = rot([4, 0], turn + (who === 0 ? 0 : 3));
+      b.set(n[0], n[1], { owner: who, power: who === 0 ? kp(rng, k) : 5 });
+    }
+    return { board: b, players: ['human', 'master'], size: 'L' };
+  },
+
+  /** Two triangles meeting at a narrow waist guarded by neutral forces. */
+  hourglass(rng, k) {
+    const b = new Board();
+    const a = 4;
+    // upper triangle points down, lower triangle points up; they touch through a short neck
+    for (let q = -8; q <= 8; q++)
+      for (let r = -8; r <= 8; r++) {
+        const s = -q - r;
+        const up: [number, number, number] = [q, r + 5, s - 5];
+        const down: [number, number, number] = [q, r - 5, s + 5];
+        if (-up[0] <= a && -up[1] <= a && -up[2] <= a) b.add(q, r, { max: rollMax(rng, 0.25) });
+        else if (down[0] <= a && down[1] <= a && down[2] <= a) b.add(q, r, { max: rollMax(rng, 0.25) });
+      }
+    b.line([0, -1], [0, 1], { max: 12 });
+    for (const c of b.all()) if (Math.abs(c.r) <= 1 && Math.abs(c.q + c.r / 2) <= 1) c.power = 3;
+    const top = b.all().reduce((m, c) => (c.r < m.r ? c : m));
+    const bottom = b.all().reduce((m, c) => (c.r > m.r ? c : m));
+    Object.assign(top, { owner: 0, power: kp(rng, k), max: 12 });
+    Object.assign(bottom, { owner: 1, power: 7, max: 12 });
+    b.prune([top.q, top.r]);
+    return { board: b, players: ['human', 'hunter'], size: 'L' };
+  },
+
+  /** Your army is split in two; the enemy stands between the halves. */
+  pincer(rng, k) {
+    const b = new Board();
+    for (let r = -4; r <= 4; r++) for (let x = -6; x <= 6; x++) b.add(x - Math.floor(r / 2), r, { max: rollMax(rng, 0.25) });
+    for (const c of b.all()) {
+      const x = c.q + Math.floor(c.r / 2);
+      if (Math.abs(x) <= 1) Object.assign(c, { owner: 1, power: 4 + rng.int(3) });
+      else if (Math.abs(x) >= 5 && rng.float() < 0.7) Object.assign(c, { owner: 0, power: kp(rng, k) });
+    }
+    if (!b.all().some((c) => c.owner === 0)) b.all()[0].owner = 0;
+    return { board: b, players: ['human', 'master'], size: 'L' };
+  },
+
+  /** A perfect maze: walls everywhere except a tree of passages (plus a few loops). */
+  hive(rng, k) {
+    const b = new Board();
+    b.disk(4, [0, 0]);
+    for (const c of b.all()) c.max = rollMax(rng, 0.3);
+    const cells = b.all();
+    const id = (c: Slot) => key(c.q, c.r);
+    const seen = new Set<string>([id(cells[0])]);
+    const open = new Set<string>();
+    const stack = [cells[0]];
+    while (stack.length) {
+      const c = stack[stack.length - 1];
+      const next = rng.shuffle(DIRS.map(([dq, dr]) => b.get(c.q + dq, c.r + dr)).filter((n): n is Slot => !!n && !seen.has(id(n))));
+      if (!next.length) {
+        stack.pop();
+        continue;
+      }
+      const n = next[0];
+      seen.add(id(n));
+      open.add(`${id(c)}|${id(n)}`);
+      open.add(`${id(n)}|${id(c)}`);
+      stack.push(n);
+    }
+    for (const c of cells)
+      for (const [dq, dr] of DIRS.slice(0, 3)) {
+        const n = b.get(c.q + dq, c.r + dr);
+        if (!n || open.has(`${id(c)}|${id(n)}`)) continue;
+        if (rng.float() < 0.18) continue; // a few loops
+        b.wall([c.q, c.r], [n.q, n.r]);
+      }
+    const turn = rng.int(6);
+    const me = rot([4, 0], turn);
+    const foe = rot([4, 0], turn + 3);
+    b.set(me[0], me[1], { owner: 0, power: kp(rng, k) });
+    b.set(foe[0], foe[1], { owner: 1, power: 6 });
+    return { board: b, players: ['human', 'master'], size: 'M' };
+  },
+
+  /** Your cells are full — no power until you spend some. A swarm of weak cells around you. */
+  overload(rng, k) {
+    const b = new Board();
+    b.disk(5, [0, 0]);
+    const turn = rng.int(6);
+    const home = rot([2, 0], turn);
+    const size = Math.max(1, Math.round(k));
+    for (const c of b.all()) {
+      c.max = rollMax(rng, 0.3);
+      const d = hexDist([c.q, c.r], home);
+      if (d < size) Object.assign(c, { owner: 0, power: c.max });
+      else if (d >= size + 1 && rng.float() < 0.6) Object.assign(c, { owner: 1, power: 1 + rng.int(3) });
+    }
+    b.prune(home);
+    return { board: b, players: ['human', 'hunter'], size: 'L' };
+  },
+
+  /** A walled vault full of power in the centre, with a single entrance. */
+  treasury(rng, k) {
+    const b = new Board();
+    b.disk(5, [0, 0]);
+    for (const c of b.all()) {
+      const d = hexDist([c.q, c.r], [0, 0]);
+      c.max = d <= 1 ? 12 : rollMax(rng, 0.25);
+      if (d <= 1) c.power = 10;
+    }
+    const ring = b.all().filter((c) => hexDist([c.q, c.r], [0, 0]) === 1);
+    const door = rng.int(ring.length);
+    ring.forEach((c, i) => {
+      for (const [dq, dr] of DIRS) {
+        const n: Ax = [c.q + dq, c.r + dr];
+        if (hexDist(n, [0, 0]) === 2 && b.get(n[0], n[1]) && i !== door) b.wall([c.q, c.r], n);
+      }
+    });
+    const turn = rng.int(6);
+    [0, 3].forEach((i, owner) => {
+      for (const v of [rot([5, 0], i + turn), rot([5, -1], i + turn)]) b.set(v[0], v[1], { owner, power: owner === 0 ? kp(rng, k) : 5 });
+    });
+    return { board: b, players: ['human', 'master'], size: 'L' };
+  },
+
+  /** Two shores joined by long bridges with neutral forts on them. */
+  bridges(rng, k) {
+    const b = new Board();
+    const west: Ax = [-5, 0];
+    const east: Ax = [5, 0];
+    b.disk(3, west);
+    b.disk(3, east);
+    b.line([-2, -2], [3, -2]);
+    b.line([-3, 2], [2, 2]);
+    for (const c of b.all()) {
+      c.max = rollMax(rng, 0.25);
+      if (Math.abs(c.q + c.r / 2) <= 1.5 && Math.abs(c.r) === 2) Object.assign(c, { max: 12, power: 6 });
+    }
+    const me = rot([-8, 0], 0);
+    const foe = rot([8, 0], 0);
+    for (const [who, at] of [
+      [0, me],
+      [1, foe],
+    ] as const) {
+      for (const c of b.all()) if (hexDist([c.q, c.r], at) <= 1) Object.assign(c, { owner: who, power: who === 0 ? kp(rng, k) : 4 });
+    }
+    b.prune(west);
+    b.rotate(rng.bool() ? 1 : 2);
+    return { board: b, players: ['human', 'hunter'], size: 'L' };
+  },
+
+  /** A long wedge of yours driven deep into enemy land. */
+  spear(rng, k) {
+    const b = new Board();
+    for (let r = -5; r <= 5; r++) for (let x = -4; x <= 4; x++) b.add(x - Math.floor(r / 2), r, { max: rollMax(rng, 0.25) });
+    const col = rng.int(3) - 1;
+    for (const c of b.all()) {
+      const x = c.q + Math.floor(c.r / 2);
+      if (c.r >= 4) Object.assign(c, { owner: 0, power: 2 });
+      else if (Math.abs(x - col) <= (c.r >= 0 ? 1 : 0) && c.r >= -3) Object.assign(c, { owner: 0, power: kp(rng, k) });
+      else if (c.r <= 2 && rng.float() < 0.8) Object.assign(c, { owner: 1, power: 2 + rng.int(3) });
+    }
     return { board: b, players: ['human', 'hunter'], size: 'L' };
   },
 

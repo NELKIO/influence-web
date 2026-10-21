@@ -63,6 +63,17 @@ const SCENARIO_LEVEL: Record<ScenarioId, number> = {
   ringmap: 2,
   hill: 3,
   awakening: 3,
+  hydra: 4,
+  trojan: 4,
+  thermopylae: 4,
+  minefield: 2,
+  hourglass: 4,
+  pincer: 4,
+  hive: 4,
+  overload: 2,
+  treasury: 4,
+  bridges: 3,
+  spear: 4,
 };
 
 export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: ScenarioId };

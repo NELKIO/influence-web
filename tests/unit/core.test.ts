@@ -268,7 +268,7 @@ describe('daily map', () => {
     const kinds: string[] = [];
     const scenarios = new Set<string>();
     // a window that crosses the anchor: past days use the same scheme
-    for (let i = -6; i < 26; i++) {
+    for (let i = -6; i < 52; i++) {
       const d = new Date(2026, 9, 21 + i);
       const id = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const k = dailyKind(id);
@@ -286,8 +286,9 @@ describe('daily map', () => {
         expect(m.settings.players.slice(1)).toContain('master');
       }
     }
-    // strictly alternating, the anchor (i = 0) is a puzzle; 13 puzzle days from it cover all scenarios
+    // strictly alternating, the anchor (i = 0) is a puzzle; one full cycle covers every scenario once
     kinds.forEach((k, j) => expect(k).toBe((j - 6) % 2 === 0 ? 'puzzle' : 'battle'));
-    expect(scenarios.size).toBe(13);
+    const { SCENARIOS } = await import('../../src/core/scenarios');
+    expect(scenarios.size).toBe(SCENARIOS.length);
   });
 });
