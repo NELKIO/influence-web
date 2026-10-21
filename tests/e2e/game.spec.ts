@@ -131,7 +131,10 @@ test('duel training and local duel use duel rules', async ({ page }) => {
   await page.locator('.modal').getByRole('button', { name: /В меню/ }).click();
   await page.getByRole('button', { name: /Дуэли/ }).click();
   await page.getByText('Вдвоём на одном устройстве').click();
-  await expect(page.getByText('Передайте устройство')).toBeVisible();
+  await waitGame(page);
+  // without darkness there is no full-screen hand-over, just a hint
+  await expect(page.getByTestId('handover')).toHaveCount(0);
+  await expect(page.locator('.hint')).toContainText('Ходит: Игрок 1');
   await autoplay(page);
   await expect(page.locator('.result-title')).toBeVisible({ timeout: 10_000 });
   await expectNoErrors(errors);
@@ -187,5 +190,48 @@ test('end-turn button: real taps, confirmation only when attacks remain', async 
   await expect(page.locator('.modal h2')).toContainText('Распределить');
   await page.locator('.modal').getByRole('button', { name: 'Завершить ход' }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__infweb.ctrl.state.turn)).toBeGreaterThanOrEqual(1);
+  await expectNoErrors(errors);
+});
+
+test('hot-seat in darkness: hand-over appears after power is placed by tapping cells', async ({ page }, testInfo) => {
+  const errors = await fresh(page, { confirmEnd: false });
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'infweb.setup',
+      JSON.stringify({ size: 'S', players: ['human', 'human'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false }),
+    ),
+  );
+  await page.reload();
+  await page.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
+  await waitGame(page);
+  const tapAt = async (x: number, y: number) => {
+    if (testInfo.project.name === 'desktop') await page.mouse.click(x, y);
+    else await page.touchscreen.tap(x, y);
+  };
+  // first hand-over: dismiss with a real tap
+  await expect(page.getByTestId('handover')).toBeVisible();
+  await tapAt(200, 400);
+  await expect(page.getByTestId('handover')).toHaveCount(0);
+  // end the attack, then place every power point by tapping own cells
+  await page.locator('.end-btn').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__infweb.ctrl.state.phase)).toBe('power');
+  for (let i = 0; i < 40; i++) {
+    const p = await page.evaluate(() => {
+      const { ctrl, renderer } = (window as any).__infweb;
+      const s = ctrl.state;
+      if (s.phase !== 'power' || s.current !== 0) return null;
+      const cell = s.field.cells.findIndex((c: any) => c.owner === 0 && c.power < c.maxPower);
+      const rect = renderer.canvas.getBoundingClientRect();
+      const [x, y] = renderer.cellScreenPos(cell);
+      return [x + rect.left, y + rect.top];
+    });
+    if (!p) break;
+    await tapAt(p[0], p[1]);
+  }
+  // the hand-over for player 2 must appear and stay until a separate tap
+  await expect(page.getByTestId('handover')).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId('handover')).toBeVisible();
+  await expect(page.getByTestId('handover')).toContainText('Игрок 2');
   await expectNoErrors(errors);
 });

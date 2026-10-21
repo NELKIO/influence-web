@@ -355,18 +355,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
         </Modal>
       )}
 
-      {ov.kind === 'handover' && (
-        <div class="overlay solid" onClick={() => ctrl.dismissHandover()}>
-          <div class="handover">
-            <div class="kicker">{t('handoverTitle')}</div>
-            <PlayerToken slot={ov.next} size={84} shape={settings.colorblind} />
-            <div class="big" style={{ color: playerColor(ov.next) }}>
-              {t('handoverNext', { name: playerName(s.settings, ov.next) })}
-            </div>
-            <div class="muted">{t('handoverTap')}</div>
-          </div>
-        </div>
-      )}
+      {ov.kind === 'handover' && <Handover ctrl={ctrl} next={ov.next} colorblind={settings.colorblind} />}
 
       {ov.kind === 'pause' && askConcede && (
         <Modal onBackdrop={() => setAskConcede(false)}>
@@ -424,6 +413,36 @@ export function GameScreen({ launch }: { launch: Launch }) {
           extra={online?.ResultActions ? <online.ResultActions ctrl={ctrl} /> : null}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Hand-over screen (hot-seat with darkness). It closes only on a tap that starts on the screen itself:
+ * the click that follows the last tap of the previous player must not dismiss it.
+ */
+function Handover({ ctrl, next, colorblind }: { ctrl: GameController; next: number; colorblind: boolean }) {
+  const armed = useRef(false);
+  const s = ctrl.state;
+  return (
+    <div
+      class="overlay solid"
+      data-testid="handover"
+      onPointerDown={() => (armed.current = true)}
+      onClick={() => {
+        if (!armed.current) return;
+        armed.current = false;
+        ctrl.dismissHandover();
+      }}
+    >
+      <div class="handover">
+        <div class="kicker">{t('handoverTitle')}</div>
+        <PlayerToken slot={next} size={84} shape={colorblind} />
+        <div class="big" style={{ color: playerColor(next) }}>
+          {t('handoverNext', { name: playerName(s.settings, next) })}
+        </div>
+        <div class="muted">{t('handoverTap')}</div>
+      </div>
     </div>
   );
 }

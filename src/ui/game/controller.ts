@@ -489,14 +489,17 @@ export class GameController {
     if (this.paused || this.overlay.kind !== 'none') return;
     const cur = s.current;
     if (isHuman(s, cur)) {
-      // hot-seat hand-over
+      // hot-seat: a new human takes over the device
       if (humansAlive(s).length > 1 && this.handoverDone !== cur && s.phase === 'attack' && s.powerLeft === 0) {
-        const others = s.settings.players.filter((p) => p === 'human').length > 1;
-        if (others) {
+        if (s.settings.darkness) {
+          // in darkness the board must stay hidden until the next player is ready
           this.overlay = { kind: 'handover', next: cur };
           this.emit();
           return;
         }
+        this.handoverDone = cur;
+        sfx.turn();
+        this.showHint(this.opts.t('handoverNext', { name: this.name(cur) }), playerColor(cur), 1800);
       }
       if (s.phase === 'attack' && this.stuckChecked !== s.turn * 10 + cur) {
         this.stuckChecked = s.turn * 10 + cur;
