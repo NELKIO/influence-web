@@ -86,10 +86,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
     const r = new BoardRenderer(canvas.current!);
     const measure = () => {
       const el = wrap.current!;
-      r.insets = {
-        top: (topRef.current?.offsetHeight ?? 0) + 6,
-        bottom: (bottomRef.current?.offsetHeight ?? 0) + 2,
-      };
+      // short landscape screens (phones on their side): controls move to a side column
+      const side = el.clientWidth > el.clientHeight && el.clientHeight < 600;
+      el.classList.toggle('side', side);
+      r.insets = side
+        ? { top: (topRef.current?.offsetHeight ?? 0) + 4, bottom: 0, right: (bottomRef.current?.offsetWidth ?? 0) }
+        : { top: (topRef.current?.offsetHeight ?? 0) + 6, bottom: (bottomRef.current?.offsetHeight ?? 0) + 2, right: 0 };
       r.resize(el.clientWidth, el.clientHeight);
       setCanZoom(r.canZoom);
       setZoomed(r.zoomed);

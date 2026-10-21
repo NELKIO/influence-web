@@ -1335,3 +1335,35 @@ input {
 .menu .fan-note {
   margin-top: 0;
 }
+
+/* short landscape: HUD controls in a right-hand column */
+.game.side .hud-top {
+  right: 150px;
+  padding-left: calc(env(safe-area-inset-left, 0px) + 10px);
+}
+
+.game.side .hud-bottom {
+  top: 0;
+  left: auto;
+  width: 150px;
+  padding: calc(var(--safe-top) + 10px) calc(env(safe-area-inset-right, 0px) + 10px) calc(var(--safe-bottom) + 10px) 6px;
+  background: linear-gradient(270deg, rgba(5, 7, 15, 0.96) 70%, rgba(5, 7, 15, 0));
+  display: flex;
+}
+
+.game.side .hud-bottom-inner {
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+}
+
+.game.side .status .text {
+  font-size: 13px;
+}
+
+.game.side .players-strip .pchip span:first-of-type {
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

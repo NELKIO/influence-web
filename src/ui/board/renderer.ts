@@ -71,7 +71,7 @@ function shapePath(ctx: CanvasRenderingContext2D, owner: number, colorblind: boo
       return polyPath(ctx, cx, cy, r * 1.0, 4, Math.PI / 4);
     default:
       ctx.beginPath();
-      ctx.arc(cx, cy, r * 0.9, 0, Math.PI * 2);
+      ctx.arc(cx, cy, Math.max(0.1, r * 0.9), 0, Math.PI * 2);
   }
 }
 
@@ -95,7 +95,7 @@ export class BoardRenderer {
   fitScale = 1;
   camX = 0;
   camY = 0;
-  insets = { top: 0, bottom: 0 };
+  insets = { top: 0, bottom: 0, right: 0 };
   onAnimating: ((busy: boolean) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -147,10 +147,11 @@ export class BoardRenderer {
   }
 
   private computeFit() {
-    const availH = Math.max(50, this.cssH - this.insets.top - this.insets.bottom);
+    const availH = Math.max(60, this.cssH - this.insets.top - this.insets.bottom);
+    const availW = Math.max(60, this.cssW - this.insets.right);
     const w = this.bounds.maxX - this.bounds.minX;
     const h = this.bounds.maxY - this.bounds.minY;
-    this.fitScale = Math.min((this.cssW - 16) / w, (availH - 12) / h);
+    this.fitScale = Math.max(1, Math.min((availW - 16) / w, (availH - 12) / h));
   }
 
   get maxScale() {
@@ -174,7 +175,7 @@ export class BoardRenderer {
   }
 
   private screenCentre(): [number, number] {
-    return [this.cssW / 2, this.insets.top + (this.cssH - this.insets.top - this.insets.bottom) / 2];
+    return [(this.cssW - this.insets.right) / 2, this.insets.top + (this.cssH - this.insets.top - this.insets.bottom) / 2];
   }
 
   worldToScreen(wx: number, wy: number): [number, number] {
@@ -231,7 +232,7 @@ export class BoardRenderer {
     let dx = 0;
     let dy = 0;
     if (x < m) dx = m - x;
-    if (x > this.cssW - m) dx = this.cssW - m - x;
+    if (x > this.cssW - this.insets.right - m) dx = this.cssW - this.insets.right - m - x;
     if (y < top) dy = top - y;
     if (y > bottom) dy = bottom - y;
     if (dx || dy) this.pan(dx, dy);
@@ -514,7 +515,7 @@ export class BoardRenderer {
         if (t >= 0.38) {
           const k = (t - 0.38) / 0.62;
           ctx.beginPath();
-          ctx.arc(bx, by, s * (0.6 + k * 1.1), 0, Math.PI * 2);
+          ctx.arc(bx, by, Math.max(0.1, s * (0.6 + k * 1.1)), 0, Math.PI * 2);
           ctx.strokeStyle = withAlpha(e.color, (1 - k) * 0.9);
           ctx.lineWidth = Math.max(2, s * 0.18 * (1 - k) + 1);
           ctx.stroke();
@@ -544,7 +545,7 @@ export class BoardRenderer {
         if (!this.centers[e.cell]) continue;
         const [x, y] = P(e.cell);
         ctx.beginPath();
-        ctx.arc(x, y, s * (0.8 + t * (e.big ? 3 : 0.9)), 0, Math.PI * 2);
+        ctx.arc(x, y, Math.max(0.1, s * (0.8 + t * (e.big ? 3 : 0.9))), 0, Math.PI * 2);
         ctx.strokeStyle = withAlpha(e.color, 1 - t);
         ctx.lineWidth = Math.max(2, s * 0.15 * (1 - t) + 1);
         ctx.stroke();
