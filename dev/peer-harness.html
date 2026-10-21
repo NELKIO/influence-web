@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Peer Harness</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { background: #05070f; color: #cfe; font: 14px/1.4 ui-monospace, monospace; margin: 0; padding: 16px; }
+      button, input { font: inherit; margin: 2px; }
+      #log { white-space: pre-wrap; max-height: 60vh; overflow: auto; border: 1px solid #234; padding: 8px; }
+    </style>
+  </head>
+  <body>
+    <h3>Influence Web — PeerJS duel harness (dev only)</h3>
+    <p>
+      <button id="host">Host</button>
+      <input id="code" placeholder="CODE" size="6" />
+      <button id="join">Join</button>
+      <button id="resume">Resume</button>
+      <button id="turn">Play scripted turn</button>
+      <button id="leave">Leave</button>
+    </p>
+    <div id="info"></div>
+    <div id="log"></div>
+    <script type="module" src="./peer-harness.ts"></script>
+  </body>
+</html>
