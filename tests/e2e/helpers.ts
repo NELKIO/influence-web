@@ -6,6 +6,10 @@ export async function fresh(page: Page, settings: Record<string, unknown> = {}) 
   page.on('console', (m) => {
     if (m.type() === 'error' && !/favicon|Failed to load resource/.test(m.text())) errors.push(m.text());
   });
+  // never reach the real site-counter service from tests
+  await page.route('**/abacus.jasoncameron.dev/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"value":0}' }),
+  );
   await page.addInitScript((s) => {
     if (!sessionStorage.getItem('init')) {
       localStorage.clear();

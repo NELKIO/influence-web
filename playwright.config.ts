@@ -9,6 +9,8 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173/influence-web/',
     trace: 'retain-on-failure',
+    // the offline service worker would let requests bypass page.route() in WebKit
+    serviceWorkers: 'block',
   },
   webServer: {
     command: 'npx vite build && npx vite preview --port 4173 --strictPort --host 127.0.0.1',

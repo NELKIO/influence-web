@@ -8,6 +8,7 @@ import { playerName } from '../names';
 import { playerColor } from '../theme';
 import { alivePlayers, anyAttackLeft, cellCount, scoreOf } from '../../core/engine';
 import type { MatchState } from '../../core/types';
+import { countGame } from '../../sitestats';
 import { addRecord, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
 import { createMatch } from '../../core/engine';
 import { createDailyMatch } from '../../daily';
@@ -629,6 +630,7 @@ function ResultEmblem({ color, win }: { color: string; win: boolean }) {
 }
 
 function recordResult(s: MatchState) {
+  countGame();
   const humans = s.settings.players.filter((p) => p === 'human').length;
   const me = s.settings.players.findIndex((p) => p === 'human');
   const win = humans > 1 ? false : !!s.ended?.humanWon;

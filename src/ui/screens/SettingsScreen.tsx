@@ -1,6 +1,8 @@
 import { t } from '../../i18n';
 import { navigate, updateSettings, useSettings } from '../store';
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
+import { readCounters, type SiteCounter } from '../../sitestats';
+import { getLang } from '../../i18n';
 import { Modal, Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { resetAllData, type GameSpeed, type Palette } from '../../storage';
 import { PALETTES } from '../theme';
@@ -110,6 +112,7 @@ export function SettingsScreen() {
             </div>
           </Modal>
         )}
+        <SiteStats />
         <div class="fan-note">
           {t('version', { v: __APP_VERSION__ })}
           <br />
@@ -117,5 +120,41 @@ export function SettingsScreen() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Anonymous counters of the whole site (all players together). */
+function SiteStats() {
+  const [values, setValues] = useState<Record<SiteCounter, number | null> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void readCounters().then((v) => alive && setValues(v));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const fmt = (n: number | null | undefined) =>
+    values === null ? '…' : n === null || n === undefined ? '—' : n.toLocaleString(getLang() === 'ru' ? 'ru-RU' : 'en-US');
+  return (
+    <>
+      <div class="section-title">{t('siteStats')}</div>
+      <div class="big-stats" data-testid="site-stats">
+        <div>
+          <b>{fmt(values?.opens)}</b>
+          <span>{t('siteOpens')}</span>
+        </div>
+        <div>
+          <b>{fmt(values?.visitors)}</b>
+          <span>{t('siteVisitors')}</span>
+        </div>
+        <div>
+          <b>{fmt(values?.games)}</b>
+          <span>{t('siteGames')}</span>
+        </div>
+      </div>
+      <p class="muted" style={{ fontSize: 12, lineHeight: 1.5, margin: '0 4px', textAlign: 'center' }}>
+        {t('siteStatsNote')}
+      </p>
+    </>
   );
 }

@@ -278,3 +278,23 @@ test('camera stays put while selecting cells, hovering and confirming', async ({
   }
   await expectNoErrors(errors);
 });
+
+test('settings show anonymous site counters; nothing is counted outside the real site', async ({ page }) => {
+  const hits: string[] = [];
+  const errors = await fresh(page);
+  // registered after the default stub, so this handler wins
+  await page.route('**/abacus.jasoncameron.dev/**', (r) => {
+    const url = r.request().url();
+    if (url.includes('/hit/')) hits.push(url);
+    const value = url.endsWith('/opens') ? 12345 : url.endsWith('/visitors') ? 678 : 9012;
+    return r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ value }) });
+  });
+  await page.reload();
+  await page.locator('.menu-links button', { hasText: 'Настройки' }).click();
+  const block = page.getByTestId('site-stats');
+  await expect(block).toContainText(/12\s?345/);
+  await expect(block).toContainText('678');
+  await expect(block).toContainText(/9\s?012/);
+  expect(hits).toEqual([]);
+  await expectNoErrors(errors);
+});
