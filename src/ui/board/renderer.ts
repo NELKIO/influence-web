@@ -549,8 +549,6 @@ export class BoardRenderer {
         ctx.strokeStyle = withAlpha(col, 0.6 + 0.35 * k);
         ctx.stroke();
         ctx.setLineDash([]);
-        const p = v.chances?.get(i);
-        if (p !== undefined && s > 11) this.badge(ctx, x, y - r - Math.max(4, s * 0.12), `${p}%`, p >= 75 ? col : p >= 50 ? '#c9ced8' : '#8d939e', s);
       }
     }
 
@@ -647,6 +645,16 @@ export class BoardRenderer {
         ctx.strokeStyle = withAlpha(e.color, 1 - t);
         ctx.lineWidth = Math.max(1.5, s * 0.1 * (1 - t) + 1);
         ctx.stroke();
+      }
+    }
+    // win-chance badges go on top of every outline and effect
+    if (v.chances && s > 11) {
+      const col = playerColor(v.state.current);
+      for (const [i, p] of v.chances) {
+        if (!this.centers[i]) continue;
+        const [x, y] = P(i);
+        const r = cellRadius(cells[i].maxPower) * s;
+        this.badge(ctx, x, y - r - Math.max(4, s * 0.12), `${p}%`, p >= 75 ? col : p >= 50 ? '#c9ced8' : '#8d939e', s);
       }
     }
     this.onAnimating?.(this.busy);
