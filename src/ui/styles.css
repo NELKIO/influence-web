@@ -1924,3 +1924,28 @@ button {
     background: color-mix(in srgb, var(--c) 30%, rgba(21, 23, 28, 0.95));
   }
 }
+
+.difficulty {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 10px;
+}
+
+.difficulty i {
+  width: 14px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+.difficulty i.on {
+  background: var(--bad);
+}
+
+.difficulty span {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}

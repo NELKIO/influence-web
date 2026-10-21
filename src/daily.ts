@@ -32,8 +32,42 @@ const LINEUPS: PlayerType[][] = [
   ['master', 'hunter'],
 ];
 
+/** From this date on the daily map is a hard puzzle against Masters only (earlier days keep their maps). */
+export const HARD_DAILY_FROM = '2026-10-22';
+
+interface DayPlan {
+  masters: number;
+  sizes: FieldSize[];
+  /** chance of darkness */
+  dark: number;
+  unions: boolean;
+  /** difficulty shown to the player, 1..5 */
+  level: number;
+}
+
+/** Monday..Sunday: the week gets harder towards Sunday. */
+const WEEK: DayPlan[] = [
+  { masters: 1, sizes: ['M', 'L'], dark: 0, unions: false, level: 2 },
+  { masters: 1, sizes: ['L'], dark: 0.25, unions: false, level: 3 },
+  { masters: 2, sizes: ['L'], dark: 0, unions: false, level: 3 },
+  { masters: 1, sizes: ['XL'], dark: 0.5, unions: false, level: 4 },
+  { masters: 2, sizes: ['L', 'XL'], dark: 0.35, unions: false, level: 4 },
+  { masters: 3, sizes: ['XL'], dark: 0.2, unions: true, level: 5 },
+  { masters: 4, sizes: ['XL'], dark: 0, unions: true, level: 5 },
+];
+
+function weekPlan(id: string): DayPlan {
+  return WEEK[(parseDay(id).getDay() + 6) % 7];
+}
+
+/** Difficulty of the daily map, 1..5. */
+export function dailyLevel(id: string): number {
+  return id >= HARD_DAILY_FROM ? weekPlan(id).level : 2;
+}
+
 /** Deterministic settings of the daily map: same for every player on that date. */
 export function dailySettings(id: string): MatchSettings {
+  if (id >= HARD_DAILY_FROM) return hardDailySettings(id);
   const rng = new Rng(hashString(`daily:${id}`));
   const sizes: FieldSize[] = ['M', 'M', 'L', 'L', 'L', 'XL'];
   const size = rng.pick(sizes);
@@ -47,6 +81,25 @@ export function dailySettings(id: string): MatchSettings {
     symmetry: rng.float() < 0.6,
     crowded: false,
     unions: rng.float() < 0.15 && lineup.length >= 3,
+    shuffle: false,
+    duelRules: false,
+    dailyId: id,
+  };
+}
+
+function hardDailySettings(id: string): MatchSettings {
+  const rng = new Rng(hashString(`daily-hard:${id}`));
+  const plan = weekPlan(id);
+  const masters: PlayerType[] = new Array(plan.masters).fill('master');
+  return {
+    kind: 'daily',
+    size: rng.pick(plan.sizes),
+    players: ['human', ...masters],
+    darkness: rng.float() < plan.dark,
+    // always a fair map: mirrored for 2 and 4 players, rotational for 3 and 5
+    symmetry: true,
+    crowded: false,
+    unions: plan.unions,
     shuffle: false,
     duelRules: false,
     dailyId: id,

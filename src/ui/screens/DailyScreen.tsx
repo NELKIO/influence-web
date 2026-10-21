@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { getLang, t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
-import { createDailyMatch, dailySettings, dayId, dayNumber, parseDay } from '../../daily';
+import { createDailyMatch, dailyLevel, dailySettings, dayId, dayNumber, parseDay } from '../../daily';
 import { loadDaily, loadSavedGame } from '../../storage';
 import { IconBack, IconArrow } from '../components/icons';
 import { MiniMap } from '../components/MiniMap';
@@ -77,6 +77,12 @@ export function DailyScreen() {
                 {sel === today ? t('today') : parseDay(sel).toLocaleDateString(locale, { day: 'numeric', month: 'long' })}
               </div>
               <div class="daily-num">#{dayNumber(sel)}</div>
+              <div class="difficulty" title={t('dailyLevel')}>
+                {[1, 2, 3, 4, 5].map((k) => (
+                  <i key={k} class={k <= dailyLevel(sel) ? 'on' : ''} />
+                ))}
+                <span>{t(`dailyLevel${dailyLevel(sel)}` as 'dailyLevel1')}</span>
+              </div>
               <div class="muted" style={{ fontSize: 13, fontWeight: 600, marginTop: 8 }}>
                 {t(`size${cfg.size}` as 'sizeM')} · {SIZES[cfg.size].w}×{SIZES[cfg.size].h}
               </div>

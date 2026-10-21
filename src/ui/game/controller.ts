@@ -534,7 +534,7 @@ export class GameController {
         const slot = s.current;
         const bot = this.bots.get(slot);
         if (!bot) break;
-        const speed = SPEED_MS[this.settings.speed];
+        const speed = this.botSpeed();
         const ctx = { speedMs: speed };
         if (s.phase === 'attack') {
           this.thinking = true;
@@ -598,6 +598,16 @@ export class GameController {
     this.emit();
     if (isHuman(this.state, this.state.current) && !this.state.ended) sfx.turn();
     this.afterChange();
+  }
+
+  /**
+   * Delay between bot actions. With several bots moving in a row their pace is shortened so a round
+   * against many opponents does not drag on (two bots: full speed, four: about half).
+   */
+  private botSpeed(): number {
+    const base = SPEED_MS[this.settings.speed];
+    const bots = alivePlayers(this.state).filter((p) => this.bots.has(p)).length;
+    return Math.round(base * Math.min(1, 2 / Math.max(1, bots)));
   }
 
   private botEndAttack() {

@@ -257,3 +257,28 @@ describe('darkness', () => {
     expect([...visibleCells(m)]).toEqual([1, 1, 0, 0]);
   });
 });
+
+describe('daily map', () => {
+  it('is the same for everyone on a date and hard from the cut-over on', async () => {
+    const { createDailyMatch, dailySettings, dailyLevel, HARD_DAILY_FROM } = await import('../../src/daily');
+    const a = createDailyMatch('2026-11-03');
+    const b = createDailyMatch('2026-11-03');
+    expect(JSON.stringify(a.field)).toBe(JSON.stringify(b.field));
+    // the day before the cut-over keeps its old map
+    expect(dailySettings('2026-10-21').players).toEqual(['human', 'master']);
+    expect(dailySettings('2026-10-21').size).toBe('XL');
+    // a whole week of hard maps: only Masters, symmetric, harder towards Sunday
+    const levels: number[] = [];
+    for (let d = 26; d <= 32; d++) {
+      const id = `2026-10-${String(d).padStart(2, '0')}`.replace('2026-10-32', '2026-11-01');
+      const s = dailySettings(id);
+      expect(id >= HARD_DAILY_FROM).toBe(true);
+      expect(s.players[0]).toBe('human');
+      expect(s.players.slice(1).every((p) => p === 'master')).toBe(true);
+      expect(s.symmetry).toBe(true);
+      levels.push(dailyLevel(id));
+      createDailyMatch(id); // generates without errors
+    }
+    expect(levels[0]).toBeLessThan(levels[6]);
+  });
+});
