@@ -3,8 +3,10 @@ import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { loadSetup, saveGame, saveSetup, setupToSettings, type SetupPrefs } from '../../storage';
 import { createMatch } from '../../core/engine';
-import { randomSeed } from '../../core/rng';
-import { SIZE_ORDER, type PlayerType } from '../../core/types';
+import { hashString, randomSeed } from '../../core/rng';
+import { buildScenario } from '../../core/scenarios';
+import { createPuzzleMatch, SCENARIOS, type ScenarioId } from '../../daily';
+import { SIZE_ORDER, type MatchState, type PlayerType } from '../../core/types';
 import { SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconPlus, IconRestart, IconX, PlayerToken } from '../components/icons';
 import { MiniMap } from '../components/MiniMap';
@@ -37,6 +39,18 @@ export function SetupScreen() {
     sfx.click();
     // same seed as the preview -> the same map and start cells, with the current modes
     const st = createMatch(setupToSettings(prefs), { seed: mapSeed });
+    saveGame(null);
+    navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+  };
+
+  const samples = useMemo(
+    () => Object.fromEntries(SCENARIOS.map((id) => [id, buildScenario(id, hashString(`sample:${id}`))])) as Record<ScenarioId, MatchState>,
+    [],
+  );
+
+  const playPuzzle = (id: ScenarioId) => {
+    sfx.click();
+    const st = createPuzzleMatch(id);
     saveGame(null);
     navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
   };
@@ -100,6 +114,19 @@ export function SetupScreen() {
                   <IconRestart width={16} height={16} /> {t('reroll')}
                 </button>
               </div>
+            </div>
+
+            <div class="section-title">{t('puzzles')}</div>
+            <p class="lead" style={{ marginTop: -4 }}>
+              {t('puzzlesDesc')}
+            </p>
+            <div class="puzzle-grid">
+              {SCENARIOS.map((id) => (
+                <button key={id} class="puzzle-card" onClick={() => playPuzzle(id)}>
+                  <MiniMap field={samples[id].field} maxHeight={84} />
+                  <span>{t(`puzzle_${id}` as 'puzzle_siege')}</span>
+                </button>
+              ))}
             </div>
           </>
         )}

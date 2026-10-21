@@ -21,23 +21,12 @@ export function dayNumber(id: string): number {
   return Math.round((parseDay(id).getTime() - epoch) / 86400000) + 1;
 }
 
-const LINEUPS: PlayerType[][] = [
-  ['hunter', 'dummy'],
-  ['hunter', 'hunter'],
-  ['master'],
-  ['hunter', 'freak', 'dummy'],
-  ['master', 'dummy'],
-  ['hunter', 'hunter', 'dummy'],
-  ['master', 'freak', 'hunter'],
-  ['hunter', 'dummy', 'dummy', 'freak'],
-  ['master', 'hunter'],
-];
 
 /**
- * From this date on, days alternate between a puzzle scenario (an unusual map with preset forces)
- * and a battle against Masters. Earlier days keep their original maps.
+ * Days alternate between a puzzle scenario (an unusual map with preset forces) and a battle against
+ * Masters. This date is a puzzle day; the alternation runs both ways from it.
  */
-export const HARD_DAILY_FROM = '2026-10-22';
+export const PUZZLE_ANCHOR = '2026-10-21';
 
 interface BattlePlan {
   bots: PlayerType[];
@@ -76,18 +65,18 @@ const SCENARIO_LEVEL: Record<ScenarioId, number> = {
   awakening: 3,
 };
 
-export type DailyKind = { kind: 'legacy' } | { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: ScenarioId };
+export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: ScenarioId };
 
 /** What the map of a given day is. */
 export function dailyKind(id: string): DailyKind {
-  if (id < HARD_DAILY_FROM) return { kind: 'legacy' };
-  const n = dayNumber(id) - dayNumber(HARD_DAILY_FROM);
-  if (n % 2 === 0) {
+  const n = dayNumber(id) - dayNumber(PUZZLE_ANCHOR);
+  if (((n % 2) + 2) % 2 === 0) {
     // puzzles go through all scenarios in a shuffled order before any repeats
-    const i = n / 2;
-    const cycle = Math.floor(i / SCENARIOS.length);
+    const i = Math.floor(n / 2);
+    const len = SCENARIOS.length;
+    const cycle = Math.floor(i / len);
     const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...SCENARIOS]);
-    return { kind: 'puzzle', scenario: order[i % SCENARIOS.length] };
+    return { kind: 'puzzle', scenario: order[((i % len) + len) % len] };
   }
   return { kind: 'battle', plan: BATTLES[(parseDay(id).getDay() + 6) % 7] };
 }
@@ -96,8 +85,7 @@ export function dailyKind(id: string): DailyKind {
 export function dailyLevel(id: string): number {
   const k = dailyKind(id);
   if (k.kind === 'puzzle') return SCENARIO_LEVEL[k.scenario];
-  if (k.kind === 'battle') return k.plan.level;
-  return 2;
+  return k.plan.level;
 }
 
 function battleSettings(id: string, plan: BattlePlan): MatchSettings {
@@ -121,29 +109,7 @@ function battleSettings(id: string, plan: BattlePlan): MatchSettings {
 export function dailySettings(id: string): MatchSettings {
   const k = dailyKind(id);
   if (k.kind === 'battle') return battleSettings(id, k.plan);
-  if (k.kind === 'puzzle') return createDailyMatch(id).settings;
-  return legacySettings(id);
-}
-
-/** Deterministic settings of the daily map: same for every player on that date. */
-function legacySettings(id: string): MatchSettings {
-  const rng = new Rng(hashString(`daily:${id}`));
-  const sizes: FieldSize[] = ['M', 'M', 'L', 'L', 'L', 'XL'];
-  const size = rng.pick(sizes);
-  let lineup = rng.pick(LINEUPS);
-  if (size === 'M' && lineup.length > 3) lineup = lineup.slice(0, 3);
-  return {
-    kind: 'daily',
-    size,
-    players: ['human', ...lineup],
-    darkness: rng.float() < 0.25,
-    symmetry: rng.float() < 0.6,
-    crowded: false,
-    unions: rng.float() < 0.15 && lineup.length >= 3,
-    shuffle: false,
-    duelRules: false,
-    dailyId: id,
-  };
+  return createDailyMatch(id).settings;
 }
 
 export function dailySeed(id: string): number {

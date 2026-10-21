@@ -178,7 +178,7 @@ export interface DailyResult {
 }
 
 export function loadDaily(): Record<string, DailyResult> {
-  return read<Record<string, DailyResult>>('daily', {});
+  return read<Record<string, DailyResult>>('daily2', {});
 }
 
 export function updateDaily(id: string, win: boolean, rounds: number) {
@@ -187,10 +187,11 @@ export function updateDaily(id: string, win: boolean, rounds: number) {
   r.attempts++;
   if (win && (r.bestRounds === null || rounds < r.bestRounds)) r.bestRounds = rounds;
   all[id] = r;
-  write('daily', all);
+  write('daily2', all);
 }
 
 export function resetAllData() {
   write('stats', null);
   write('daily', null);
+  write('daily2', null);
 }

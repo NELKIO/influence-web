@@ -2,10 +2,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { getLang, t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
-import { createDailyMatch, createPuzzleMatch, dailyLevel, dayId, dayNumber, parseDay, SCENARIOS, type ScenarioId } from '../../daily';
-import { buildScenario } from '../../core/scenarios';
-import { hashString } from '../../core/rng';
-import type { MatchState } from '../../core/types';
+import { createDailyMatch, dailyLevel, dayId, dayNumber, parseDay, type ScenarioId } from '../../daily';
 import { loadDaily, loadSavedGame } from '../../storage';
 import { IconBack, IconArrow } from '../components/icons';
 import { MiniMap } from '../components/MiniMap';
@@ -40,17 +37,6 @@ export function DailyScreen() {
     return n;
   }, [results, today]);
   const solved = Object.values(results).filter((r) => r.bestRounds !== null).length;
-
-  const samples = useMemo(() => Object.fromEntries(SCENARIOS.map((id) => [id, buildScenario(id, hashString(`sample:${id}`))])) as Record<ScenarioId, MatchState>, []);
-
-  const playPuzzle = (id: ScenarioId) => {
-    unlockAudio();
-    sfx.click();
-    guard(() => {
-      const st = createPuzzleMatch(id);
-      navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
-    });
-  };
 
   const play = () => {
     unlockAudio();
@@ -140,19 +126,6 @@ export function DailyScreen() {
             <b style={{ color: 'var(--good)' }}>{solved}</b>
             <span>{t('dailySolvedLabel')}</span>
           </div>
-        </div>
-
-        <div class="section-title">{t('puzzles')}</div>
-        <p class="lead" style={{ marginTop: -4 }}>
-          {t('puzzlesDesc')}
-        </p>
-        <div class="puzzle-grid">
-          {SCENARIOS.map((id) => (
-            <button key={id} class="puzzle-card" onClick={() => playPuzzle(id)}>
-              <MiniMap field={samples[id].field} maxHeight={84} />
-              <span>{t(`puzzle_${id}` as 'puzzle_siege')}</span>
-            </button>
-          ))}
         </div>
 
         <div class="section-title">{t('dailyArchive')}</div>

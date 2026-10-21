@@ -92,7 +92,7 @@ export const en: typeof ru = {
   puzzle_awakening: 'Awakening',
   puzzleDesc_awakening: 'Your lands are vast but asleep: almost every cell has zero power. Next door, an army is ready.',
   puzzles: 'Scenarios',
-  puzzlesDesc: 'Unusual positions from the daily maps. A new variation every time.',
+  puzzlesDesc: 'Ready-made unusual positions, like the daily maps. A new variation every time.',
   dailyPuzzle: 'Scenario',
   dailyBattle: 'Battle',
   continue: 'Continue',
@@ -203,7 +203,7 @@ export const en: typeof ru = {
   playerN: 'Player {n}',
 
   dailyTitle: 'Map of the day',
-  dailyDesc: 'One map for everyone against Masters. It gets harder every day up to the Sunday final. Retry as often as you like — your best result counts.',
+  dailyDesc: 'One map for everyone: every other day an unusual scenario or a battle against Masters. Retry as often as you like — your best result counts.',
   dailyBest: 'Best: won in {n} rounds',
   dailyNoWin: 'Not won yet',
   dailyAttempts: 'Attempts: {n}',

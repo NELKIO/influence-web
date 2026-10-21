@@ -259,20 +259,18 @@ describe('darkness', () => {
 });
 
 describe('daily map', () => {
-  it('is the same for everyone, alternates puzzles and battles from the cut-over on', async () => {
-    const { createDailyMatch, dailySettings, dailyKind, dailyLevel, HARD_DAILY_FROM } = await import('../../src/daily');
+  it('is the same for everyone and alternates puzzles and battles around the anchor day', async () => {
+    const { createDailyMatch, dailyKind, dailyLevel, PUZZLE_ANCHOR } = await import('../../src/daily');
     const a = createDailyMatch('2026-11-03');
     const b = createDailyMatch('2026-11-03');
     expect(JSON.stringify(a.field)).toBe(JSON.stringify(b.field));
-    // the day before the cut-over keeps its old map
-    expect(dailySettings('2026-10-21').players).toEqual(['human', 'master']);
-    expect(dailySettings('2026-10-21').size).toBe('XL');
+    expect(dailyKind(PUZZLE_ANCHOR).kind).toBe('puzzle');
     const kinds: string[] = [];
     const scenarios = new Set<string>();
-    for (let i = 0; i < 26; i++) {
-      const d = new Date(2026, 9, 22 + i);
+    // a window that crosses the anchor: past days use the same scheme
+    for (let i = -6; i < 26; i++) {
+      const d = new Date(2026, 9, 21 + i);
       const id = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      expect(id >= HARD_DAILY_FROM).toBe(true);
       const k = dailyKind(id);
       kinds.push(k.kind);
       const m = createDailyMatch(id);
@@ -281,15 +279,15 @@ describe('daily map', () => {
       expect(dailyLevel(id)).toBeGreaterThanOrEqual(2);
       expect(dailyLevel(id)).toBeLessThanOrEqual(4);
       if (k.kind === 'puzzle') {
-        scenarios.add(k.scenario);
+        if (i >= 0) scenarios.add(k.scenario);
         expect(m.settings.puzzle).toBe(k.scenario);
       } else {
         expect(m.settings.symmetry).toBe(true);
         expect(m.settings.players.slice(1)).toContain('master');
       }
     }
-    // strictly alternating, and 13 puzzle days cover all 13 scenarios without repeats
-    kinds.forEach((k, i) => expect(k).toBe(i % 2 === 0 ? 'puzzle' : 'battle'));
+    // strictly alternating, the anchor (i = 0) is a puzzle; 13 puzzle days from it cover all scenarios
+    kinds.forEach((k, j) => expect(k).toBe((j - 6) % 2 === 0 ? 'puzzle' : 'battle'));
     expect(scenarios.size).toBe(13);
   });
 });
