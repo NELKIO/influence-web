@@ -397,7 +397,7 @@ export const TUNING: Record<ScenarioId, number> = {
   siege: 10,
   cauldron: 2,
   bastion: 8.5,
-  archipelago: 8.5,
+  archipelago: 5.5,
   labyrinth: 5.5,
   spiral: 7,
   twofronts: 3,
@@ -420,7 +420,7 @@ export const TUNING: Record<ScenarioId, number> = {
   spear: 4.5,
   landing: 5,
   laststand: 6,
-  olympus: 5.5,
+  olympus: 4.5,
   titans: 8,
 };
 
@@ -488,7 +488,8 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
       for (const s of b.all())
         if (hexDist([s.q, s.r], c) <= 1) Object.assign(s, { owner, power: owner === 0 ? kp(rng, k) : 3 + rng.int(2) });
     });
-    for (const s of b.all()) if (hexDist([s.q, s.r], [0, 0]) <= 1) Object.assign(s, { max: 12, power: 4 });
+    // the rich island: roomy cells (up to 12) that nobody holds yet, free for whoever gets there first
+    for (const s of b.all()) if (hexDist([s.q, s.r], [0, 0]) <= 1) Object.assign(s, { max: 12, power: 0 });
     b.prune([0, 0]);
     return b;
   },
@@ -993,8 +994,8 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
     b.disk(6);
     for (const c of b.all()) {
       const d = hexDist([c.q, c.r], [0, 0]);
+      // the mountain is rich: roomy cells (up to 12), empty and free for whoever climbs first
       c.max = d <= 2 ? 12 : rollMax(rng, 0.2);
-      if (d <= 2) c.power = d === 0 ? 8 : d === 1 ? 6 : 3 + rng.int(2);
     }
     // the mountain wall: a path up in each of the six directions
     for (const c of b.all()) {
