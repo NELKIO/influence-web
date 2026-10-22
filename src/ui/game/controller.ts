@@ -63,6 +63,8 @@ export interface ControllerOptions {
   driver?: MatchDriver;
   onSave?: (state: MatchState) => void;
   onEnd?: (state: MatchState) => void;
+  /** online battle guest: every move comes from the host, bots are not run locally */
+  remoteDriven?: boolean;
   t: (k: string, p?: Record<string, string | number>) => string;
 }
 
@@ -96,9 +98,12 @@ export class GameController {
     this.state = opts.state;
     this.settings = opts.settings;
     this.driver = opts.driver ?? this.localDriver();
-    opts.state.settings.players.forEach((p, slot) => {
-      if (p !== 'human' && p !== 'remote') this.bots.set(slot, createBot(p));
-    });
+    // a guest of an online battle only replays what the host sends: no bots run here
+    if (!opts.remoteDriven) {
+      opts.state.settings.players.forEach((p, slot) => {
+        if (p !== 'human' && p !== 'remote' && p !== 'online') this.bots.set(slot, createBot(p));
+      });
+    }
   }
 
   private localDriver(): MatchDriver {

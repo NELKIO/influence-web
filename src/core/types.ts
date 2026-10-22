@@ -23,9 +23,12 @@ export const SIZES: Record<FieldSize, SizeInfo> = {
 
 export const SIZE_ORDER: FieldSize[] = ['S', 'M', 'L', 'XL', 'XXL'];
 
-export type BotType = 'freak' | 'dummy' | 'hunter' | 'master' | 'duelHunter';
-/** 'remote' = opponent on the other end of an online duel */
-export type PlayerType = 'human' | 'remote' | BotType;
+export type BotType = 'freak' | 'dummy' | 'hunter' | 'master' | 'god' | 'duelHunter';
+/**
+ * 'remote' = another person playing on a different device (as seen by a guest),
+ * 'online' = a seat taken by a guest in a battle room (as seen by the host).
+ */
+export type PlayerType = 'human' | 'remote' | 'online' | BotType;
 
 /** Used for unions ordering (lower tries first). */
 export const DIFFICULTY: Record<PlayerType, number> = {
@@ -34,11 +37,13 @@ export const DIFFICULTY: Record<PlayerType, number> = {
   hunter: 6,
   duelHunter: 6,
   master: 9,
+  god: 9.5,
   human: 10,
   remote: 10,
+  online: 10,
 };
 
-export const MAX_PLAYERS = 5;
+export const MAX_PLAYERS = 6;
 export const NEUTRAL = -1;
 
 export interface Cell {

@@ -3,7 +3,7 @@ import { BoardRenderer } from '../board/renderer';
 import { addPower, attack, autoPower, createMatch, endAttack, finishTurn, visibleCells } from '../../core/engine';
 import { createBot } from '../../ai';
 import type { Bot } from '../../ai/types';
-import type { MatchState, PlayerType } from '../../core/types';
+import type { BotType, MatchState, PlayerType } from '../../core/types';
 import { playerColor } from '../theme';
 import { getSettings } from '../store';
 
@@ -55,7 +55,7 @@ export function AmbientBoard() {
         duelRules: false,
       });
       bots.forEach((b) => b.dispose?.());
-      bots = players.map((p) => createBot(p as Exclude<PlayerType, 'human' | 'remote'>));
+      bots = players.map((p) => createBot(p as BotType));
       view();
     };
 

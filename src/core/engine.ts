@@ -71,7 +71,13 @@ function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
   if (n === 2) chosen = rng.bool() ? [P[0], P[1]] : [P[2], P[3]];
   else if (n === 3) chosen = [...(rng.bool() ? [P[0], P[1]] : [P[2], P[3]]), P[4]];
   else if (n === 4) chosen = [P[0], P[1], P[2], P[3]];
-  else chosen = [...P];
+  else if (n === 5) {
+    // six-ray maps leave one ray free (chosen at random); other maps have exactly five starts
+    if (P.length >= 6) {
+      const free = rng.int(6);
+      chosen = P.slice(0, 6).filter((_, i) => i !== free);
+    } else chosen = P.slice(0, 5);
+  } else chosen = P.slice(0, 6);
   rng.shuffle(chosen);
   chosen.forEach((ci, slot) => {
     const c = field.cells[ci];
@@ -90,6 +96,8 @@ function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
 // ---------------------------------------------------------------- queries
 
 export const isHumanType = (t: string) => t === 'human';
+/** A seat played by a person on any device (this one, a duel opponent or a battle-room guest). */
+export const isPersonType = (t: string) => t === 'human' || t === 'remote' || t === 'online';
 
 export function isHuman(state: MatchState, slot: number): boolean {
   return isHumanType(state.settings.players[slot]);
@@ -247,7 +255,7 @@ export function attack(state: MatchState, from: number, to: number, forced?: { w
     if (bucket === 25 || bucket === 50 || bucket === 75) {
       const k = bucket === 25 ? 0 : bucket === 50 ? 1 : 2;
       const limit = bucket === 25 ? 3 : 2;
-      const humanAttacker = isHuman(state, A.owner) || state.settings.players[A.owner] === 'remote';
+      const humanAttacker = isPersonType(state.settings.players[A.owner]);
       if (win !== humanAttacker) state.luck[k]++;
       else state.luck[k] = 0;
       if ((state.luck[k] === limit && rng.bool()) || state.luck[k] > limit) {
@@ -386,7 +394,7 @@ export function finishTurn(state: MatchState): void {
 
 function maybeUnite(state: MatchState): UnionEvent | null {
   const s = state.settings;
-  const humans = s.players.filter(isHumanType).length;
+  const humans = s.players.filter(isPersonType).length;
   if (s.duelRules || humans !== 1 || state.turn < 3) return null;
   const cur = state.current;
   const alive = alivePlayers(state);
@@ -399,7 +407,7 @@ function maybeUnite(state: MatchState): UnionEvent | null {
   for (const p of alive) if (share(p) > share(leader)) leader = p;
   const candidates = [...alive].sort((a, b) => DIFFICULTY[s.players[a]] - DIFFICULTY[s.players[b]]);
   for (const cand of candidates) {
-    if (cand === cur || isHuman(state, cand)) continue;
+    if (cand === cur || isPersonType(s.players[cand])) continue;
     if (leader === cur || leader === cand) continue;
     if (share(leader) < 0.25) continue;
     if (!(share(cand) < share(leader))) continue;
@@ -417,7 +425,7 @@ function maybeUnite(state: MatchState): UnionEvent | null {
 export function checkEnd(state: MatchState): void {
   if (state.ended) return;
   const alive = alivePlayers(state);
-  const humans = alive.filter((p) => isHuman(state, p) || state.settings.players[p] === 'remote');
+  const humans = alive.filter((p) => isPersonType(state.settings.players[p]));
   if (alive.length <= 1) {
     const w = alive[0] ?? -1;
     state.ended = { winner: w, humanWon: w >= 0 && isHuman(state, w), reason: 'elimination', turn: state.turn };

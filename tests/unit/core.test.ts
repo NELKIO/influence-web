@@ -72,8 +72,9 @@ describe('field generation', () => {
         for (let seed = 1; seed <= 8; seed++) {
           const f = generateField({ size, symmetry }, new Rng(seed * 7919));
           expect(isConnected(f)).toBe(true);
-          expect(f.starts).toHaveLength(5);
-          expect(new Set(f.starts).size).toBe(5);
+          // random maps carry six starts (up to six players), mirrored maps five
+          expect(f.starts).toHaveLength(symmetry ? 5 : 6);
+          expect(new Set(f.starts).size).toBe(f.starts.length);
           for (const s of f.starts) for (const t of f.starts) if (s !== t) expect(f.adj[s]).not.toContain(t);
           for (const c of f.cells) {
             expect([8, 12]).toContain(c.maxPower);
@@ -290,5 +291,31 @@ describe('daily map', () => {
     kinds.forEach((k, j) => expect(k).toBe((((j - 6) % 4) + 4) % 4 === 3 ? 'battle' : 'puzzle'));
     const { SCENARIOS } = await import('../../src/core/scenarios');
     expect(scenarios.size).toBe(SCENARIOS.length);
+  });
+});
+
+describe('six players', () => {
+  const six = ['human', 'hunter', 'dummy', 'master', 'hunter', 'dummy'] as const;
+  for (const symmetry of [false, true]) {
+    for (const size of SIZE_ORDER) {
+      it(`${size} symmetry=${symmetry}: six distinct, non-adjacent starts with power 2`, () => {
+        for (let seed = 1; seed <= 6; seed++) {
+          const m = createMatch({ ...base, size, symmetry, players: [...six] }, { seed: seed * 977 });
+          const owned = m.field.cells.map((c, i) => [c, i] as const).filter(([c]) => c.owner >= 0);
+          expect(owned.map(([c]) => c.owner).sort()).toEqual([0, 1, 2, 3, 4, 5]);
+          expect(owned.every(([c]) => c.power === 2)).toBe(true);
+          for (const [, a] of owned) for (const [, b] of owned) if (a !== b) expect(m.field.adj[a]).not.toContain(b);
+          if (symmetry) expect(m.field.layout).toBeDefined();
+        }
+      });
+    }
+  }
+  it('five players on a six-ray map leave exactly one ray free', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const m = createMatch({ ...base, size: 'L', symmetry: true, players: ['human', 'hunter', 'dummy', 'master', 'hunter'] }, { seed });
+      expect(m.field.starts).toHaveLength(6);
+      const startOwners = m.field.starts.map((i) => m.field.cells[i].owner);
+      expect(startOwners.filter((o) => o < 0)).toHaveLength(1);
+    }
   });
 });

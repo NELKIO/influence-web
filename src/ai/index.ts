@@ -25,6 +25,9 @@ export function createBot(type: BotType, opts: CreateBotOptions = {}): Bot {
       return new DuelHunterBot(opts.seed);
     case 'master':
       return new MasterBot({ seed: opts.seed, ...opts.master });
+    case 'god':
+      // placeholder until the dedicated GOD bot lands
+      return new MasterBot({ seed: opts.seed, ...opts.master });
   }
 }
 

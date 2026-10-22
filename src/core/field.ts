@@ -188,7 +188,7 @@ function nonAdjacent(adj: number[][], chosen: number[], c: number): boolean {
 
 function randomStarts(adj: number[][], n: number, rng: Rng): number[] | null {
   const out: number[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     const options: number[] = [];
     for (let c = 0; c < n; c++) if (nonAdjacent(adj, out, c)) options.push(c);
     if (!options.length) return null;
@@ -247,7 +247,7 @@ export interface GenerateOptions {
 /** Generate a connected map with 5 start positions. Deterministic for a given rng state. */
 export function generateField(opts: GenerateOptions, rng: Rng): Field {
   if (opts.symmetry && opts.players === 3) return generateRotational(opts.size, 3, rng, opts.layout);
-  if (opts.symmetry && opts.players === 5) return generateRotational(opts.size, 6, rng, opts.layout);
+  if (opts.symmetry && (opts.players === 5 || opts.players === 6)) return generateRotational(opts.size, 6, rng, opts.layout);
   const info = SIZES[opts.size];
   let fallback: Field | null = null;
   for (let attempt = 0; attempt < 60; attempt++) {
@@ -620,10 +620,8 @@ export function generateRotational(size: FieldSize, k: 3 | 6, rng: Rng, layout?:
   const st = startOrbit.map((c) => index.get(cubeKey(c))!);
   // engine placement: 3 players use [P0,P1]|[P2,P3] + P4; 5 players use P0..P4
   let starts: number[];
+  // 3 players use [P0,P1]|[P2,P3] + P4; on six-ray maps all six rays are starts (5 players leave one free)
   if (k === 3) starts = [st[0], st[1], st[0], st[1], st[2]];
-  else {
-    const free = rng.int(6);
-    starts = st.filter((_, i) => i !== free);
-  }
+  else starts = st;
   return { size, w, h, cells, adj, walls: [], starts, layout: family };
 }
