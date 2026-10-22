@@ -110,10 +110,10 @@ describe('scenarios as battle presets', () => {
   });
 
   it('the map of the day rotates through every scenario, played as the setup recommends it', () => {
-    // puzzle days from the anchor on: one full cycle covers each scenario exactly once
+    // from the switch to all scenarios on, one stretch of puzzle days covers each scenario
     const seen: string[] = [];
     for (let i = 0; seen.length < SCENARIOS.length; i++) {
-      const id = dayId(new Date(2026, 9, 21 + i));
+      const id = dayId(new Date(2026, 9, 23 + i));
       const k = dailyKind(id);
       if (k.kind !== 'puzzle') continue;
       seen.push(k.scenario);
@@ -124,19 +124,30 @@ describe('scenarios as battle presets', () => {
       expect(JSON.stringify(m.field)).toBe(JSON.stringify(buildScenario(k.scenario, dailySeed(id)).field));
     }
     expect(new Set(seen).size).toBe(SCENARIOS.length);
-    // the schedule (counted both ways from the anchor)
+    // past days keep the scenario people played (the classic rotation); the switch brings a new one
     const days: Record<string, string> = {
-      '2026-09-01': 'overload',
-      '2026-10-01': 'archipelago',
-      '2026-10-21': 'awakening',
-      '2026-10-22': 'spear',
-      '2026-10-23': 'thermopylae',
+      '2026-09-01': 'archipelago',
+      '2026-10-01': 'hydra',
+      '2026-10-21': 'hydra',
+      '2026-10-22': 'thermopylae',
+      '2026-10-23': 'olympus',
       '2026-10-24': 'battle',
-      '2026-11-15': 'ringmap',
+      '2026-11-15': 'hill',
     };
     for (const [day, id] of Object.entries(days)) {
       const k = dailyKind(day);
       expect(k.kind === 'puzzle' ? k.scenario : 'battle').toBe(id);
+    }
+  });
+
+  it('a scenario of the day does not come back within eight puzzle days, also across the switch and cycles', () => {
+    const recent: string[] = [];
+    for (let d = 0; d < 3 * 365; d++) {
+      const id = dayId(new Date(2026, 9, 10 + d));
+      const k = dailyKind(id);
+      if (k.kind !== 'puzzle') continue;
+      if (id >= '2026-10-23') expect(recent.slice(-8), id).not.toContain(k.scenario);
+      recent.push(k.scenario);
     }
   });
 

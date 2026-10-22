@@ -303,7 +303,7 @@ function rot(a: Ax, k: number): Ax {
 // ---------------------------------------------------------------- scenarios
 
 /** The first scenarios: duels and three-player fights. */
-const CLASSIC_SCENARIOS = [
+export const CLASSIC_SCENARIOS = [
   'siege',
   'cauldron',
   'bastion',

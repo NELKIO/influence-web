@@ -262,6 +262,8 @@ test('night drop hot-seat: each person keeps their own explored land, the hand-o
 });
 
 test('map of the day: a night drop day shows no map, old results and the streak stay', async ({ page }) => {
+  // the browser lives on October 27th, 2026: the night drop of the 26th is in the past
+  await page.clock.install({ time: new Date(2026, 9, 27, 12) });
   const errors = await fresh(page);
   const today = await page.evaluate(() => {
     const d = new Date();
@@ -270,18 +272,17 @@ test('map of the day: a night drop day shows no map, old results and the streak 
     // results stored before the schedule changed stay the results of their dates
     localStorage.setItem(
       'infweb.daily2',
-      JSON.stringify({ [id(d)]: { attempts: 2, bestRounds: 9 }, [id(y)]: { attempts: 1, bestRounds: 14 }, '2026-09-16': { attempts: 3, bestRounds: 12 } }),
+      JSON.stringify({ [id(d)]: { attempts: 2, bestRounds: 9 }, [id(y)]: { attempts: 1, bestRounds: 14 }, '2026-10-26': { attempts: 3, bestRounds: 12 } }),
     );
     return id(d);
   });
-  test.skip(today < '2026-10-01' || today >= '2026-11-01', 'the calendar steps assume October 2026');
+  expect(today).toBe('2026-10-27');
   await page.reload();
   await page.locator('.mode-card', { hasText: 'Карта дня' }).click();
   await expect(page.getByText('Лучший результат: победа за 9 р.')).toBeVisible();
   await expect(page.locator('.big-stats b').first()).toHaveText('2');
-  // September 16th, 2026 is a night drop
-  await page.locator('.card .icon-btn').first().click();
-  await page.locator('.calendar button', { hasText: /^16$/ }).click();
+  // October 26th, 2026 is a night drop
+  await page.locator('.calendar button', { hasText: /^26$/ }).click();
   await expect(page.locator('.puzzle-brief')).toContainText('Десант во тьме');
   await expect(page.locator('[data-unknown-map]')).toHaveCount(1);
   await expect(page.getByText('Неизведанная карта')).toBeVisible();

@@ -1,5 +1,5 @@
 import { Rng, hashString } from './core/rng';
-import { buildScenario, SCENARIO_META, SCENARIOS, type ScenarioId } from './core/scenarios';
+import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, SCENARIOS, type ScenarioId } from './core/scenarios';
 import { createMatch } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -50,18 +50,52 @@ const BATTLES: BattlePlan[] = [
 
 export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: ScenarioId };
 
+/**
+ * The rotation grew from the 24 classic scenarios to all of them on this day. Earlier days keep the
+ * scenario they had (people played them); from this day on every scenario takes part.
+ */
+export const ROTATION_SWITCH = '2026-10-23';
+/** a scenario does not come back within this many puzzle days (also across the switch and between cycles) */
+const NO_REPEAT = 8;
+
+/** Index among puzzle days counted from the anchor (battle days are skipped, so there are no gaps). */
+function puzzleIndex(n: number): number {
+  return n - Math.floor((n + 1) / 4);
+}
+
+/** The classic rotation: each cycle is the 24 scenarios in a shuffled order. */
+function classicPuzzle(i: number): ScenarioId {
+  const len = CLASSIC_SCENARIOS.length;
+  const cycle = Math.floor(i / len);
+  const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...CLASSIC_SCENARIOS]);
+  return order[((i % len) + len) % len];
+}
+
+const switchIndex = puzzleIndex(dayNumber(ROTATION_SWITCH) - dayNumber(PUZZLE_ANCHOR));
+/** puzzle scenarios from the switch on, generated cycle by cycle on demand */
+const sequence: ScenarioId[] = [];
+
+function currentPuzzle(j: number): ScenarioId {
+  for (let cycle = sequence.length / SCENARIOS.length; sequence.length <= j; cycle++) {
+    const order = new Rng(hashString(`puzzle-cycle-all:${cycle}`)).shuffle([...SCENARIOS]);
+    // whatever was played in the last few puzzle days goes to the back of this cycle
+    const recent = new Set<ScenarioId>();
+    for (let k = 1; k <= NO_REPEAT; k++) {
+      const at = sequence.length - k;
+      recent.add(at >= 0 ? sequence[at] : classicPuzzle(switchIndex + at));
+    }
+    sequence.push(...order.filter((id) => !recent.has(id)), ...order.filter((id) => recent.has(id)));
+  }
+  return sequence[j];
+}
+
 /** What the map of a given day is. */
 export function dailyKind(id: string): DailyKind {
   const n = dayNumber(id) - dayNumber(PUZZLE_ANCHOR);
   // three puzzle days, then a battle: battles fall on n ≡ 3 (mod 4)
   if (((n % 4) + 4) % 4 !== 3) {
-    // index among puzzle days only, so the scenario sequence has no gaps
-    const i = n - Math.floor((n + 1) / 4);
-    const len = SCENARIOS.length;
-    const cycle = Math.floor(i / len);
-    // all scenarios in a shuffled order before any repeats
-    const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...SCENARIOS]);
-    return { kind: 'puzzle', scenario: order[((i % len) + len) % len] };
+    const i = puzzleIndex(n);
+    return { kind: 'puzzle', scenario: i < switchIndex ? classicPuzzle(i) : currentPuzzle(i - switchIndex) };
   }
   return { kind: 'battle', plan: BATTLES[(parseDay(id).getDay() + 6) % 7] };
 }
