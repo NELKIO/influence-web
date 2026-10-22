@@ -25,9 +25,11 @@ Each seat is modelled by its own type. Hunter, Duel Hunter, Dummy and Freak are 
 Master is modelled by its expert policy with threat minimums, and people and other GODs by GOD's base
 heuristics. A cheap model of Master turned out to be far too weak: it loses to Hunter, while real
 Master beats Hunter 100%. Every reply-aware search built on that model lost games. The fix in duels
-is an **emulator**: every emulated opponent attack is chosen by a small UCT search (32 iterations)
-with Master's own objective, and its placements by threat minimums plus attack stacks. That emulator
-alone beats a third of Master's games.
+is an **emulator**: every emulated opponent attack is chosen by a UCT search with Master's own
+objective, and its placements by threat minimums plus attack stacks. The search runs 128 iterations
+per move in real time and 32 in fixed-budget mode. At 32 iterations the emulator alone beats a third
+of Master-1000's games. It has to be about as strong as the opponent it models: against real-time
+Master, going from 32 to 128 iterations raised the paired score from 65.0% to 73.3%.
 
 ## Search
 
