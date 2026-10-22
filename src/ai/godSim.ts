@@ -236,6 +236,8 @@ export class Sim {
   /** Dummy's remembered scan index per slot */
   readonly dummyIdx: Int16Array;
   rng: FastRng;
+  /** nominal dice without the streak corrector (how Master believes fights work); not copied */
+  nominal = false;
 
   constructor(t: Topo, rng: FastRng) {
     this.t = t;
@@ -314,6 +316,7 @@ export class Sim {
     if (forced !== undefined) win = forced;
     else if (p >= 1) win = true;
     else if (p <= 0) win = false;
+    else if (this.nominal) win = this.rng.next() < p;
     else {
       win = this.rng.next() < p;
       const k = p < 0.4 ? 0 : p < 0.6 ? 1 : 2;
@@ -1242,4 +1245,72 @@ export function phaseFeatures(sim: Sim, me: number, f: Float64Array): void {
   f[17] = strongest / n;
   f[18] = Math.log((gm + 1) / (go + 1));
   f[19] = oppExposed / n;
+}
+
+// ------------------------------------------------------------------ Master-like placement model
+
+/**
+ * A model of Master's placement search: threat minimums, then the best of "fill one of the K best attack
+ * stacks + the usual rest" by R expert rollouts (Master's expert attack policy for everybody, nominal dice
+ * as Master believes, the others placing by threat minimums + stacks) to the end of the player's next
+ * attack phase, valued by Master's clamped ratio. Places `left` points for `slot` on `sim`.
+ */
+export function searchPlace(sim: Sim, slot: number, left: number, w: StackWeights, P: GodParams, K: number, R: number, rng: FastRng): void {
+  const T = sim.t;
+  const base = sim.clone();
+  base.rng = rng;
+  const l0 = threatMinimums(base, slot, left, 0);
+  const plain = (s: Sim, l: number) => {
+    l = stackPlace(s, slot, l, l, 0, w);
+    smartyPlace(s, slot, l);
+  };
+  if (l0 <= 0) {
+    sim.copyFrom(base);
+    return;
+  }
+  const order = stackOrder(base, slot, w).slice(0, K);
+  const cands: Sim[] = [];
+  {
+    const s = base.clone();
+    plain(s, l0);
+    cands.push(s);
+  }
+  for (let j = 1; j < order.length; j++) {
+    const s = base.clone();
+    const c = order[j];
+    const v = Math.min(l0, T.cap[c] - s.power[c]);
+    s.power[c] += v;
+    plain(s, l0 - v);
+    cands.push(s);
+  }
+  if (cands.length === 1) {
+    sim.copyFrom(cands[0]);
+    return;
+  }
+  const PM: GodParams = { ...P, clampMap: true, evalDuelStray: 0.5 };
+  const sums = new Float64Array(cands.length);
+  const scratch = sim.clone();
+  scratch.nominal = true;
+  const slots = T.slots;
+  for (let r = 0; r < R; r++) {
+    const seed = rng.u32();
+    for (let c = 0; c < cands.length; c++) {
+      scratch.copyFrom(cands[c]);
+      scratch.rng = new FastRng(seed);
+      for (let k = 1; k < slots; k++) {
+        const q = (slot + k) % slots;
+        if (scratch.cnt[q] <= 0) continue;
+        playAttacks(scratch, q, P, PK_MASTER);
+        if (scratch.cnt[slot] === 0) break;
+        let l = threatMinimums(scratch, q, scratch.income(q), 0);
+        l = stackPlace(scratch, q, l, l, 0, w);
+        smartyPlace(scratch, q, l);
+      }
+      if (scratch.cnt[slot] > 0) playAttacks(scratch, slot, P, PK_MASTER);
+      sums[c] += evalPhase(scratch, slot, PM);
+    }
+  }
+  let best = 0;
+  for (let c = 1; c < cands.length; c++) if (sums[c] > sums[best]) best = c;
+  sim.copyFrom(cands[best]);
 }

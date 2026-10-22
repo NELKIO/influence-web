@@ -39,7 +39,9 @@ export interface TreeOptions {
    * hidden)) mapped by x/(1+x), computed from incrementally tracked totals, and rollouts are Master's
    * expert policy over a maintained list of source cells. Same values as evalPhase + masterAttack.
    */
-  fast?: { pCell: number; qPow: number; hidden: number };
+  fast?: { pCell: number; qPow: number; hidden: number; clamp?: boolean };
+  /** search with nominal dice (no streak corrector): a model of Master's beliefs */
+  nominal?: boolean;
 }
 
 export type LeafEval = (sim: Sim) => number;
@@ -68,6 +70,7 @@ export class AttackTree {
       this.z2[i] = r.u32();
     }
     this.scratch = new Sim(t, new FastRng(1));
+    this.scratch.nominal = !!opts.nominal;
     this.srcBuf = new Int32Array(t.n + 8);
     this.bestV = new Float64Array(t.n);
     this.bestM = new Int32Array(t.n).fill(-1);
@@ -93,6 +96,10 @@ export class AttackTree {
     const den = f.qPow * (this.ep + f.hidden);
     if (den <= 0) return 1;
     const x = (f.pCell * b.cnt[this.me]) / den;
+    if (f.clamp) {
+      const v = (x - 0.3) / 2.7;
+      return v < 0 ? 0 : v > 1 ? 1 : v;
+    }
     return x / (1 + x);
   }
 
@@ -444,6 +451,11 @@ export class AttackTree {
       ns = this.srcN;
     }
     return this.value(b);
+  }
+
+  /** visits of the node of this position (0 when the table does not have it) */
+  visits(root: Sim, rootLast: number): number {
+    return this.table.get(this.hash(root, rootLast))?.count ?? 0;
   }
 
   /** Final choice at the root: lower confidence bound; unexplored moves lose. */
