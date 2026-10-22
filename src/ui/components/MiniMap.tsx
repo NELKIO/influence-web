@@ -32,6 +32,28 @@ export function MiniMap({ field, starts: startCells = [], maxHeight = 200 }: { f
           />
         );
       })}
+      {/* walls: a short bar across the gap between two cells, like on the board */}
+      {field.walls.map(([i, j], k) => {
+        const [ax, ay] = pts[i];
+        const [bx, by] = pts[j];
+        const len = Math.hypot(bx - ax, by - ay) || 1;
+        const nx = (-(by - ay) / len) * 0.5;
+        const ny = ((bx - ax) / len) * 0.5;
+        const mx = (ax + bx) / 2;
+        const my = (ay + by) / 2;
+        return (
+          <line
+            key={`w${k}`}
+            x1={mx - nx}
+            y1={my - ny}
+            x2={mx + nx}
+            y2={my + ny}
+            stroke="rgba(200,206,216,0.8)"
+            stroke-width="0.16"
+            stroke-linecap="round"
+          />
+        );
+      })}
     </svg>
   );
 }
