@@ -137,9 +137,9 @@ describe('relay battle rooms', () => {
   it('host + 2 guests play over the relay only; the brokers see only ciphertext', async () => {
     const net = new FakeMqttNet();
     const { host, guests } = await relayRoom(net, ['human', 'online', 'online']);
-    expect(host.roster[1].link).toBe('relay');
-    expect(guests[0].link).toBe('relay');
-    expect(guests[0].roster.find((r) => r.you)!.link).toBe('relay');
+    // link kinds arrive by events on each side; wait for them rather than assume their order
+    await until(() => host.roster[1].link === 'relay', 8000, 'host sees the relay link');
+    await until(() => guests[0].link === 'relay' && guests[0].roster.find((r) => r.you)!.link === 'relay', 8000, 'guest on the relay');
     const resyncs: string[] = [];
     for (const g of guests) g.on('resync', (r) => resyncs.push(r));
     host.start();
@@ -339,7 +339,7 @@ describe('composite fallback', () => {
     expect(a.t.fellBackBecause).toMatch(/not open/);
     expect(b.g.link).toBe('direct');
     expect(net.connectedOf('G2')).toEqual([]);
-    expect(host.roster[1].link).toBe(a.g.seat === 1 ? 'relay' : 'direct');
+    await until(() => host.roster[1].link === (a.g.seat === 1 ? 'relay' : 'direct'), 8000, 'host roster link');
     host.start();
     await until(() => [a.g, b.g].every((g) => g.status === 'playing'));
     await playBattle(host, [a.g, b.g], 6);
@@ -365,7 +365,7 @@ describe('composite fallback', () => {
     hub.disconnect('G2');
     await until(() => b.g.link === 'relay' && b.g.connected, 8000, 'G2 on the relay');
     await until(() => b.g.seq === host.seq);
-    expect(host.roster[b.g.seat].link).toBe('relay');
+    await until(() => host.roster[b.g.seat].link === 'relay', 8000, 'host sees G2 on the relay');
     await playBattle(host, [a.g, b.g], 4);
     host.close();
   });
