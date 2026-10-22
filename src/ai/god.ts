@@ -6,10 +6,14 @@
  *    edges (src/ai/godTree.ts). The dice include the engine's streak corrector, its counters sampled from
  *    GOD's belief at every iteration, so a "75%" fight is valued at its real ~53% between bots (Master
  *    believes 75%). Leaves: evalPhase (generalised Master ratio 2·cells / enemy power). The tree is kept
- *    for the whole turn and reused after each real outcome. Placement: threat minimums against every
- *    opponent stack's reach (Master §7.5), then the best attack stack filled to capacity by a key tuned
- *    against Master by self-play (own power, grey/weak neighbours, room for a chain within two steps),
- *    rest on the border.
+ *    for the whole turn, reused after each real outcome and searched further while the UI animates.
+ *    Best response to the opponent: Master-like play is emulated by small UCT searches with Master's
+ *    own objective (one per opponent move) plus threat-minimum placements. The placement is chosen among
+ *    "threat minimums (Master §7.5, per opponent) + fill cell X + rest" candidates for the best
+ *    attack-stack cells (key tuned against Master: own power, grey / weak neighbours, room for a chain
+ *    within two steps) by rollouts through the emulated reply and GOD's next attack phase; the first
+ *    attack of every turn is re-scored the same way among the tree's favourite moves. Candidates are
+ *    compared with common random numbers and successive halving.
  *  - Three or more players alive: attacks and placements are chosen by a whole-turn search
  *    (src/ai/godGame.ts): GOD's attacks and canonical placements are tree nodes; every opponent plays its
  *    turn with a model of its own type (Hunter / Duel Hunter / Dummy / Freak exactly, Master by its
