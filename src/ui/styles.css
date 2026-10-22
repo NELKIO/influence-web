@@ -2001,6 +2001,154 @@ button {
   }
 }
 
+.puzzle-card.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+.puzzle-card .meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.puzzle-card .meta svg + svg {
+  margin-left: 4px;
+}
+
+/* the scenario chosen in the battle setup */
+.scenario-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--hair));
+}
+
+.scenario-pick svg[aria-hidden] {
+  margin: 2px 0 6px;
+}
+
+.scenario-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.scenario-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.scenario-head .kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.scenario-head .name {
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 3px;
+}
+
+.scenario-clear {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--hair);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.scenario-clear:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.scenario-pick .desc {
+  margin-top: -4px;
+  font-size: 14px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  background: var(--bg-2);
+  border: 1px solid var(--hair);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chip.dark {
+  color: #b9c2ff;
+  background: #0b0d1c;
+  border-color: rgba(150, 160, 255, 0.18);
+}
+
+/* settings a scenario fixes */
+.locked-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 4px -2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.locked-note svg {
+  flex: none;
+  color: var(--dim);
+}
+
+.toggle:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* the opponent a scenario was designed for */
+.type-pick button.rec {
+  position: relative;
+}
+
+.type-pick button.rec::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+}
+
 /* seat types in two rows: the four bots by strength, then the two kinds of people */
 .type-pick {
   grid-template-columns: repeat(4, 1fr);

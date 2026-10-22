@@ -33,6 +33,8 @@ export const IconZoomOut = (p: P) => base([<circle cx="11" cy="11" r="7" />, <pa
 export const IconCheck = (p: P) => base(<path d="M5 12.5l4.5 4.5L19 7.5" />, p);
 export const IconArrow = (p: P) => base(<path d="M5 12h14M13 6l6 6-6 6" />, p);
 export const IconX = (p: P) => base(<path d="M6 6l12 12M18 6L6 18" />, p);
+export const IconMoon = (p: P) => base(<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" />, p);
+export const IconLock = (p: P) => base([<rect x="5" y="11" width="14" height="10" rx="2.5" />, <path d="M8 11V8a4 4 0 0 1 8 0v3" />], p);
 export const IconPlus = (p: P) => base(<path d="M12 5v14M5 12h14" />, p);
 export const IconRestart = (p: P) => base([<path d="M3 12a9 9 0 1 0 3-6.7" />, <path d="M3 4v5h5" />], p);
 export const IconHome = (p: P) => base([<path d="M3 11l9-7 9 7" />, <path d="M5 10v10h14V10" />], p);

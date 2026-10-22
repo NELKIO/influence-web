@@ -1,12 +1,15 @@
 /**
- * Puzzle scenarios for the map of the day: hand-designed situations (unusual maps and preset forces)
- * instead of an ordinary start. Each scenario is a parametric builder, so every day it produces a new
- * variation. Layouts are built in axial hex coordinates and converted to the engine's odd-r grid.
+ * Scenarios: hand-designed situations (unusual maps and preset forces) instead of an ordinary start.
+ * A scenario fixes the map, the number of seats and the modes; the map of the day plays it with the
+ * recommended bots, the battle setup lets the player choose who sits in each seat. Each scenario is a
+ * parametric builder, so every seed produces a new variation. Layouts are built in axial hex
+ * coordinates and converted to the engine's odd-r grid.
  */
-import { Rng } from './rng';
+import { Rng, randomSeed } from './rng';
 import { buildAdjacency, geometricPairs } from './field';
 import { createMatch } from './engine';
-import { NEUTRAL, type Cell, type Field, type FieldSize, type MatchState, type PlayerType } from './types';
+import { articulationPoints, chokePoints } from './connectivity';
+import { NEUTRAL, type Cell, type Field, type FieldSize, type MatchSettings, type MatchState, type PlayerType } from './types';
 
 type Ax = [number, number]; // q, r
 
@@ -129,6 +132,107 @@ class Board {
     for (const k of [...this.cells.keys()]) if (!seen.has(k)) this.cells.delete(k);
   }
 
+  /** Cell graph (walls respected), cells in insertion order. */
+  graph(): { keys: string[]; index: Map<string, number>; adj: number[][] } {
+    const keys = [...this.cells.keys()];
+    const index = new Map(keys.map((k, i) => [k, i]));
+    const blocked = new Set(this.walls.flatMap(([a, b]) => [`${a}|${b}`, `${b}|${a}`]));
+    const adj = keys.map((k) => {
+      const c = this.cells.get(k)!;
+      const out: number[] = [];
+      for (const [dq, dr] of DIRS) {
+        const n = index.get(key(c.q + dq, c.r + dr));
+        if (n !== undefined && !blocked.has(`${k}|${keys[n]}`)) out.push(n);
+      }
+      return out;
+    });
+    return { keys, index, adj };
+  }
+
+  /** Connected, and no single cell (or wall gap) holds it together. */
+  solid(): boolean {
+    const { adj } = this.graph();
+    if (!adj.length) return false;
+    const seen = new Uint8Array(adj.length);
+    const stack = [0];
+    seen[0] = 1;
+    let count = 1;
+    while (stack.length)
+      for (const v of adj[stack.pop()!])
+        if (!seen[v]) {
+          seen[v] = 1;
+          count++;
+          stack.push(v);
+        }
+    return count === adj.length && articulationPoints(adj).length === 0;
+  }
+
+  /**
+   * No single cell may cut owned cells apart (the two sides would retake it forever). While one does,
+   * open the nearest wall across the cut, or else add a neutral cell that leads around it.
+   */
+  unchoke(limit = 80) {
+    for (let step = 0; step < limit; step++) {
+      const { keys, index, adj } = this.graph();
+      const owned = keys.flatMap((k, i) => (this.cells.get(k)!.owner >= 0 ? [i] : []));
+      const cuts = chokePoints(adj, owned);
+      if (!cuts.length) return;
+      const cut = cuts[0];
+      const c = this.cells.get(keys[cut])!;
+      const at: Ax = [c.q, c.r];
+      // the sides of the cut
+      const side = new Int32Array(keys.length).fill(-1);
+      side[cut] = -2;
+      let sides = 0;
+      for (let i = 0; i < keys.length; i++) {
+        if (side[i] !== -1) continue;
+        side[i] = sides;
+        const stack = [i];
+        while (stack.length)
+          for (const v of adj[stack.pop()!])
+            if (side[v] === -1) {
+              side[v] = sides;
+              stack.push(v);
+            }
+        sides++;
+      }
+      const ax = (k: string): Ax => {
+        const s = this.cells.get(k)!;
+        return [s.q, s.r];
+      };
+      let wall: [string, string] | null = null;
+      let best = Infinity;
+      for (const [a, b] of this.walls) {
+        const sa = side[index.get(a) ?? cut];
+        const sb = side[index.get(b) ?? cut];
+        if (sa < 0 || sb < 0 || sa === sb) continue;
+        const d = hexDist(ax(a), at) + hexDist(ax(b), at);
+        if (d < best) [best, wall] = [d, [a, b]];
+      }
+      if (wall) {
+        const [a, b] = wall;
+        this.walls = this.walls.filter(([x, y]) => !((x === a && y === b) || (x === b && y === a)));
+        continue;
+      }
+      let spot: Ax | null = null;
+      best = Infinity;
+      for (const s of this.cells.values())
+        for (const [dq, dr] of DIRS) {
+          const p: Ax = [s.q + dq, s.r + dr];
+          if (this.get(p[0], p[1])) continue;
+          const touch = new Set<number>();
+          for (const [eq, er] of DIRS) {
+            const n = index.get(key(p[0] + eq, p[1] + er));
+            if (n !== undefined && side[n] >= 0) touch.add(side[n]);
+          }
+          const d = hexDist(p, at);
+          if (touch.size >= 2 && d < best) [best, spot] = [d, p];
+        }
+      if (!spot) return;
+      this.add(spot[0], spot[1], { max: c.max, power: c.owner < 0 ? c.power : 0 });
+    }
+  }
+
   toField(size: FieldSize): Field {
     const list = this.all();
     const minR = Math.min(...list.map((c) => c.r));
@@ -198,33 +302,8 @@ function rot(a: Ax, k: number): Ax {
 
 // ---------------------------------------------------------------- scenarios
 
-export type ScenarioId =
-  | 'siege'
-  | 'cauldron'
-  | 'bastion'
-  | 'archipelago'
-  | 'labyrinth'
-  | 'spiral'
-  | 'twofronts'
-  | 'greysea'
-  | 'checker'
-  | 'dam'
-  | 'ringmap'
-  | 'hill'
-  | 'awakening'
-  | 'hydra'
-  | 'trojan'
-  | 'thermopylae'
-  | 'minefield'
-  | 'hourglass'
-  | 'pincer'
-  | 'hive'
-  | 'overload'
-  | 'treasury'
-  | 'bridges'
-  | 'spear';
-
-export const SCENARIOS: ScenarioId[] = [
+/** The scenarios of the map of the day. Frozen: the daily schedule shuffles exactly this list. */
+export const DAILY_SCENARIOS = [
   'siege',
   'cauldron',
   'bastion',
@@ -249,14 +328,63 @@ export const SCENARIOS: ScenarioId[] = [
   'treasury',
   'bridges',
   'spear',
-];
+] as const;
 
-interface Built {
-  board: Board;
+export type DailyScenarioId = (typeof DAILY_SCENARIOS)[number];
+
+/** Battles for three to six players, offered in the battle setup only. */
+export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans'] as const;
+
+export type ScenarioId = DailyScenarioId | (typeof BATTLE_SCENARIOS)[number];
+
+/** Every scenario, in the order of the setup gallery. */
+export const SCENARIOS: ScenarioId[] = [...BATTLE_SCENARIOS, ...DAILY_SCENARIOS];
+
+export function isScenarioId(id: unknown): id is ScenarioId {
+  return typeof id === 'string' && (SCENARIOS as string[]).includes(id);
+}
+
+/** What a scenario fixes besides the map: the seats and the modes. */
+export interface ScenarioMeta {
+  /** recommended seat types; seat 0 is you (the map of the day plays exactly these) */
   players: PlayerType[];
   size: FieldSize;
   darkness?: boolean;
+  unions?: boolean;
+  /** the whole map starts taken (shown as the "crowded" mode) */
+  crowded?: boolean;
 }
+
+export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
+  siege: { players: ['human', 'hunter'], size: 'L' },
+  cauldron: { players: ['human', 'master'], size: 'L' },
+  bastion: { players: ['human', 'hunter'], size: 'L' },
+  archipelago: { players: ['human', 'hunter', 'hunter'], size: 'L' },
+  labyrinth: { players: ['human', 'master'], size: 'L' },
+  spiral: { players: ['human', 'hunter'], size: 'L' },
+  twofronts: { players: ['human', 'hunter', 'hunter'], size: 'L' },
+  greysea: { players: ['human', 'master'], size: 'L' },
+  checker: { players: ['human', 'master'], size: 'M' },
+  dam: { players: ['human', 'hunter'], size: 'L' },
+  ringmap: { players: ['human', 'hunter', 'hunter'], size: 'L' },
+  hill: { players: ['human', 'hunter', 'master'], size: 'L' },
+  awakening: { players: ['human', 'hunter'], size: 'L' },
+  hydra: { players: ['human', 'hunter'], size: 'L' },
+  trojan: { players: ['human', 'hunter'], size: 'L' },
+  thermopylae: { players: ['human', 'master'], size: 'L' },
+  minefield: { players: ['human', 'master'], size: 'L' },
+  hourglass: { players: ['human', 'hunter'], size: 'L' },
+  pincer: { players: ['human', 'master'], size: 'L' },
+  hive: { players: ['human', 'master'], size: 'M' },
+  overload: { players: ['human', 'hunter'], size: 'L' },
+  treasury: { players: ['human', 'master'], size: 'L' },
+  bridges: { players: ['human', 'hunter'], size: 'L' },
+  spear: { players: ['human', 'hunter'], size: 'L' },
+  landing: { players: ['human', 'hunter', 'dummy', 'hunter', 'dummy', 'hunter'], size: 'XL', darkness: true },
+  laststand: { players: ['human', 'hunter', 'dummy', 'hunter', 'dummy', 'hunter'], size: 'L' },
+  titans: { players: ['human', 'hunter', 'hunter'], size: 'L', unions: true },
+  olympus: { players: ['human', 'hunter', 'dummy', 'master', 'dummy', 'hunter'], size: 'L' },
+};
 
 /**
  * Difficulty knobs, tuned with scripts/calibrate-puzzles.ts so that a strong player usually wins and
@@ -268,7 +396,7 @@ export const TUNING: Record<ScenarioId, number> = {
   bastion: 6.5,
   archipelago: 4,
   labyrinth: 5.5,
-  spiral: 4,
+  spiral: 1,
   twofronts: 2.5,
   greysea: 1.5,
   checker: 2.5,
@@ -278,18 +406,22 @@ export const TUNING: Record<ScenarioId, number> = {
   awakening: 3.5,
   hydra: 6,
   trojan: 5.5,
-  thermopylae: 2.5,
+  thermopylae: 4.5,
   minefield: 5,
-  hourglass: 5.5,
+  hourglass: 3,
   pincer: 4,
-  hive: 4.5,
+  hive: 5,
   overload: 1.5,
   treasury: 4,
   bridges: 2,
   spear: 3,
+  landing: 3.5,
+  laststand: 3.5,
+  olympus: 3.5,
+  titans: 5.5,
 };
 
-const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
+const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board> = {
   /** You hold a small core in the middle; a ring of enemy cells surrounds you. Break out. */
   siege(rng, k) {
     const b = new Board();
@@ -303,7 +435,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     // a few holes in the outer belt
     for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 5 && rng.float() < 0.3) b.remove(c.q, c.r);
     b.prune([0, 0]);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** Reverse siege: the enemy sits in a strong fortress, you hold a thin ring around it. */
@@ -318,7 +450,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       else if (d <= 4) Object.assign(c, { owner: 0, power: Math.max(1, kp(rng, k) - rng.int(2)) });
     }
     b.prune([0, 0]);
-    return { board: b, players: ['human', 'master'], size: 'L' };
+    return b;
   },
 
   /** A corner fortress of full big cells against an empire of weak ones. */
@@ -334,7 +466,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     }
     for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 5 && rng.float() < 0.25 && hexDist([c.q, c.r], corner) > 2) b.remove(c.q, c.r);
     b.prune(corner);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** Islands joined by thin bridges; a rich neutral island in the middle. */
@@ -355,7 +487,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     });
     for (const s of b.all()) if (hexDist([s.q, s.r], [0, 0]) <= 1) Object.assign(s, { max: 12, power: 4 });
     b.prune([0, 0]);
-    return { board: b, players: ['human', 'hunter', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** Concentric walls with a few gaps: find the way. */
@@ -381,7 +513,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     b.set(me[0], me[1], { owner: 0, power: kp(rng, k) });
     b.set(foe[0], foe[1], { owner: 1, power: 7 });
     b.prune(me);
-    return { board: b, players: ['human', 'master'], size: 'L' };
+    return b;
   },
 
   /** A spiral road; you start in the heart, the enemy at the far end. */
@@ -397,8 +529,9 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       const q = x - r / 2;
       const c = roundAx(q, r);
       if (!b.get(c[0], c[1])) b.add(c[0], c[1], { max: rollMax(rng, 0.3) });
-      // widen the road
-      const c2 = roundAx(q * 1.1, r * 1.1);
+      // a second lane one cell further out: the road is two cells wide all the way
+      const out = (rad + 1) / rad;
+      const c2 = roundAx(q * out, r * out);
       if (!b.get(c2[0], c2[1])) b.add(c2[0], c2[1], { max: rollMax(rng, 0.3) });
     }
     const cells = b.all().sort((a, c) => Math.hypot(...pos([a.q, a.r])) - Math.hypot(...pos([c.q, c.r])));
@@ -411,7 +544,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       if (c.owner === NEUTRAL && i % 11 === 6) c.power = 3;
     });
     b.prune([heart.q, heart.r]);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** You are the middle band, attacked from both sides. */
@@ -427,7 +560,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       else if (c.r <= -3) Object.assign(c, { owner: 1, power: 3 + rng.int(2) });
       else if (c.r >= 3) Object.assign(c, { owner: 2, power: 3 + rng.int(2) });
     }
-    return { board: b, players: ['human', 'hunter', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** Every free cell is already held by neutral forces. */
@@ -448,7 +581,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       b.set(at[0], at[1], { owner: who, power: who === 0 ? Math.min(12, kp(rng, k) + 4) : 6, max: 12 });
       for (const [dq, dr] of DIRS.slice(0, 2)) b.set(at[0] + dq, at[1] + dr, { owner: who, power: 3 });
     }
-    return { board: b, players: ['human', 'master'], size: 'L' };
+    return b;
   },
 
   /** Interleaved territories: no front line, every cell is a border. */
@@ -461,7 +594,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       if (colour === 0) Object.assign(c, { owner: 0, power: kp(rng, k) });
       else if (colour === 1) Object.assign(c, { owner: 1, power: 3 + rng.int(2) });
     }
-    return { board: b, players: ['human', 'master'], size: 'M' };
+    return b;
   },
 
   /** A neutral dam with a few breaches separates you from a large weak army. */
@@ -478,7 +611,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       if (c.r >= 3 && rng.float() < 0.6) Object.assign(c, { owner: 0, power: kp(rng, k) });
     }
     if (!b.all().some((c) => c.owner === 0)) b.all().find((c) => c.r === 5)!.owner = 0;
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** A round track for three; no centre to hide in. */
@@ -494,7 +627,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       const n = rot([4, -1], i + turn);
       b.set(n[0], n[1], { owner, power: owner === 0 ? kp(rng, k) : 5 });
     });
-    return { board: b, players: ['human', 'hunter', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** A huge but sleeping territory (cells at 0) against a compact, battle-ready army. */
@@ -516,7 +649,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     rng.pick(b.all().filter((c) => c.owner === 0)).power = 3;
     for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 5 && c.owner !== 0 && rng.float() < 0.3) b.remove(c.q, c.r);
     b.prune(camp);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** The enemy is scattered over six small colonies; you are one block in the middle. Hunt them down. */
@@ -533,7 +666,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     }
     for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 5 && c.owner < 0 && rng.float() < 0.35) b.remove(c.q, c.r);
     b.prune([0, 0]);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** One mighty cell hidden deep in enemy land, and a tiny base on the edge. */
@@ -552,7 +685,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     }
     b.set(horse[0], horse[1], { owner: 0, max: 12, power: 12 });
     b.prune(base);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** You hold a narrow pass; a large army waits on the other side, empty land behind you. */
@@ -565,7 +698,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     // the pass: two rows wide
     for (let q = -2; q <= 2; q++) {
       b.add(q, 0, { max: 12 });
-      b.add(q, -1 + (q === 2 ? 1 : 0), { max: 12 });
+      b.add(q, -1, { max: 12 });
     }
     for (const c of b.all()) {
       if (c.q + c.r / 2 > 2.5) {
@@ -576,7 +709,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     }
     b.prune(west);
     b.rotate(rng.bool() ? 1 : 2);
-    return { board: b, players: ['human', 'master'], size: 'L' };
+    return b;
   },
 
   /** Strong neutral "mines" scattered over open land: choose your path. */
@@ -598,7 +731,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       const n = rot([4, 0], turn + (who === 0 ? 0 : 3));
       b.set(n[0], n[1], { owner: who, power: who === 0 ? kp(rng, k) : 5 });
     }
-    return { board: b, players: ['human', 'master'], size: 'L' };
+    return b;
   },
 
   /** Two triangles meeting at a narrow waist guarded by neutral forces. */
@@ -621,7 +754,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     Object.assign(top, { owner: 0, power: kp(rng, k), max: 12 });
     Object.assign(bottom, { owner: 1, power: 7, max: 12 });
     b.prune([top.q, top.r]);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** Your army is split in two; the enemy stands between the halves. */
@@ -634,7 +767,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       else if (Math.abs(x) >= 5 && rng.float() < 0.7) Object.assign(c, { owner: 0, power: kp(rng, k) });
     }
     if (!b.all().some((c) => c.owner === 0)) b.all()[0].owner = 0;
-    return { board: b, players: ['human', 'master'], size: 'L' };
+    return b;
   },
 
   /** A perfect maze: walls everywhere except a tree of passages (plus a few loops). */
@@ -672,7 +805,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     const foe = rot([4, 0], turn + 3);
     b.set(me[0], me[1], { owner: 0, power: kp(rng, k) });
     b.set(foe[0], foe[1], { owner: 1, power: 6 });
-    return { board: b, players: ['human', 'master'], size: 'M' };
+    return b;
   },
 
   /** Your cells are full — no power until you spend some. A swarm of weak cells around you. */
@@ -689,10 +822,10 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       else if (d >= size + 1 && rng.float() < 0.6) Object.assign(c, { owner: 1, power: 1 + rng.int(3) });
     }
     b.prune(home);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
-  /** A walled vault full of power in the centre, with a single entrance. */
+  /** A walled vault full of power in the centre, with two entrances on opposite sides. */
   treasury(rng, k) {
     const b = new Board();
     b.disk(5, [0, 0]);
@@ -702,18 +835,20 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       if (d <= 1) c.power = 10;
     }
     const ring = b.all().filter((c) => hexDist([c.q, c.r], [0, 0]) === 1);
-    const door = rng.int(ring.length);
-    ring.forEach((c, i) => {
+    const door = ring[rng.int(ring.length)];
+    // a single door would be a choke point: whoever holds the vault could only be reached through it
+    const isDoor = (c: Slot) => (c.q === door.q && c.r === door.r) || (c.q === -door.q && c.r === -door.r);
+    ring.forEach((c) => {
       for (const [dq, dr] of DIRS) {
         const n: Ax = [c.q + dq, c.r + dr];
-        if (hexDist(n, [0, 0]) === 2 && b.get(n[0], n[1]) && i !== door) b.wall([c.q, c.r], n);
+        if (hexDist(n, [0, 0]) === 2 && b.get(n[0], n[1]) && !isDoor(c)) b.wall([c.q, c.r], n);
       }
     });
     const turn = rng.int(6);
     [0, 3].forEach((i, owner) => {
       for (const v of [rot([5, 0], i + turn), rot([5, -1], i + turn)]) b.set(v[0], v[1], { owner, power: owner === 0 ? kp(rng, k) : 5 });
     });
-    return { board: b, players: ['human', 'master'], size: 'L' };
+    return b;
   },
 
   /** Two shores joined by long bridges with neutral forts on them. */
@@ -739,7 +874,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
     }
     b.prune(west);
     b.rotate(rng.bool() ? 1 : 2);
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** A long wedge of yours driven deep into enemy land. */
@@ -753,7 +888,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       else if (Math.abs(x - col) <= (c.r >= 0 ? 1 : 0) && c.r >= -3) Object.assign(c, { owner: 0, power: kp(rng, k) });
       else if (c.r <= 2 && rng.float() < 0.8) Object.assign(c, { owner: 1, power: 2 + rng.int(3) });
     }
-    return { board: b, players: ['human', 'hunter'], size: 'L' };
+    return b;
   },
 
   /** King of the hill: a strong neutral summit in the centre, three climbers around it. */
@@ -770,28 +905,146 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number) => Built> = {
       const at = rot([5, 0], i + turn);
       b.set(at[0], at[1], { owner, power: owner === 0 ? kp(rng, k) : 6 });
     });
-    return { board: b, players: ['human', 'hunter', 'master'], size: 'L' };
+    return b;
+  },
+
+  // ------------------------------------------------------------ battles for three to six players
+
+  /** A big land in darkness; everybody is dropped at a random spot and nobody knows where the others are. */
+  landing(rng, k, seats) {
+    const b = new Board();
+    b.disk(8);
+    for (const c of b.all()) c.max = rollMax(rng, 0.3);
+    // lakes and walls as landmarks, never leaving a cell that holds the land together
+    for (let i = 0; i < 10; i++) {
+      const at = rng.pick(b.all());
+      const lake = b.all().filter((c) => hexDist([c.q, c.r], [at.q, at.r]) <= (rng.float() < 0.5 ? 1 : 0));
+      lake.forEach((c) => b.remove(c.q, c.r));
+      if (!b.solid()) lake.forEach((c) => b.add(c.q, c.r, c));
+    }
+    for (let i = 0; i < 40; i++) {
+      const c = rng.pick(b.all());
+      const [dq, dr] = rng.pick(DIRS);
+      if (!b.get(c.q + dq, c.r + dr)) continue;
+      b.wall([c.q, c.r], [c.q + dq, c.r + dr]);
+      if (!b.solid()) b.walls.pop();
+    }
+    // ruins: armed grey cells, seen only up close
+    for (const c of b.all()) if (rng.float() < 0.08) c.power = Math.min(c.max, 2 + rng.int(3));
+    // drops: a random free spot well away from the others (or the farthest one when the land is crowded)
+    const drops: Slot[] = [];
+    const away = (c: Slot) => Math.min(99, ...drops.map((o) => hexDist([c.q, c.r], [o.q, o.r])));
+    for (let p = 0; p < seats; p++) {
+      const free = b.all().filter((c) => c.owner === NEUTRAL && c.power === 0);
+      const far = free.filter((c) => away(c) >= 5);
+      const best = far.length ? rng.pick(far) : free.reduce((m, c) => (away(c) > away(m) ? c : m));
+      drops.push(best);
+      const squad = [best, ...rng.shuffle(DIRS.map(([dq, dr]) => b.get(best.q + dq, best.r + dr))).filter((n): n is Slot => !!n && n.owner === NEUTRAL).slice(0, 2)];
+      for (const c of squad) Object.assign(c, { owner: p, power: p === 0 ? Math.min(c.max, kp(rng, k)) : Math.min(c.max, 3) });
+    }
+    return b;
+  },
+
+  /** You hold the citadel in the middle; warlords close in from every corner and fight each other too. */
+  laststand(rng, k, seats) {
+    const b = new Board();
+    b.disk(6);
+    for (const c of b.all()) {
+      const d = hexDist([c.q, c.r], [0, 0]);
+      c.max = d <= 1 ? 12 : rollMax(rng, 0.25);
+      if (d <= 1) Object.assign(c, { owner: 0, power: d === 0 ? Math.min(12, kp(rng, k) + 3) : kp(rng, k) });
+    }
+    // the citadel wall with three gates, on every other side
+    const turn = rng.int(6);
+    const gates = [0, 2, 4].map((i) => key(...rot([1, 0], i + turn)));
+    for (const c of b.all())
+      if (hexDist([c.q, c.r], [0, 0]) === 1 && !gates.includes(key(c.q, c.r)))
+        for (const [dq, dr] of DIRS) if (hexDist([c.q + dq, c.r + dr], [0, 0]) === 2) b.wall([c.q, c.r], [c.q + dq, c.r + dr]);
+    // warlords in the corners: one corner stays empty
+    const free = rng.int(6);
+    const corners = [0, 1, 2, 3, 4, 5].filter((i) => i !== free).slice(0, seats - 1);
+    corners.forEach((i, n) => {
+      const at = rot([6, 0], i + turn);
+      for (const c of b.all()) if (hexDist([c.q, c.r], at) <= 1) Object.assign(c, { owner: n + 1, power: 3 + rng.int(2) });
+    });
+    // a ragged edge
+    for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 6 && c.owner === NEUTRAL && rng.float() < 0.3) b.remove(c.q, c.r);
+    return b;
+  },
+
+  /** Two empires at war across one front; your small realm lies just below where they clash. */
+  titans(rng, k) {
+    const b = new Board();
+    for (let r = -5; r <= 5; r++) for (let x = -6; x <= 6; x++) b.add(x - Math.floor(r / 2), r, { max: rollMax(rng, 0.25) });
+    for (const c of b.all()) {
+      const x = c.q + Math.floor(c.r / 2);
+      if (c.r >= 4 && Math.abs(x) <= 1) Object.assign(c, { owner: 0, power: kp(rng, k) });
+      else if (c.r <= -1 && Math.abs(x) <= 4 && x !== 0) Object.assign(c, { owner: x < 0 ? 1 : 2, power: 3 + rng.int(2) });
+    }
+    return b;
+  },
+
+  /** Six climbers around a mountain; its slopes are rich and walled, with one path up from each side. */
+  olympus(rng, k, seats) {
+    const b = new Board();
+    b.disk(6);
+    for (const c of b.all()) {
+      const d = hexDist([c.q, c.r], [0, 0]);
+      c.max = d <= 2 ? 12 : rollMax(rng, 0.2);
+      if (d <= 2) c.power = d === 0 ? 8 : d === 1 ? 6 : 3 + rng.int(2);
+    }
+    // the mountain wall: a path up in each of the six directions
+    for (const c of b.all()) {
+      if (hexDist([c.q, c.r], [0, 0]) !== 2 || (c.q === 0 || c.r === 0 || c.q + c.r === 0)) continue;
+      for (const [dq, dr] of DIRS) if (hexDist([c.q + dq, c.r + dr], [0, 0]) === 3) b.wall([c.q, c.r], [c.q + dq, c.r + dr]);
+    }
+    const turn = rng.int(6);
+    for (let p = 0; p < seats; p++) {
+      const at = rot([5, 0], p + turn);
+      for (const c of b.all())
+        if (hexDist([c.q, c.r], at) <= 1 && hexDist([c.q, c.r], [0, 0]) >= 5) Object.assign(c, { owner: p, power: p === 0 ? kp(rng, k) : 3 });
+    }
+    for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 6 && c.owner === NEUTRAL && rng.float() < 0.3) b.remove(c.q, c.r);
+    return b;
   },
 };
 
-/** Build the starting position of a scenario (deterministic for a seed). */
-export function buildScenario(id: ScenarioId, seed: number, knob = TUNING[id]): MatchState {
+/**
+ * Build the starting position of a scenario (deterministic for a seed). `players` replaces the
+ * recommended seat types (same number of seats; seat 0 is you).
+ */
+export function buildScenario(id: ScenarioId, seed: number, knob = TUNING[id], players?: PlayerType[]): MatchState {
+  const meta = SCENARIO_META[id];
+  const seats = players ?? meta.players;
+  if (seats.length !== meta.players.length) throw new Error(`${id}: ${meta.players.length} seats, got ${seats.length}`);
   const rng = new Rng(seed);
-  const built = BUILDERS[id](rng, knob);
-  const field = built.board.toField(built.size);
+  const board = BUILDERS[id](rng, knob, seats.length);
+  board.unchoke();
+  const field = board.toField(meta.size);
   return createMatch(
     {
       kind: 'single',
-      size: built.size,
-      players: built.players,
-      darkness: !!built.darkness,
+      size: meta.size,
+      players: [...seats],
+      darkness: !!meta.darkness,
       symmetry: false,
-      crowded: false,
-      unions: false,
+      crowded: !!meta.crowded,
+      unions: !!meta.unions,
       shuffle: false,
       duelRules: false,
       puzzle: id,
     },
     { field, keepPlacement: true, seed: seed ^ 0x5bd1e995 },
   );
+}
+
+/**
+ * A new match for these settings: the scenario named in `settings.puzzle` (with the given seats and
+ * kind of match), or an ordinary generated map.
+ */
+export function startMatch(settings: MatchSettings, seed = randomSeed()): MatchState {
+  if (!isScenarioId(settings.puzzle)) return createMatch(settings, { seed });
+  const st = buildScenario(settings.puzzle, seed, undefined, settings.players);
+  st.settings = { ...st.settings, kind: settings.kind, turnTime: settings.turnTime };
+  return st;
 }

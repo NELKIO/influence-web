@@ -1,5 +1,5 @@
-import { Rng, hashString, randomSeed } from './core/rng';
-import { buildScenario, SCENARIOS, type ScenarioId } from './core/scenarios';
+import { Rng, hashString } from './core/rng';
+import { buildScenario, DAILY_SCENARIOS, type DailyScenarioId } from './core/scenarios';
 import { createMatch } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -48,8 +48,11 @@ const BATTLES: BattlePlan[] = [
   { bots: ['master', 'hunter', 'hunter'], sizes: ['XL'], dark: 0, unions: true, level: 4 },
 ];
 
-/** Difficulty of each scenario (from the calibration: how often an average player wins). */
-const SCENARIO_LEVEL: Record<ScenarioId, number> = {
+/**
+ * Difficulty of each scenario (from the calibration: how often an average player wins). The daily
+ * map plays a scenario with its recommended bots, so these levels stay fixed.
+ */
+const SCENARIO_LEVEL: Record<DailyScenarioId, number> = {
   siege: 3,
   cauldron: 3,
   bastion: 4,
@@ -76,7 +79,7 @@ const SCENARIO_LEVEL: Record<ScenarioId, number> = {
   spear: 4,
 };
 
-export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: ScenarioId };
+export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: DailyScenarioId };
 
 /** What the map of a given day is. */
 export function dailyKind(id: string): DailyKind {
@@ -85,10 +88,10 @@ export function dailyKind(id: string): DailyKind {
   if (((n % 4) + 4) % 4 !== 3) {
     // index among puzzle days only, so the scenario sequence has no gaps
     const i = n - Math.floor((n + 1) / 4);
-    const len = SCENARIOS.length;
+    const len = DAILY_SCENARIOS.length;
     const cycle = Math.floor(i / len);
-    // all scenarios in a shuffled order before any repeats
-    const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...SCENARIOS]);
+    // all scenarios in a shuffled order before any repeats (a frozen list, so past days keep theirs)
+    const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...DAILY_SCENARIOS]);
     return { kind: 'puzzle', scenario: order[((i % len) + len) % len] };
   }
   return { kind: 'battle', plan: BATTLES[(parseDay(id).getDay() + 6) % 7] };
@@ -139,9 +142,4 @@ export function createDailyMatch(id: string): MatchState {
   return createMatch(dailySettings(id), { seed: dailySeed(id) });
 }
 
-/** A fresh random variation of a scenario (played outside the daily map). */
-export function createPuzzleMatch(scenario: ScenarioId): MatchState {
-  return buildScenario(scenario, randomSeed());
-}
-
-export { SCENARIOS, type ScenarioId };
+export type { DailyScenarioId };

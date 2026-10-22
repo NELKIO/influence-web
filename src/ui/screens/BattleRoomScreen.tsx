@@ -7,6 +7,7 @@ import { sfx, unlockAudio } from '../../audio/sfx';
 import type { BattleGuest, BattleHost, RosterEntry } from '../../net';
 import { battleInvite, closeBattle, getBattle, launchBattle, startGuest, startHost, takePendingHost } from '../battle';
 import { playerColor } from '../theme';
+import { isScenarioId } from '../../core/scenarios';
 
 /**
  * Lobby of an online battle. Host: room code, invite link, seats filling up, start.
@@ -60,6 +61,7 @@ export function BattleRoomScreen({ join }: { join?: string }) {
   const host = isHost ? (room as BattleHost) : null;
   const roster = room.roster;
   const code = room.code;
+  const scenario = isScenarioId(room.settings?.puzzle) ? room.settings.puzzle : null;
   const error = room.status === 'error';
 
   const share = async () => {
@@ -140,6 +142,13 @@ export function BattleRoomScreen({ join }: { join?: string }) {
                 </>
               )}
             </div>
+
+            {scenario && (
+              <div class="locked-note" data-testid="room-scenario">
+                {t('scenarioKicker')}: {t(`puzzle_${scenario}` as 'puzzle_siege')}
+                {room.settings?.darkness ? ` · ${t('darkness')}` : ''}
+              </div>
+            )}
 
             {roster.length > 0 && (
               <div class="list" data-testid="roster">

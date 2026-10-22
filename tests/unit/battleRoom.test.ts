@@ -5,6 +5,7 @@ import { battleHash, parseBattleMessage } from '../../src/net/battleProtocol';
 import { concedeSeat, localizeBattleState, shuffledSeatOrder } from '../../src/net/battleRules';
 import { BattleGuest, BattleHost } from '../../src/net/battleRoom';
 import { createLoopbackHub } from '../../src/net/hub';
+import { buildScenario } from '../../src/core/scenarios';
 import { MemoryStorage } from '../../src/net/persist';
 import {
   BATTLE_CODE_LENGTH,
@@ -243,6 +244,25 @@ describe('battle matches', () => {
         expect(vis.some((v) => !v)).toBe(true);
       }
     }
+    expect(room.resyncs).toEqual([]);
+  });
+
+  it('a scenario room: the host builds the scenario with the chosen seats, guests see it in darkness', async () => {
+    const players = ['human', 'online', 'hunter', 'online', 'dummy', 'hunter'] as const;
+    const room = await makeRoom({ players: [...players], size: 'XL', seed: 31, darkness: true, puzzle: 'landing' });
+    expect(room.guests[0].g.settings?.puzzle).toBe('landing');
+    room.host.start();
+    await room.hub.flush();
+    const st = room.host.state!;
+    expect(st.settings.puzzle).toBe('landing');
+    expect(st.settings.players).toEqual([...players]);
+    expect(JSON.stringify(st.field)).toBe(JSON.stringify(buildScenario('landing', 31, undefined, [...players]).field));
+    for (const { g } of room.guests) {
+      expect(g.state!.settings.puzzle).toBe('landing');
+      expect(E.visibleCells(g.state!).some((v) => !v)).toBe(true);
+    }
+    await playOut(room, 150);
+    expectAllSame(room, 'end');
     expect(room.resyncs).toEqual([]);
   });
 

@@ -37,6 +37,8 @@ export interface RoomOptions {
   guests?: number;
   botSeed?: number;
   turnTime?: number;
+  /** scenario id: the host builds that scenario's map */
+  puzzle?: string;
 }
 
 export function battleSettings(o: RoomOptions): MatchSettings {
@@ -51,6 +53,7 @@ export function battleSettings(o: RoomOptions): MatchSettings {
     shuffle: o.shuffle ?? false,
     duelRules: o.duelRules ?? false,
     turnTime: o.turnTime ?? 0,
+    ...(o.puzzle ? { puzzle: o.puzzle } : {}),
   };
 }
 

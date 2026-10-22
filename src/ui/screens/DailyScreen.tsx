@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { getLang, t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
-import { createDailyMatch, dailyLevel, dayId, dayNumber, parseDay, type ScenarioId } from '../../daily';
+import { createDailyMatch, dailyLevel, dayId, dayNumber, parseDay, type DailyScenarioId } from '../../daily';
 import { loadDaily, loadSavedGame } from '../../storage';
 import { IconBack, IconArrow } from '../components/icons';
 import { MiniMap } from '../components/MiniMap';
@@ -23,7 +23,7 @@ export function DailyScreen() {
   const results = loadDaily();
   const preview = useMemo(() => createDailyMatch(sel), [sel]);
   const cfg = preview.settings;
-  const puzzle = cfg.puzzle as ScenarioId | undefined;
+  const puzzle = cfg.puzzle as DailyScenarioId | undefined;
   const res = results[sel];
 
   const streak = useMemo(() => {

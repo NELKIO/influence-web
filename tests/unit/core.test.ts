@@ -289,8 +289,8 @@ describe('daily map', () => {
     }
     // three puzzles, then a battle; the anchor (i = 0) is a puzzle; one full cycle covers every scenario once
     kinds.forEach((k, j) => expect(k).toBe((((j - 6) % 4) + 4) % 4 === 3 ? 'battle' : 'puzzle'));
-    const { SCENARIOS } = await import('../../src/core/scenarios');
-    expect(scenarios.size).toBe(SCENARIOS.length);
+    const { DAILY_SCENARIOS } = await import('../../src/core/scenarios');
+    expect(scenarios.size).toBe(DAILY_SCENARIOS.length);
   });
 });
 

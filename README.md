@@ -24,10 +24,10 @@
 - **Режимы** — тьма, толкотня, союзы, симметрия: честные карты для 2–6 игроков, включая треугольники, кольца и звёзды.
 - **Несколько игроков на одном устройстве** — с экраном передачи хода в режиме тьмы.
 - **Дуэли** — онлайн с другом по коду или ссылке (до 5 матчей одновременно), тренировка с ботом, дуэль на одном экране.
-- **Карта дня** — одна для всех: в основном необычные сценарии (осада, лабиринт, троянский конь, спящая армия…), каждый четвёртый день — бой с Мастерами. Все 24 сценария можно сыграть и отдельно.
+- **Карта дня** — одна для всех: в основном необычные сценарии (осада, лабиринт, троянский конь, спящая армия…), каждый четвёртый день — бой с Мастерами. Все сценарии (и ещё четыре на 3–6 игроков: «Десант во тьме», «Последний рубеж», «Олимп», «Меж двух титанов») есть в настройке битвы: сценарий задаёт карту, места и режимы, а соперников выбираете вы.
 - Статистика, настройки, RU/EN, работает офлайн и ставится на домашний экран как приложение.
 
-> **English:** a free fan-made browser remake of the turn-based territory strategy *Influence* — play vs bots (up to six players), hot-seat with friends, online battles and duels by link and 24 hand-made daily puzzle scenarios. Works on any device, no install.
+> **English:** a free fan-made browser remake of the turn-based territory strategy *Influence* — play vs bots (up to six players), hot-seat with friends, online battles and duels by link and 28 hand-made scenarios (24 of them rotate as daily puzzles) with opponents of your choice. Works on any device, no install.
 
 ## Разработка
 

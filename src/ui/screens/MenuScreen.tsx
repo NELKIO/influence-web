@@ -1,8 +1,8 @@
 import { useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
-import { loadSavedGame, loadSetup, saveGame, setupToSettings } from '../../storage';
-import { createMatch } from '../../core/engine';
+import { loadSavedGame, loadSetup, saveGame, setupPlayers, setupToSettings } from '../../storage';
+import { startMatch } from '../../core/scenarios';
 import { IconArrow, IconChart, IconGear, IconPlay, IconWifi, LogoMark, ModeArt } from '../components/icons';
 import { Modal } from '../components/controls';
 import { AmbientBoard } from '../components/AmbientBoard';
@@ -35,12 +35,12 @@ export function MenuScreen() {
   };
 
   const quick = () => {
-    if (setup.players.includes('online')) {
+    if (setupPlayers(setup).includes('online')) {
       prepareHost(setupToSettings(setup), randomSeed());
       navigate({ name: 'battleRoom' });
       return;
     }
-    const st = createMatch(setupToSettings(setup));
+    const st = startMatch(setupToSettings(setup));
     saveGame(null);
     navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
   };
@@ -52,8 +52,8 @@ export function MenuScreen() {
     return `${kind} · ${t('round', { n: saved.state.turn + 1 })}`;
   };
 
-  const opponents = setup.players.slice(1);
-  const quickSub = `${t(`size${setup.size}` as 'sizeM')} · ${t('opponentsN', { n: opponents.length })}`;
+  const opponents = setupPlayers(setup).slice(1);
+  const quickSub = `${setup.scenario ? t(`puzzle_${setup.scenario}` as 'puzzle_siege') : t(`size${setup.size}` as 'sizeM')} · ${t('opponentsN', { n: opponents.length })}`;
 
   return (
     <div class="menu-screen">

@@ -2,13 +2,14 @@ import type { ComponentChildren } from 'preact';
 import { sfx } from '../../audio/sfx';
 import { IconBack } from './icons';
 
-export function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label?: string }) {
+export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
   return (
     <button
       class={`toggle ${on ? 'on' : ''}`}
       role="switch"
       aria-checked={on}
       aria-label={label}
+      disabled={disabled}
       onClick={() => {
         sfx.click();
         onChange(!on);

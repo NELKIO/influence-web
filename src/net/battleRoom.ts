@@ -29,6 +29,7 @@
  */
 import * as E from '../core/engine';
 import { randomSeed } from '../core/rng';
+import { startMatch } from '../core/scenarios';
 import type { BotType, FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
 import { BroadcastBattleGuest, BroadcastBattleHost } from './broadcastBattle';
 import { useBroadcastTransport } from './broadcast';
@@ -405,7 +406,8 @@ export class BattleHost {
     const order = shuffledSeatOrder(this.lobby, seed);
     const players = order.map((i) => this.lobby.players[i]);
     this.seats = order.map((i) => this.seats[i]);
-    const st = E.createMatch({ ...this.lobby, players, shuffle: false }, { seed });
+    // a scenario room builds the scenario's map with these seats; an ordinary one generates a map
+    const st = startMatch({ ...this.lobby, players, shuffle: false }, seed);
     st.settings.shuffle = this.lobby.shuffle;
     this.state = st;
     this.shadow = structuredClone(st);

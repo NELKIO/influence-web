@@ -12,6 +12,7 @@ import { countGame } from '../../sitestats';
 import { addRecord, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
 import { createMatch } from '../../core/engine';
 import { createDailyMatch } from '../../daily';
+import { startMatch } from '../../core/scenarios';
 import { Modal } from '../components/controls';
 import {
   IconSkip,
@@ -146,9 +147,9 @@ export function GameScreen({ launch }: { launch: Launch }) {
       setZoomed(r.zoomed);
     });
     const unbind = online?.bind(ctrl);
-    // puzzle: show the goal at the start
+    // puzzle: show the goal at the start (a guest in a battle room plays another seat)
     const pz = ctrl.state.settings.puzzle;
-    if (pz && ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack') {
+    if (pz && !online?.remoteDriven && ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack') {
       ctrl.showHint(`${t(`puzzle_${pz}` as 'puzzle_siege')}: ${t(`puzzleDesc_${pz}` as 'puzzleDesc_siege')}`, undefined, 6000);
     }
     if (isSaveable(ctrl.state) && !ctrl.state.ended) saveGame({ state: ctrl.state, initial: launch.initial });
@@ -252,7 +253,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
 
   const quickRematch = () => {
     if (s.settings.kind === 'single') {
-      const st = createMatch(setupToSettings(loadSetup()));
+      const st = startMatch(setupToSettings(loadSetup()));
       navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
     } else newGame();
   };

@@ -1,5 +1,6 @@
 import type { Lang } from './i18n';
 import type { FieldSize, MatchKind, MatchSettings, MatchState, PlayerType } from './core/types';
+import { isScenarioId, SCENARIO_META, type ScenarioId } from './core/scenarios';
 
 const PREFIX = 'infweb.';
 
@@ -81,6 +82,10 @@ export interface SetupPrefs {
   crowded: boolean;
   unions: boolean;
   shuffle: boolean;
+  /** a scenario fixes the map, the seats and the modes (null: an ordinary map with the settings above) */
+  scenario: ScenarioId | null;
+  /** seat types chosen per scenario (the recommended ones when missing) */
+  scenarioSeats: Partial<Record<ScenarioId, PlayerType[]>>;
 }
 
 export const DEFAULT_SETUP: SetupPrefs = {
@@ -91,14 +96,37 @@ export const DEFAULT_SETUP: SetupPrefs = {
   crowded: false,
   unions: false,
   shuffle: false,
+  scenario: null,
+  scenarioSeats: {},
 };
+
+const SEAT_TYPES: PlayerType[] = ['dummy', 'hunter', 'master', 'god', 'human', 'online'];
 
 export function loadSetup(): SetupPrefs {
   const s = { ...DEFAULT_SETUP, ...read<Partial<SetupPrefs>>('setup', {}) };
   // Psycho is no longer offered: old setups get a Dummy in its place
   s.players = s.players.slice(0, 6).map((p) => (p === 'freak' ? 'dummy' : p));
   if (s.players[0] !== 'human') s.players[0] = 'human';
+  if (!isScenarioId(s.scenario)) s.scenario = null;
+  // keep only seat lists that still fit their scenario
+  const seats: SetupPrefs['scenarioSeats'] = {};
+  for (const [id, list] of Object.entries(s.scenarioSeats ?? {})) {
+    if (!isScenarioId(id) || !Array.isArray(list) || list.length !== SCENARIO_META[id].players.length) continue;
+    if (list[0] !== 'human' || !list.every((p) => SEAT_TYPES.includes(p))) continue;
+    seats[id] = list;
+  }
+  s.scenarioSeats = seats;
   return s;
+}
+
+/** Seat types of a scenario: the player's choice, or the recommended ones. */
+export function scenarioSeats(s: SetupPrefs, id: ScenarioId): PlayerType[] {
+  return [...(s.scenarioSeats[id] ?? SCENARIO_META[id].players)];
+}
+
+/** Seats of the battle the setup describes. */
+export function setupPlayers(s: SetupPrefs): PlayerType[] {
+  return s.scenario ? scenarioSeats(s, s.scenario) : [...s.players];
 }
 
 export function saveSetup(s: SetupPrefs) {
@@ -106,6 +134,21 @@ export function saveSetup(s: SetupPrefs) {
 }
 
 export function setupToSettings(s: SetupPrefs): MatchSettings {
+  if (s.scenario) {
+    const m = SCENARIO_META[s.scenario];
+    return {
+      kind: 'single',
+      size: m.size,
+      players: scenarioSeats(s, s.scenario),
+      darkness: !!m.darkness,
+      symmetry: false,
+      crowded: !!m.crowded,
+      unions: !!m.unions,
+      shuffle: false,
+      duelRules: false,
+      puzzle: s.scenario,
+    };
+  }
   return {
     kind: 'single',
     size: s.size,
