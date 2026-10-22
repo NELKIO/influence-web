@@ -13,6 +13,7 @@ import {
   finishTurn,
   humansAlive,
   incomeCells,
+  isAlive,
   isHuman,
   targetsFrom,
   visibleCells,
@@ -452,24 +453,27 @@ export class GameController {
     this.afterChange();
   }
 
+  /**
+   * The local person gives up. With other seats still in play the match goes on without them (the
+   * driver decides: engine rules locally, the host in an online battle); it ends only by the usual rules.
+   */
   concedeMatch() {
     const slot = this.localHumanSlot();
     if (slot < 0) return;
     this.driver.concede(slot);
-    if (!this.state.ended) {
-      // hot-seat / multi-player concede: mark as defeat for humans
-      this.state.ended = { winner: -1, humanWon: false, reason: 'concede', turn: this.state.turn };
-    }
     this.paused = false;
     this.overlay = { kind: 'none' };
     this.saveAndEmit();
     this.afterChange();
   }
 
+  /** The person at this device who is giving up: whoever's turn it is, else the one who played last. */
   localHumanSlot(): number {
     const s = this.state;
-    if (isHuman(s, s.current)) return s.current;
-    return s.settings.players.findIndex((p) => p === 'human');
+    const alive = (p: number) => p >= 0 && isHuman(s, p) && isAlive(s, p);
+    if (alive(s.current)) return s.current;
+    if (alive(s.viewer)) return s.viewer;
+    return s.settings.players.findIndex((_, i) => alive(i));
   }
 
   // ------------------------------------------------------------ events / effects

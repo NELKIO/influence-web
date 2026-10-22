@@ -123,6 +123,25 @@ async function playBattle(host: Page, g1: Page, g2: Page, base: string) {
     .poll(async () => host.evaluate((seat) => !(window as any).__infweb.ctrl.state.field.cells.some((c: any) => c.owner === seat), seatOf), { timeout: 20_000 })
     .toBe(true);
   await synced();
+  // nobody's match is over: the guest who gave up watches, the others play on
+  for (const p of [host, g1, g2]) {
+    expect(JSON.parse(await board(p)).e).toBe(false);
+    await expect(p.locator('.result-title')).toBeHidden();
+  }
+
+  // the host gives up too: the remaining guest plays on against the bot, the bots are not declared winners
+  await host.bringToFront();
+  await host.getByRole('button', { name: 'Пауза' }).click();
+  await host.getByRole('button', { name: /Сдаться/ }).click();
+  await host.locator('.modal').getByRole('button', { name: 'Сдаться' }).click();
+  await expect
+    .poll(async () => g1.evaluate(() => !(window as any).__infweb.ctrl.state.field.cells.some((c: any) => c.owner === 0)), { timeout: 20_000 })
+    .toBe(true);
+  await synced();
+  for (const p of [host, g1, g2]) {
+    expect(JSON.parse(await board(p)).e).toBe(false);
+    await expect(p.locator('.result-title')).toBeHidden();
+  }
 }
 
 test('online battle over BroadcastChannel: host + 2 guests + bot stay in sync, guest reload, concede', async ({ context, baseURL }) => {

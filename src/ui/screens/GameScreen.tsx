@@ -559,6 +559,10 @@ function ResultModal({
       title = end.humanWon ? t('draw') : t('botsWon');
       color = 'var(--bad)';
     }
+  } else if (s.settings.kind === 'battleOnline' && !end.humanWon && end.winner >= 0) {
+    // an online battle won by someone else: say who
+    title = t('winnerIs', { name: playerName(s.settings, end.winner) });
+    color = playerColor(end.winner);
   } else {
     title = end.humanWon ? t('win') : t('lose');
     color = end.humanWon ? 'var(--good)' : 'var(--bad)';

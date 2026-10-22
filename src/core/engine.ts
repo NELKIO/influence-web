@@ -7,6 +7,7 @@ import {
   type AttackRefusal,
   type Field,
   type FightEvent,
+  type MatchEnd,
   type MatchSettings,
   type MatchState,
   type UnionEvent,
@@ -456,23 +457,68 @@ export function checkStuck(state: MatchState): StuckOffer | null {
   if (total <= 0.8 * max) return null;
   const mine = cellCount(state, state.current);
   const percent = (mine / state.field.cells.length) * 100;
-  return { percent, enough: percent >= 100 / alive.length };
+  // with other people still in the match a fair share is not enough: only the leader can claim the win
+  const leader = leaderOf(state);
+  const others = humansAlive(state).length > 1;
+  return { percent, enough: percent >= 100 / alive.length && (!others || leader === state.current) };
+}
+
+/** The alive seat with the most cells (-1 on a tie for first place). */
+function leaderOf(state: MatchState): number {
+  let best = -1;
+  let bestN = -1;
+  let tie = false;
+  for (const p of alivePlayers(state)) {
+    const n = cellCount(state, p);
+    if (n > bestN) {
+      best = p;
+      bestN = n;
+      tie = false;
+    } else if (n === bestN) tie = true;
+  }
+  return tie ? -1 : best;
 }
 
 export function finishEarly(state: MatchState, offer: StuckOffer): void {
+  // alone against bots giving up early is a defeat; with other people the leader takes the match
+  const winner = offer.enough ? state.current : humansAlive(state).length > 1 ? leaderOf(state) : -1;
   state.ended = {
-    winner: offer.enough ? state.current : -1,
-    humanWon: offer.enough,
+    winner,
+    humanWon: winner >= 0 && isHuman(state, winner),
     reason: 'early',
     turn: state.turn,
   };
 }
 
+/**
+ * `loser` gives up. Against a single opponent the match ends at once with the board as it is. With
+ * more seats alive the seat leaves: its cells turn neutral and the others play on until the usual end
+ * rules apply (one seat left wins; no person left means the bots won).
+ */
 export function concede(state: MatchState, loser: number): void {
-  if (state.ended) return;
+  if (state.ended || !isAlive(state, loser)) return;
   const others = alivePlayers(state).filter((p) => p !== loser);
-  const winner = others.length === 1 ? others[0] : -1;
-  state.ended = { winner, humanWon: winner >= 0 && isHuman(state, winner), reason: 'concede', turn: state.turn };
+  if (others.length <= 1) {
+    const winner = others[0] ?? -1;
+    state.ended = { winner, humanWon: winner >= 0 && isHuman(state, winner), reason: 'concede', turn: state.turn };
+    return;
+  }
+  for (const c of state.field.cells) {
+    if (c.owner === loser) {
+      c.owner = NEUTRAL;
+      c.power = 0;
+    }
+  }
+  state.outAt[loser] = state.turn;
+  checkEnd(state);
+  const end = state.ended as MatchEnd | null;
+  if (end) {
+    state.ended = { ...end, reason: 'concede' };
+    return;
+  }
+  if (state.viewer === loser) state.viewer = humansAlive(state)[0] ?? state.viewer;
+  if (state.current === loser) finishTurn(state);
+  else if (state.selected >= 0 && state.field.cells[state.selected].owner !== state.current) state.selected = -1;
 }
 
 // ---------------------------------------------------------------- darkness

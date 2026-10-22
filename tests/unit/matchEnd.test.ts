@@ -1,0 +1,121 @@
+import { describe, expect, it } from 'vitest';
+import { alivePlayers, cellCount, checkEnd, checkStuck, concede, createMatch, finishEarly, isAlive } from '../../src/core/engine';
+import type { MatchSettings, MatchState, PlayerType } from '../../src/core/types';
+
+function match(players: PlayerType[], seed = 3): MatchState {
+  const settings: MatchSettings = {
+    kind: 'single',
+    size: 'M',
+    players,
+    darkness: false,
+    symmetry: false,
+    crowded: false,
+    unions: false,
+    shuffle: false,
+    duelRules: false,
+  };
+  return createMatch(settings, { seed });
+}
+
+/** Hand every cell to the given owners, round-robin, at full power (a saturated board). */
+function saturate(s: MatchState, owners: number[], shares: number[]) {
+  const total = s.field.cells.length;
+  let i = 0;
+  owners.forEach((o, k) => {
+    const n = k === owners.length - 1 ? total - i : Math.round(total * shares[k]);
+    for (let j = 0; j < n; j++, i++) {
+      s.field.cells[i].owner = o;
+      s.field.cells[i].power = s.field.cells[i].maxPower;
+    }
+  });
+}
+
+describe('conceding', () => {
+  it('one of two people on a device gives up while bots are alive: the match goes on for the other person', () => {
+    const s = match(['human', 'hunter', 'human', 'master']);
+    concede(s, 0);
+    expect(s.ended).toBeNull();
+    expect(isAlive(s, 0)).toBe(false);
+    expect(alivePlayers(s)).toEqual([1, 2, 3]);
+    // it was seat 0's turn: the turn moved on
+    expect(s.current).toBe(1);
+    // the remaining person sees the board through their own eyes
+    expect(s.viewer).toBe(2);
+  });
+
+  it('the other person wins once the bots are gone too', () => {
+    const s = match(['human', 'hunter', 'human']);
+    concede(s, 0);
+    // the remaining person takes the bot's last cells
+    for (const c of s.field.cells) if (c.owner === 1) c.owner = 2;
+    checkEnd(s);
+    expect(s.ended).toMatchObject({ winner: 2, humanWon: true, reason: 'elimination' });
+  });
+
+  it('two people left: the one who stays wins at once', () => {
+    const s = match(['human', 'human', 'hunter']);
+    for (const c of s.field.cells) if (c.owner === 2) c.owner = 1;
+    concede(s, 1);
+    expect(s.ended).toMatchObject({ winner: 0, humanWon: true, reason: 'concede' });
+  });
+
+  it('the only person gives up against several bots: a defeat', () => {
+    const s = match(['human', 'hunter', 'master']);
+    concede(s, 0);
+    expect(s.ended).toMatchObject({ winner: -1, humanWon: false, reason: 'concede' });
+  });
+
+  it('a duel concession ends the match and keeps the board', () => {
+    const s = match(['human', 'master']);
+    const before = cellCount(s, 0);
+    concede(s, 0);
+    expect(s.ended).toMatchObject({ winner: 1, humanWon: false, reason: 'concede' });
+    expect(cellCount(s, 0)).toBe(before);
+  });
+
+  it('a seat that is already out cannot concede', () => {
+    const s = match(['human', 'hunter', 'human']);
+    concede(s, 0);
+    const snap = JSON.stringify(s);
+    concede(s, 0);
+    expect(JSON.stringify(s)).toBe(snap);
+  });
+});
+
+describe('early finish with several people', () => {
+  function stuckBoard(shares: number[]) {
+    const s = match(['human', 'hunter', 'human']);
+    saturate(s, [0, 1, 2], shares);
+    s.turn = 200;
+    s.lastStuck = -100;
+    s.current = 0;
+    return s;
+  }
+
+  it('a person who is not ahead cannot claim the win, and finishing hands it to the leader', () => {
+    const s = stuckBoard([0.36, 0.04, 0.6]);
+    const offer = checkStuck(s)!;
+    expect(offer.percent).toBeGreaterThan(100 / 3);
+    expect(offer.enough).toBe(false);
+    finishEarly(s, offer);
+    expect(s.ended).toMatchObject({ winner: 2, humanWon: true, reason: 'early' });
+  });
+
+  it('the leader can claim the win', () => {
+    const s = stuckBoard([0.6, 0.04, 0.36]);
+    const offer = checkStuck(s)!;
+    expect(offer.enough).toBe(true);
+    finishEarly(s, offer);
+    expect(s.ended).toMatchObject({ winner: 0, humanWon: true, reason: 'early' });
+  });
+
+  it('alone against bots the original rule stays: a fair share is enough', () => {
+    const s = match(['human', 'hunter', 'master']);
+    saturate(s, [0, 1, 2], [0.36, 0.04, 0.6]);
+    s.turn = 200;
+    s.lastStuck = -100;
+    s.current = 0;
+    const offer = checkStuck(s)!;
+    expect(offer.enough).toBe(true);
+  });
+});
