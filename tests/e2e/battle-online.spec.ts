@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { chromium, expect, test, type Page } from '@playwright/test';
 
 // Online battle (host + 2 guests + a bot) over BroadcastChannel: tabs of one browser, ?transport=bc.
 // The real-network variant of the same flow runs on CI with REAL_P2P=1.
@@ -50,16 +50,9 @@ async function moveIfMine(p: Page): Promise<boolean> {
   });
 }
 
-test('online battle: host + 2 guests + bot stay in sync, guest reload, concede', async ({ context, baseURL }) => {
-  test.setTimeout(300_000);
-  const base = `${baseURL}?transport=bc`;
-  const host = await context.newPage();
-  const g1 = await context.newPage();
-  const g2 = await context.newPage();
-  await setup(host, base, { size: 'S', players: ['human', 'online', 'hunter', 'online'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false });
-  await setup(g1, base);
-  await setup(g2, base);
+const HOST_SETUP = { size: 'S', players: ['human', 'online', 'hunter', 'online'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false };
 
+async function playBattle(host: Page, g1: Page, g2: Page, base: string) {
   // background tabs get no animation frames, so bring a tab to the front before clicking in it
   // host creates the room from the battle setup
   await host.bringToFront();
@@ -130,4 +123,28 @@ test('online battle: host + 2 guests + bot stay in sync, guest reload, concede',
     .poll(async () => host.evaluate((seat) => !(window as any).__infweb.ctrl.state.field.cells.some((c: any) => c.owner === seat), seatOf), { timeout: 20_000 })
     .toBe(true);
   await synced();
+}
+
+test('online battle over BroadcastChannel: host + 2 guests + bot stay in sync, guest reload, concede', async ({ context, baseURL }) => {
+  test.setTimeout(300_000);
+  const base = `${baseURL}?transport=bc`;
+  const host = await context.newPage();
+  const g1 = await context.newPage();
+  const g2 = await context.newPage();
+  await setup(host, base, HOST_SETUP);
+  await setup(g1, base);
+  await setup(g2, base);
+  await playBattle(host, g1, g2, base);
+});
+
+test('online battle over real WebRTC (PeerJS broker)', async ({ baseURL }, testInfo) => {
+  test.skip(!process.env.REAL_P2P || testInfo.project.name !== 'desktop', 'set REAL_P2P=1 on a network that allows WebRTC');
+  test.setTimeout(300_000);
+  const browser = await chromium.launch();
+  const pages = await Promise.all([0, 1, 2].map(async () => (await browser.newContext()).newPage()));
+  await setup(pages[0], baseURL!, HOST_SETUP);
+  await setup(pages[1], baseURL!);
+  await setup(pages[2], baseURL!);
+  await playBattle(pages[0], pages[1], pages[2], baseURL!);
+  await browser.close();
 });
