@@ -453,11 +453,6 @@ export class AttackTree {
     return this.value(b);
   }
 
-  /** visits of the node of this position (0 when the table does not have it) */
-  visits(root: Sim, rootLast: number): number {
-    return this.table.get(this.hash(root, rootLast))?.count ?? 0;
-  }
-
   /** Final choice at the root: lower confidence bound; unexplored moves lose. */
   best(root: Sim, rootLast: number): { move: number; visits: number } {
     const nd = this.table.get(this.hash(root, rootLast));

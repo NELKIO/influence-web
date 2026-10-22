@@ -45,7 +45,6 @@ import {
   Topo,
   evalPhase,
   masterAttack,
-  searchPlace,
   smartyPlace,
   stackOrder,
   stackPlace,
@@ -75,6 +74,8 @@ export interface GodOptions {
   openingAttackMs?: number;
   openingPowerMs?: number;
   openingRescoreOtherMs?: number;
+  /** hard cap of an opening decision (ms) */
+  openingMaxMs?: number;
   /** hard cap per decision (ms) */
   maxDecisionMs?: number;
   /** evaluation weights */
@@ -104,23 +105,18 @@ export interface GodOptions {
   rescoreAll?: boolean;
   emuExtra?: boolean;
   /**
-   * emulator trees are kept for the whole decision (transpositions across emulated moves and rollouts):
-   * an emulated move only searches until its node has emuIters visits
-   */
-  emuReuse?: boolean;
-  /**
    * emulated Master opponents search like Master: nominal dice (Master does not know the streak
    * corrector) and its clamped ratio
    */
   emuNominal?: boolean;
-  /** emulated Master placements: K candidate stacks compared by R expert rollouts (0 = heuristic) */
-  emuPlaceK?: number;
-  emuPlaceR?: number;
   /** darkness: place the enemy cells counted by the HUD but not seen on the most likely unseen cells */
   phantoms?: boolean;
   duelLateScale?: number;
-  /** ignore the fog (experiments only; the game never sets this) */
-  cheat?: boolean;
+  /**
+   * ignore the fog (experiments only; the game never sets this): always, only in rounds 0..3 ('open'), only
+   * for attack ('attack') or placement ('power') decisions. Partial cheats never enter GOD's memory.
+   */
+  cheat?: boolean | 'open' | 'attack' | 'power';
 }
 
 export const DEFAULT_GOD_OPTIONS = {
@@ -135,6 +131,8 @@ export const DEFAULT_GOD_OPTIONS = {
   /** total budget of a later attack of an opening turn including its re-scoring */
   openingRescoreOtherMs: 500,
   openingPowerMs: 1200,
+  /** hard cap of an opening decision (ms) */
+  openingMaxMs: 1420,
   attackMs: 150,
   attackSpeedFactor: 0.8,
   /** duels after the opening: scale of the time budgets */
@@ -154,6 +152,8 @@ export const DEFAULT_GOD_OPTIONS = {
   rescoreAllOpening: true,
   /** more placement candidates (all-in without minimums, safer margin, split stacks) */
   emuExtra: false as boolean,
+  /** darkness: the enemy cells the HUD counts but GOD cannot see are put on the most likely unseen cells */
+  phantoms: true as boolean,
 };
 
 const now = (): number => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -207,6 +207,10 @@ export class GodBrain {
   private game: GameTree | null = null;
   private gameKey = '';
   private ponderState: Ponder | null = null;
+  /** the decision being made is in the opening (rounds 0 .. openingRounds−1) */
+  private inOpening = false;
+  /** emulated rollouts past this time (ms, performance clock) search minimally */
+  private emuDeadline = Infinity;
   lastInfo: GodDecisionInfo = { rollouts: 0, ms: 0, candidates: 0 };
 
   constructor(seed?: number, opts: GodOptions = {}) {
@@ -242,10 +246,17 @@ export class GodBrain {
   }
 
   /** Cells GOD may look at: own cells and their neighbours under darkness, everything otherwise. */
-  visible(state: MatchState, me: number): Uint8Array {
+  visible(state: MatchState, me: number, fair = false): Uint8Array {
     const { cells, adj } = state.field;
     const vis = new Uint8Array(cells.length);
-    if (!state.settings.darkness || this.opts.cheat) {
+    const ch = fair ? false : this.opts.cheat;
+    if (
+      !state.settings.darkness ||
+      ch === true ||
+      (ch === 'open' && state.turn < this.opts.openingRounds) ||
+      (ch === 'attack' && state.phase === 'attack') ||
+      (ch === 'power' && state.phase === 'power')
+    ) {
       vis.fill(1);
       return vis;
     }
@@ -268,6 +279,8 @@ export class GodBrain {
     const { cells } = state.field;
     const n = cells.length;
     const vis = this.visible(state, me);
+    // experiments with partial cheating: the memory only learns what GOD really sees
+    const real = typeof this.opts.cheat === 'string' ? this.visible(state, me, true) : vis;
     const memKey = `${state.seed}|${n}|${me}`;
     if (!this.mem || this.mem.key !== memKey) {
       this.mem = { key: memKey, owner: new Int8Array(n).fill(-1), power: new Int8Array(n), seenTurn: new Int32Array(n).fill(-1) };
@@ -281,9 +294,11 @@ export class GodBrain {
         sim.owner[i] = o;
         // neutral cells normally have no power; puzzle positions may have armed grey cells
         sim.power[i] = c.power;
-        mem.owner[i] = o;
-        mem.power[i] = sim.power[i];
-        mem.seenTurn[i] = state.turn;
+        if (real[i]) {
+          mem.owner[i] = o;
+          mem.power[i] = sim.power[i];
+          mem.seenTurn[i] = state.turn;
+        }
       } else {
         anyHidden = true;
         const o = mem.owner[i];
@@ -461,6 +476,7 @@ export class GodBrain {
     const seed = this.rng.u32();
     const { sim: root, hidden } = this.belief(state, me, topo);
     const opening = this.opening(state);
+    this.inOpening = opening;
     const budget = this.budgetMs(firstOfTurn, ctx, opening, !this.multi(state, me));
     const rng = new FastRng(seed ^ 0x51);
 
@@ -762,7 +778,8 @@ export class GodBrain {
       this.sampleLuck(scratch, r);
       return finish(scratch, r);
     };
-    const ms = this.opening(state) ? this.opts.openingPowerMs : this.opts.powerMs * this.opts.duelLateScale;
+    this.inOpening = this.opening(state);
+    const ms = this.inOpening ? this.opts.openingPowerMs : this.opts.powerMs * this.opts.duelLateScale;
     const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(ms, this.opts.maxDecisionMs));
     this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length, emu: best.spent, changed: best.best !== 0 };
     return this.toPlacement(state, root, cands[best.best], me);
@@ -802,7 +819,6 @@ export class GodBrain {
     // the emulated opponent must be about as strong as the real one: a real-time Master searches a lot,
     // so real-time GOD emulates with 128 iterations per move (fixed-budget mode: 32, fast and deterministic)
     const iters = this.opts.emuIters ?? (this.opts.rollouts === undefined ? 128 : 32);
-    const reuse = !!this.opts.emuReuse;
     const tmp = root.clone();
     const playEmu = (sim: Sim, slot: number, rng: FastRng, lastTo = -1, maxMoves = 200): number => {
       const t = treeFor(slot);
@@ -812,9 +828,9 @@ export class GodBrain {
         if (!moves.length || sim.aliveCount() <= 1) break;
         let mv = moves[0];
         if (moves.length > 1) {
-          let todo = iters;
-          if (!reuse || t.size > 60_000) t.reset();
-          else todo -= t.visits(sim, lastTo);
+          // past the decision's hard deadline (a slow device): finish the rollout with minimal searches
+          const todo = this.emuDeadline < Infinity && now() > this.emuDeadline ? Math.min(iters, 8) : iters;
+          t.reset();
           const rh = t.rootHash(sim);
           for (let i = 0; i < todo; i++) {
             tmp.copyFrom(sim);
@@ -830,13 +846,7 @@ export class GodBrain {
       }
       return first;
     };
-    const pk = this.opts.emuPlaceK ?? 0;
-    const prng = new FastRng(seed ^ 0x6a09e667);
     const placeModel = (sim: Sim, slot: number, left = sim.income(slot)) => {
-      if (pk > 1 && slot !== me && root.t.kind[slot] === PK_MASTER) {
-        searchPlace(sim, slot, left, w, P, pk, this.opts.emuPlaceR ?? 4, prng);
-        return;
-      }
       let l = threatMinimums(sim, slot, left, 0);
       l = stackPlace(sim, slot, l, l, 0, w);
       smartyPlace(sim, slot, l);
@@ -866,7 +876,7 @@ export class GodBrain {
    * that player were GOD's opponent: its next attack (from → to, given its previous attack of the turn)
    * or its whole placement.
    */
-  emuProbe(state: MatchState, lastTo = -1): AttackMove | Map<number, number> | null {
+  emuProbe(state: MatchState, lastTo = -1, policy: 'emu' | 'expert' = 'emu'): AttackMove | Map<number, number> | null {
     const slot = state.current;
     const me = (slot + 1) % state.settings.players.length;
     const topo = this.topoFor(state);
@@ -883,7 +893,7 @@ export class GodBrain {
     sim.rng = rng;
     this.sampleLuck(sim, rng);
     if (state.phase === 'attack') {
-      const mv = playEmu(sim, slot, rng, lastTo, 1);
+      const mv = policy === 'expert' ? masterAttack(sim, slot, { lastTo }) : playEmu(sim, slot, rng, lastTo, 1);
       return mv < 0 ? null : { from: mv >> 10, to: mv & 1023 };
     }
     placeModel(sim, slot, state.powerLeft);
@@ -899,7 +909,9 @@ export class GodBrain {
     let alive = Array.from({ length: count }, (_, i) => i);
     let spent = 0;
     const timed = this.opts.rollouts === undefined;
-    const hard = Math.min(this.opts.maxDecisionMs, ms * 1.1 + 20);
+    let hard = Math.min(this.opts.maxDecisionMs, ms * 1.1 + 20);
+    if (this.inOpening) hard = Math.min(hard, this.opts.openingMaxMs);
+    if (this.opts.rollouts === undefined) this.emuDeadline = t0 + hard;
     const tStart = now();
     for (const c of alive) {
       sums[c] += run(c, done[c]++);
@@ -928,6 +940,7 @@ export class GodBrain {
       if (timed && now() - t0 > hard) break;
     }
     alive.sort((a, b) => sums[b] / done[b] - sums[a] / done[a] || a - b);
+    this.emuDeadline = Infinity;
     return { best: alive[0], spent };
   }
 

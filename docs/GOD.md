@@ -97,11 +97,16 @@ Two other measurements:
 With darkness on, GOD reads only its own cells and their neighbours. Everything else comes from:
 - **Memory:** an enemy cell keeps its last-seen owner and its power grows by 1 per round up to
   capacity. A never-seen cell counts as neutral.
-- **Public HUD totals:** the enemy power GOD can't place on the board is added to the evaluation's
-  denominator.
+- **Phantoms (public HUD totals):** the HUD shows every player's cell count and power. The enemy cells
+  GOD can't see are put on the board: the unseen, believed-neutral cells closest to that enemy's known
+  cells (an enemy never seen: around the unseen cell farthest from GOD), with the unplaced power spread
+  over them. Before, the missing power was only added to the evaluation's denominator, so in every
+  emulated reply the enemy had a fraction of its real income and GOD under-rated its counterattacks.
+  Whatever power still can't be placed goes into the denominator as before.
 
 Tests check that decisions are identical when invisible cells are permuted (the HUD totals stay the
-same), and when `state.luck` is changed.
+same), also over a whole match with the brain's memory (a second brain fed scrambled invisible cells at
+every decision decides exactly the same), and when `state.luck` is changed.
 
 ## Tuning procedure
 
@@ -163,6 +168,79 @@ Other checks:
 The hard cap is 2 s. Budgets are wall-clock with a minimum of 16 iterations, so a slow phone searches
 less but is never slower and never passes because of time. The worker also ponders the next position
 during the animation of each attack.
+
+## Round 3: held-out discipline, emulator fidelity, darkness
+
+Protocol: tuning only on offsets 0–239, every accepted change judged on the held-out offsets 1000–1119
+(both seat orders, 240 games). `scripts/god-paired.ts` runs both seat orders and interleaves the
+variants' jobs (a variant may run from another checkout with `"_dir"`), so a candidate and the baseline
+share the same machine load. `scripts/god-fidelity.ts` measures how often the emulator makes the same
+decision as the real Master on the same position; `scripts/god-diag.ts` logs per-decision effort.
+
+Caveat: all real-time numbers below were taken on the shared 10-core Mac while other agents loaded it
+(load average 15–90), so they are a slow-device regime. Only interleaved comparisons are meaningful.
+
+**Held-out baseline** (version of round 2, real time, 5 processes, load ≈ 20–30): 149/240 = **62.1%**
+(M 58.8%, L 61.3%, XL 66.3%), GOD 337 ms average, 1779 ms maximum. The tuning offsets are easier: the
+same version scores 71.9–73.8% on offsets 0–119 in the same conditions. Per game slot (map and seat),
+outcomes are far from binomial: over four runs of 114 slots, 53 were always won and 10 always lost.
+
+**Emulator fidelity** (real-time Master as the reference, 9 duels):
+
+| emulated Master attack = real Master's | opening | later |
+|---|---|---|
+| emulator 128 iterations (round 2) | 81.8% | 54.5% |
+| emulator 512 iterations | 82.3% | 54.5% |
+| nominal dice + Master's clamped ratio (`emuNominal`) | 85.6% | 72.1% |
+| nominal, 512 iterations | 90.6% | 73.0% |
+| 4 players: expert policy (whole-turn search model) / emulator / nominal emulator | 80% / 92% / 92% | 58% / 59% / 80% |
+
+Master doesn't know the streak corrector, so it searches with nominal dice; the round-2 emulator
+searched with the true odds and therefore mispredicted half of Master's later attacks. The placement
+model matches 53% of Master's opening placement points; a Master-like placement search
+(K candidate stacks × R expert rollouts) raised that to 56–59%.
+
+**Higher fidelity did not make GOD stronger** (real time, 6 processes, offsets 0–119, interleaved):
+
+| variant | games | GOD |
+|---|---|---|
+| round 2 | 114 | 71.9% |
+| nominal emulator | 114 | 71.1% |
+| nominal + emulator trees kept across emulated moves and rollouts | 114 | 58.8% |
+| the same + Master-like placement search | 114 | 52.6% |
+| round 2 (second window) | 240 | 73.8% |
+| opening budgets +100–400 ms (average 419 ms) | 240 | 71.7% |
+| the same + emulator 192 iterations | 240 | 69.6% |
+
+Keeping emulator trees makes every rollout of a candidate replay the same emulated opponent decisions,
+so a candidate is judged against one sampled reply instead of a spread of them: the comparison gets
+much noisier. Fixed-budget screening (GOD 1000 vs Master 2000, 80 games, round 2 = 63/80) found nothing
+either: true streak counters at the start of every turn (an upper bound for inferring them from the
+fights) 58/80, emulated placements filling another of the three next-best stacks 30% / 50% of the time
+62 / 56, 6 / 16 placement candidates 63 / 64, three re-scored attacks 54.
+
+**Multi-player:** GOD + 3 Masters on L, real time, 60 games: 65% (fair share 25%). Master opponents
+played by small nominal searches inside the whole-turn search (16 / 48 visits per move, trees kept)
+instead of the expert policy: 60% / 65%. Dropped.
+
+**Darkness** (fixed budget GOD 1000 vs Master 2000, Master sees everything):
+
+| variant | offsets 0–29 (60 games) | offsets 0–89 (175–180) |
+|---|---|---|
+| round 2 | 15.0% | 15.4% |
+| phantoms (default now) | 30.0% | 27.2% |
+| phantoms + nominal emulator | 38.3% | |
+| phantoms anchored at the estimated start (mirror / graph median) | | 27.4% |
+| "shadow" board (believed board advanced by modelled enemy turns, reconciled with the HUD) | 43.3% | 15.8% (30–89) |
+| cheat: full view | 73.3% | |
+| cheat in rounds 0–3 only | 68.3% | |
+| cheat in rounds 4+ only | 38.3% | |
+| cheat for attack decisions / placements only | 61.7% / 45.0% | |
+| cheat: two rings of view in rounds 0–3 | 51.7% | |
+| cheat: the true location of an unseen enemy as the phantom anchor | 46.7% | |
+
+The whole darkness handicap is in the opening, and the enemy's location explains only a small part of
+it. Phantom details (power on the phantom border, no growth of remembered cells) changed nothing.
 
 ## Known weaknesses
 

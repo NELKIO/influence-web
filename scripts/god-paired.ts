@@ -8,13 +8,15 @@
  *          variants='{"base":{},"cand":{"emuIters":96}}' extra="gr=0 mp=0 speed=200" [opp=master] [out=file.jsonl]
  *   lo..hi      offsets [lo, hi) (each played twice: both seat orders)
  *   procs       parallel processes (the load: 10 on 10 cores is the slow-device proxy)
- *   variants    name → GodOptions of the GOD side (default {"base":{}})
+ *   variants    name → GodOptions of the GOD side (default {"base":{}}); "_dir" runs that variant from another
+ *               checkout (e.g. the baseline version), so both are measured in the same run window
  *   extra       arguments passed to god-strength (sizes, budgets, speed, duelRules, darkness, mode=ffa ...)
  *   out         append one JSON line per game (variant, offset, size, seat order, GOD won) to this file
  * In ffa mode (extra contains mode=ffa) only the "GOD as A" order exists (GOD rotates through the seats).
  */
 import { spawn } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 const args = new Map<string, string>();
 for (const a of process.argv.slice(2)) {
@@ -60,11 +62,14 @@ for (const v of Object.keys(variants))
   tally.set(v, { w: 0, n: 0, size: new Map(), order: [[0, 0], [0, 0]], tn: 0, tsum: 0, tmax: 0, rounds: 0 });
 
 function run(job: Job): Promise<void> {
-  const opts = JSON.stringify(variants[job.variant]);
+  // a variant may name its own code directory ("_dir": a checkout of another version, e.g. the baseline)
+  const { _dir, ...godOpts } = variants[job.variant] as { _dir?: string };
+  const dir = resolve(_dir ?? process.cwd());
+  const opts = JSON.stringify(godOpts);
   const sideArgs = job.godIsA ? ['a=god', `b=${opp}`, `godA=${opts}`] : [`a=${opp}`, 'b=god', `godB=${opts}`];
-  const cmd = ['vite-node', 'scripts/god-strength.ts', '--', 'json=1', `games=${job.games}`, `offset=${job.offset}`, ...sideArgs, ...extra];
+  const cmd = [join(dir, 'node_modules/.bin/vite-node'), join(dir, 'scripts/god-strength.ts'), '--', 'json=1', `games=${job.games}`, `offset=${job.offset}`, ...sideArgs, ...extra];
   return new Promise((resolve) => {
-    const p = spawn('npx', cmd, { stdio: ['ignore', 'pipe', 'ignore'] });
+    const p = spawn(process.execPath, cmd, { cwd: dir, stdio: ['ignore', 'pipe', 'ignore'] });
     let buf = '';
     p.stdout.on('data', (d) => (buf += d));
     p.on('close', () => {

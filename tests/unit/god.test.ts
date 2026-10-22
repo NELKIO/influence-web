@@ -281,6 +281,50 @@ describe('GOD: fair play (no hidden information)', () => {
     expect(differentBoards).toBeGreaterThan(3);
   });
 
+  it('a whole darkness match: a brain fed scrambled invisible cells decides exactly the same (memory, phantoms)', () => {
+    for (const seed of [31, 32]) {
+      const s = createMatch({ ...base, size: 'L', darkness: true, players: ['god', 'hunter'] }, { seed });
+      const a = new GodBrain(9, { rollouts: 30 });
+      const b = new GodBrain(9, { rollouts: 30 });
+      const hunter = new HunterBot(seed);
+      let decisions = 0;
+      let steps = 0;
+      while (!s.ended && s.turn < 10 && steps++ < 800) {
+        if (s.current === 0) {
+          const other = scrambleHidden(s, 0, steps);
+          if (s.phase === 'attack') {
+            const mv = a.decideAttack(s, ctx);
+            expect(b.decideAttack(other, ctx)).toEqual(mv);
+            decisions++;
+            if (mv) {
+              attack(s, mv.from, mv.to);
+              if ((s.ended as MatchState["ended"])?.winner === -1 && alivePlayers(s).length > 1) s.ended = null;
+              continue;
+            }
+            endAttack(s);
+          } else {
+            const pl = a.decidePower(s, ctx);
+            expect([...b.decidePower(scrambleHidden(s, 0, steps + 1000), ctx)]).toEqual([...pl]);
+            decisions++;
+            for (const [c, k] of pl) addPower(s, c, k);
+            finishTurn(s);
+          }
+          continue;
+        }
+        const mv = hunter.pickAttack(s);
+        if (mv) {
+          attack(s, mv.from, mv.to);
+          if ((s.ended as MatchState["ended"])?.winner === -1 && alivePlayers(s).length > 1) s.ended = null;
+          continue;
+        }
+        endAttack(s);
+        for (const [c, k] of smartyPower(s)) addPower(s, c, k);
+        finishTurn(s);
+      }
+      expect(decisions).toBeGreaterThan(15);
+    }
+  });
+
   it('never reads the hidden streak-corrector counters', async () => {
     for (const st of sampleStates({}, [23]).slice(0, 10)) {
       const other = structuredClone(st);

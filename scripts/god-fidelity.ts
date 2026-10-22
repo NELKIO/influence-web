@@ -27,6 +27,9 @@ const speed = Number(get('speed', '200'));
 const duelRules = get('duelRules', '0') === '1';
 const verbose = get('verbose', '0') === '1';
 const variants: Record<string, object> = JSON.parse(get('variants', '{"base":{}}'));
+const players = Number(get('players', '2'));
+/** variants whose name starts with "expert" probe Master's expert rollout policy instead of the emulator */
+const policyOf = (k: string) => (k.startsWith('expert') ? 'expert' : 'emu');
 
 interface Acc {
   atk: number[];
@@ -42,7 +45,7 @@ for (let gi = 0; gi < games; gi++) {
   const settings: MatchSettings = {
     kind: 'single',
     size: sizes[g % sizes.length],
-    players: ['master', 'master'],
+    players: Array.from({ length: players }, () => 'master' as const),
     darkness: false,
     symmetry: g % 2 === 1,
     crowded: false,
@@ -57,7 +60,7 @@ for (let gi = 0; gi < games; gi++) {
     type: 'master',
     async nextAttack(s, c) {
       const lastTo = last && last.turn === s.turn ? last.to : -1;
-      const answers = Object.entries(brains).map(([k, b]) => [k, b.emuProbe(s, lastTo)] as const);
+      const answers = Object.entries(brains).map(([k, b]) => [k, b.emuProbe(s, lastTo, policyOf(k))] as const);
       const mv = await real.nextAttack(s, c);
       if (mv) {
         const ph = s.turn < 4 ? 0 : 1;
@@ -102,8 +105,8 @@ for (let gi = 0; gi < games; gi++) {
       return pl;
     },
   };
-  const other = createBot('master', { seed: 99 + g, master: { sync: true, playouts: mp > 0 ? mp : undefined } });
-  await runMatch(settings, { seed: 7000 + g, bots: [probe, other], maxRounds: 60, ctx: { speedMs: speed } });
+  const others = Array.from({ length: players - 1 }, (_, i) => createBot('master', { seed: 99 + g + 1000 * i, master: { sync: true, playouts: mp > 0 ? mp : undefined } }));
+  await runMatch(settings, { seed: 7000 + g, bots: [probe, ...others], maxRounds: 60, ctx: { speedMs: speed } });
   process.stderr.write('.');
 }
 console.log('');
