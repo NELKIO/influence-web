@@ -113,28 +113,61 @@ same), and when `state.luck` is changed.
    a pure heuristic).
 4. Validate on the full suite below.
 
-## Results (desktop, Apple Silicon, 10 parallel processes)
+## Results
+
+All on a desktop (Apple Silicon, 10 cores).
+
+**Paired protocol (duels):** both seat orders on the same offsets, and the sum is reported. Matches
+are M/L/XL, symmetric and random maps, both bots on real-time defaults at UI pace 200 ms
+(`gr=0 mp=0 speed=200`). The number of parallel processes is the load: 10 processes on 10 cores is
+the slow-device proxy.
+
+| GOD vs Master, real time, paired | games | GOD | M | L | XL |
+|---|---|---|---|---|---|
+| final, 5 processes | 240 | **73.3%** | 68.8% | 71.3% | 80.0% |
+| final, 10 processes | 240 | **69.6%** | 63.8% | 70.0% | 75.0% |
+| emulator 256 iterations per move instead of 128, 5 processes | 240 | 70.8% | 58.8% | 78.8% | 75.0% |
+| previous version (emulator 32), 5 processes | 240 | 65.0% | | | |
+| previous version (emulator 32), 10 processes | 240 | 65.0% | | | |
+| version before this round, 5 processes (offsets 0–59) | 120 | 61.7% | | | |
+
+During these runs GOD averaged about 320 ms per decision and Master 125–140 ms.
+
+Fixed budget (GOD 1000 iterations, Master 1000 playouts), paired, 240 games:
+- only the first attack of a turn re-scored: 63.8%
+- every opening attack re-scored: 76.7%
+- every attack re-scored: 76.7%, with identical outcomes
+- one extra emulated round: 62.9%
+- extra placement candidates: 72.9%
+- six re-scored moves instead of four: 77.5%
+
+Other checks:
 
 | match | games | GOD |
 |---|---|---|
-| vs Master 1v1, fixed budget (GOD 1000 iterations, Master 1000 playouts) | 300 | **60.7%** (M 61, L 57, XL 64) |
-| vs Master 1v1, equal decision time (GOD 1000 → 65 ms avg, Master 10000 → 74 ms avg) | 200 | **57.5%** (M 52, L 55, XL 65) |
-| vs Master 1v1, real-time defaults, UI pace 200 ms | 150 | **55.3%** (M 46, L 54, XL 66) |
-| Master vs Master, same seeds (seat/seed bias reference) | 300 | 56.7% for side A |
-| vs Hunter 1v1 | 60 | **100%** |
-| GOD + 3 Masters, 4-player FFA on L (fair share 25%) | 100 | **57%** |
+| vs Hunter 1v1 (fixed budget) | 30 + 60 | **100%** |
+| GOD + 3 Masters, 4-player FFA on L (fair share 25%, fixed budget) | 60 / 100 | **60%** / 57% |
 | GOD + 5 Hunters, 6 players on L/XL (fair share 16.7%) | 60 | **55%** (7 saturated stalemates at the round cap) |
 
-Decision times, real-time mode at UI pace 200 ms on desktop: attacks average 140–160 ms; the first
-attack of a turn takes up to about 0.9 s with the re-scoring; placements average 210–290 ms, max 465 ms
-on XXL. The hard cap is 1.2 s per decision. Budgets are wall-clock, so a slower phone searches less
-but is never slower.
+**Decision times** (`scripts/god-perf.ts -- opp=master`, real time, UI pace 200 ms, S–XXL):
+
+| | average | maximum |
+|---|---|---|
+| all decisions | 205–360 ms | 1.45 s |
+| rounds 0–3 | 428–541 ms | 1.45 s |
+| later rounds | 151–205 ms | ~1.0 s |
+| placements | 450–620 ms | |
+
+The hard cap is 2 s. Budgets are wall-clock with a minimum of 16 iterations, so a slow phone searches
+less but is never slower and never passes because of time. The worker also ponders the next position
+during the animation of each attack.
 
 ## Known weaknesses
 
-- **Duels against Master.** GOD is ahead but not by the targeted 65%. In fixed-iteration mode the
-  emulated placements cost about 10× Master's compute per decision. At equal decision time it is
-  57.5%, and at real-time defaults 55%.
+- **Duel compute.** GOD uses about 2.5× Master's time per decision. At an equal fixed iteration count
+  its placement emulation costs much more than Master's search.
 - **Humans in duels.** They are modelled as Master-like players (pessimistic but sensible).
 - **Six-player stalemates.** Saturated six-player boards can stall. Bots never accept early finishes.
 - **Darkness.** GOD plays fair while Master sees everything, so GOD is handicapped there.
+- **No pondering on the opponent's turn.** The worker is idle then; only the next position after
+  GOD's own attack is pondered.
