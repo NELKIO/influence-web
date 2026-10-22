@@ -73,7 +73,7 @@ export interface Field {
   layout?: 'triangle' | 'star' | 'ring' | 'flower' | 'pinwheel' | 'islands' | 'honeycomb';
 }
 
-export type MatchKind = 'single' | 'daily' | 'duelTraining' | 'duelLocal' | 'duelOnline';
+export type MatchKind = 'single' | 'daily' | 'duelTraining' | 'duelLocal' | 'duelOnline' | 'battleOnline';
 
 export interface MatchSettings {
   kind: MatchKind;

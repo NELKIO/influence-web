@@ -13,6 +13,7 @@ import { RulesScreen } from './screens/RulesScreen';
 import { DailyScreen } from './screens/DailyScreen';
 import { DuelsScreen } from './screens/DuelsScreen';
 import { JoinScreen } from './screens/JoinScreen';
+import { BattleRoomScreen } from './screens/BattleRoomScreen';
 
 /** Invite links: #/duel/CODE (4 characters) and #/join/CODE (5-character battle rooms) */
 function readInvite(): { kind: 'duel' | 'battle'; code: string } | null {
@@ -102,6 +103,6 @@ function Screens() {
     case 'join':
       return <JoinScreen code={route.code} />;
     case 'battleRoom':
-      return <JoinScreen code={route.join} />;
+      return <BattleRoomScreen key={route.join ?? 'host'} join={route.join} />;
   }
 }

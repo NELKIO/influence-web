@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { BoardRenderer } from '../board/renderer';
 import { attachBoardInput } from '../board/input';
-import { GameController, type MatchDriver } from '../game/controller';
+import { GameController, type AppliedMove, type MatchDriver } from '../game/controller';
 import { t } from '../../i18n';
 import { getSettings, navigate, updateSettings, useSettings, type Launch, type Route } from '../store';
 import { playerName } from '../names';
@@ -27,7 +27,14 @@ import {
 import { sfx, unlockAudio } from '../../audio/sfx';
 
 export interface OnlineBinding {
-  driver: MatchDriver;
+  /** moves routed to the network instead of (or in addition to) the local engine */
+  driver?: Partial<MatchDriver>;
+  /** every move applied locally (battle host: forwarded to the guests) */
+  onAction?: (seat: number, a: AppliedMove) => void;
+  /** battle guest: the host plays everything, no local bots */
+  remoteDriven?: boolean;
+  /** leaving a finished match (close the room) */
+  onLeaveEnded?: () => void;
   /** called once the controller exists so the session can push remote events */
   bind(ctrl: GameController): () => void;
   /** extra HUD (timer, connection status) */
@@ -39,7 +46,7 @@ export interface OnlineBinding {
 }
 
 function isSaveable(state: MatchState) {
-  return state.settings.kind !== 'duelOnline';
+  return state.settings.kind !== 'duelOnline' && state.settings.kind !== 'battleOnline';
 }
 
 function formatDuration(ms: number) {
@@ -70,6 +77,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
       nameOf: (slot) => playerName(st.settings, slot),
       t: t as (k: string, p?: Record<string, string | number>) => string,
       driver: online?.driver,
+      onAction: online?.onAction,
+      remoteDriven: online?.remoteDriven,
       onSave: (s) => {
         if (isSaveable(s) && !s.ended) saveGame({ state: s, initial: launch.initial });
       },
@@ -219,6 +228,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   };
 
   const exitToMenu = () => {
+    if (ctrl.state.ended) online?.onLeaveEnded?.();
     navigate(online?.exitTo ?? { name: 'menu' });
   };
 
@@ -413,7 +423,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
               <IconRestart width={18} height={18} /> {t('restartSame')}
             </button>
           )}
-          {!s.ended && (s.settings.kind === 'duelOnline' || s.settings.kind === 'daily' || s.settings.kind === 'duelTraining') && (
+          {!s.ended && (s.settings.kind === 'duelOnline' || s.settings.kind === 'battleOnline' || s.settings.kind === 'daily' || s.settings.kind === 'duelTraining') && (
             <button
               class="btn red"
               onClick={() => setAskConcede(true)}

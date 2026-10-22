@@ -6,6 +6,7 @@ import { createMatch } from '../../core/engine';
 import { hashString, randomSeed } from '../../core/rng';
 import { buildScenario } from '../../core/scenarios';
 import { createPuzzleMatch, SCENARIOS, type ScenarioId } from '../../daily';
+import { prepareHost } from '../battle';
 import { SIZE_ORDER, type MatchState, type PlayerType } from '../../core/types';
 import { SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconPlus, IconRestart, IconX, PlayerToken } from '../components/icons';
@@ -35,8 +36,16 @@ export function SetupScreen() {
 
   const humans = prefs.players.filter((p) => p === 'human').length;
 
+  const hasOnline = prefs.players.includes('online');
+
   const start = () => {
     sfx.click();
+    if (hasOnline) {
+      // seats for people on other devices: open a room first
+      prepareHost(setupToSettings(prefs), mapSeed);
+      navigate({ name: 'battleRoom' });
+      return;
+    }
     // same seed as the preview -> the same map and start cells, with the current modes
     const st = createMatch(setupToSettings(prefs), { seed: mapSeed });
     saveGame(null);
@@ -219,7 +228,7 @@ export function SetupScreen() {
           {step < 2 ? (
             <>
               <button class="btn ghost" onClick={start}>
-                {t('start')}
+                {hasOnline ? t('battleCreate') : t('start')}
               </button>
               <button class="btn primary" onClick={() => setStep(step + 1)}>
                 {t('next')}
@@ -227,7 +236,7 @@ export function SetupScreen() {
             </>
           ) : (
             <button class="btn primary" onClick={start}>
-              {t('start')} · {t('playersCount', { n: prefs.players.length })}
+              {hasOnline ? t('battleCreate') : t('start')} · {t('playersCount', { n: prefs.players.length })}
             </button>
           )}
         </div>

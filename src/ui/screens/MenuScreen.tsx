@@ -9,6 +9,8 @@ import { AmbientBoard } from '../components/AmbientBoard';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import { dayNumber, dayId } from '../../daily';
 import { myTurnCount, onDuelsChange } from '../duels';
+import { prepareHost, resumableBattle, resumeBattle } from '../battle';
+import { randomSeed } from '../../core/rng';
 import { useEffect } from 'preact/hooks';
 
 export function MenuScreen() {
@@ -19,6 +21,7 @@ export function MenuScreen() {
   const [, setTick] = useState(0);
   useEffect(() => onDuelsChange(() => setTick((n) => n + 1)), []);
   const duelTurns = myTurnCount();
+  const battle = resumableBattle();
 
   const go = (fn: () => void) => {
     unlockAudio();
@@ -32,6 +35,11 @@ export function MenuScreen() {
   };
 
   const quick = () => {
+    if (setup.players.includes('online')) {
+      prepareHost(setupToSettings(setup), randomSeed());
+      navigate({ name: 'battleRoom' });
+      return;
+    }
     const st = createMatch(setupToSettings(setup));
     saveGame(null);
     navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
@@ -64,6 +72,19 @@ export function MenuScreen() {
         </div>
 
         <div class="menu-actions">
+          {battle && (
+            <button class="play-btn cont" onClick={() => go(resumeBattle)}>
+              <div>
+                <div class="big" style={{ fontSize: 17 }}>
+                  {t('battleResume')}
+                </div>
+                <div class="small">{battle.code}</div>
+              </div>
+              <div class="arrow">
+                <IconPlay />
+              </div>
+            </button>
+          )}
           {saved && (
             <button class="play-btn cont" onClick={() => go(() => navigate({ name: 'game', launch: { state: saved.state, initial: saved.initial } }))}>
               <div>

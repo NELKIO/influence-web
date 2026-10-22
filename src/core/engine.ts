@@ -442,7 +442,7 @@ export interface StuckOffer {
 /** Called at the start of a human's turn. Returns an early-finish offer when the board is saturated. */
 export function checkStuck(state: MatchState): StuckOffer | null {
   const s = state.settings;
-  if (state.ended || s.kind === 'duelOnline') return null;
+  if (state.ended || s.kind === 'duelOnline' || s.kind === 'battleOnline') return null;
   if (state.turn <= SIZES[s.size].stuckAfter || state.turn - state.lastStuck < 5) return null;
   state.lastStuck = state.turn;
   const alive = alivePlayers(state);

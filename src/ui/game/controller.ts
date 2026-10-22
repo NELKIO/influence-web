@@ -36,6 +36,13 @@ export type Overlay =
   | { kind: 'pause' }
   | { kind: 'result' };
 
+/** A move as applied to the state (fights carry their outcome so it can be replayed elsewhere). */
+export type AppliedMove =
+  | { t: 'attack'; from: number; to: number; win: boolean }
+  | { t: 'endAttack' }
+  | { t: 'power'; cell: number; amount: number }
+  | { t: 'endTurn' };
+
 export interface Hint {
   text: string;
   color?: string;
@@ -60,7 +67,13 @@ export interface ControllerOptions {
   settings: Settings;
   /** used for name strings */
   nameOf: (slot: number) => string;
-  driver?: MatchDriver;
+  /** override some moves (online play); missing ones use the local engine */
+  driver?: Partial<MatchDriver>;
+  /**
+   * Every move applied to the local state, by anyone (people and bots). An online battle host
+   * forwards them to its guests.
+   */
+  onAction?: (seat: number, a: AppliedMove) => void;
   onSave?: (state: MatchState) => void;
   onEnd?: (state: MatchState) => void;
   /** online battle guest: every move comes from the host, bots are not run locally */
@@ -97,7 +110,7 @@ export class GameController {
     this.opts = opts;
     this.state = opts.state;
     this.settings = opts.settings;
-    this.driver = opts.driver ?? this.localDriver();
+    this.driver = { ...this.localDriver(), ...(opts.driver ?? {}) };
     // a guest of an online battle only replays what the host sends: no bots run here
     if (!opts.remoteDriven) {
       opts.state.settings.players.forEach((p, slot) => {
@@ -108,14 +121,49 @@ export class GameController {
 
   private localDriver(): MatchDriver {
     return {
-      attack: (f, t) => attack(this.state, f, t),
-      endAttack: () => endAttack(this.state),
-      addPower: (c, n) => addPower(this.state, c, n),
-      autoPower: () => autoPower(this.state),
-      finishTurn: () => finishTurn(this.state),
+      attack: (f, t) => {
+        const seat = this.state.current;
+        const ev = attack(this.state, f, t);
+        if (typeof ev !== 'string') this.report(seat, { t: 'attack', from: f, to: t, win: ev.win });
+        return ev;
+      },
+      endAttack: () => {
+        const seat = this.state.current;
+        const u = endAttack(this.state);
+        this.report(seat, { t: 'endAttack' });
+        return u;
+      },
+      addPower: (c, n) => {
+        const added = addPower(this.state, c, n);
+        if (added) this.report(this.state.current, { t: 'power', cell: c, amount: added });
+        return added;
+      },
+      autoPower: () => {
+        const added = autoPower(this.state);
+        for (const [cell, amount] of added) this.report(this.state.current, { t: 'power', cell, amount });
+        return added;
+      },
+      finishTurn: () => {
+        const seat = this.state.current;
+        finishTurn(this.state);
+        this.report(seat, { t: 'endTurn' });
+      },
       concede: (slot) => concede(this.state, slot),
       canAct: () => isHuman(this.state, this.state.current),
     };
+  }
+
+  private report(seat: number, a: AppliedMove) {
+    this.opts.onAction?.(seat, a);
+  }
+
+  /** Create bots for seats that became bots (e.g. an online seat handed over to a bot). */
+  refreshBots() {
+    if (this.opts.remoteDriven) return;
+    this.state.settings.players.forEach((p, slot) => {
+      if (p !== 'human' && p !== 'remote' && p !== 'online' && !this.bots.has(slot)) this.bots.set(slot, createBot(p));
+    });
+    this.afterChange();
   }
 
   // ------------------------------------------------------------ wiring
@@ -271,7 +319,7 @@ export class GameController {
         this.renderer?.floatText(cell, `+${added}`, playerColor(s.current));
         this.afterPowerAdded();
       } else {
-        buzz(8);
+        if (!this.opts.remoteDriven) buzz(8);
       }
     }
   }
@@ -562,6 +610,7 @@ export class GameController {
             }
             if (this.state !== s) continue;
             const ev = attack(this.state, mv.from, mv.to);
+            if (typeof ev !== 'string') this.report(slot, { t: 'attack', from: mv.from, to: mv.to, win: ev.win });
             this.state.selected = -1;
             if (typeof ev === 'string') {
               // illegal move from a bot: end its attack instead of looping
@@ -584,10 +633,12 @@ export class GameController {
           const vis = visibleCells(this.state);
           for (const [cell, n] of placement) {
             const added = addPower(this.state, cell, n);
+            if (added) this.report(slot, { t: 'power', cell, amount: added });
             if (added && vis[cell]) this.renderer?.floatText(cell, `+${added}`, playerColor(slot));
           }
-          if (this.state.powerLeft > 0) autoPower(this.state);
+          if (this.state.powerLeft > 0) for (const [cell, amount] of autoPower(this.state)) this.report(slot, { t: 'power', cell, amount });
           finishTurn(this.state);
+          this.report(slot, { t: 'endTurn' });
           this.opts.onSave?.(this.state);
           // a human moves next: stop here so the hand-over screen (if any) appears before the new view
           if (isHuman(this.state, this.state.current)) break;
@@ -616,7 +667,9 @@ export class GameController {
   }
 
   private botEndAttack() {
+    const seat = this.state.current;
     const u = endAttack(this.state);
+    this.report(seat, { t: 'endAttack' });
     if (u) this.onUnion(u);
     this.emit();
   }
