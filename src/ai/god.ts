@@ -11,9 +11,10 @@
  *    own objective (one per opponent move) plus threat-minimum placements. The placement is chosen among
  *    "threat minimums (Master §7.5, per opponent) + fill cell X + rest" candidates for the best
  *    attack-stack cells (key tuned against Master: own power, grey / weak neighbours, room for a chain
- *    within two steps) by rollouts through the emulated reply and GOD's next attack phase; the first
- *    attack of every turn is re-scored the same way among the tree's favourite moves. Candidates are
- *    compared with common random numbers and successive halving.
+ *    within two steps) by rollouts through the emulated reply and GOD's next attack phase. Attacks are
+ *    re-scored the same way among the tree's four favourite moves: every attack of the opening
+ *    (rounds 0–3, which decide most matches) and the first attack of later turns. Candidates are
+ *    compared with common random numbers and successive halving. The opening gets the big time budgets.
  *  - Three or more players alive: attacks and placements are chosen by a whole-turn search
  *    (src/ai/godGame.ts): GOD's attacks and canonical placements are tree nodes; every opponent plays its
  *    turn with a model of its own type (Hunter / Duel Hunter / Dummy / Freak exactly, Master by its
@@ -87,6 +88,7 @@ export interface GodOptions {
   /** duel placement: 'heuristic' (tuned threat minimums + attack stack) or 'emulate' (best response) */
   duelPower?: 'heuristic' | 'emulate';
   emuCands?: number;
+  /** emulator: UCT iterations per emulated move (default 128 in real time, 32 with fixed rollouts) */
   emuIters?: number;
   /** fixed-budget mode: emulated rollouts per duel placement (default 0.4 × rollouts) */
   emuRollouts?: number;
@@ -99,6 +101,7 @@ export interface GodOptions {
   /** re-score every attack decision of the match */
   rescoreAll?: boolean;
   emuExtra?: boolean;
+  duelLateScale?: number;
   /** ignore the fog (experiments only; the game never sets this) */
   cheat?: boolean;
 }
@@ -117,6 +120,8 @@ export const DEFAULT_GOD_OPTIONS = {
   openingPowerMs: 1200,
   attackMs: 150,
   attackSpeedFactor: 0.8,
+  /** duels after the opening: scale of the time budgets */
+  duelLateScale: 1,
   maxDecisionMs: 2000,
   mode: 'auto' as 'auto' | 'duel' | 'multi',
   c: 0.25,
@@ -124,7 +129,6 @@ export const DEFAULT_GOD_OPTIONS = {
   powerMs: 600,
   duelPower: 'emulate' as 'heuristic' | 'emulate',
   emuCands: 10,
-  emuIters: 32,
   /** first attack of a turn: re-score this many top moves by emulation (0 = off) */
   attackEmu: 4,
   /** extra full rounds in emulated rollouts */
@@ -343,10 +347,12 @@ export class GodBrain {
     return state.turn < this.opts.openingRounds;
   }
 
-  private budgetMs(firstOfTurn: boolean, ctx: BotContext, opening: boolean): number {
+  private budgetMs(firstOfTurn: boolean, ctx: BotContext, opening: boolean, duel: boolean): number {
     const o = this.opts;
     const later = Math.max(opening ? o.openingAttackMs : o.attackMs, o.attackSpeedFactor * ctx.speedMs);
-    return Math.min(o.maxDecisionMs, firstOfTurn ? (opening ? o.openingFirstMs : o.firstAttackMs) : later);
+    const ms = firstOfTurn ? (opening ? o.openingFirstMs : o.firstAttackMs) : later;
+    // duels are decided in the opening: later rounds think less so the opening can think more
+    return Math.min(o.maxDecisionMs, !opening && duel ? ms * o.duelLateScale : ms);
   }
 
   // -------------------------------------------------------------- attack
@@ -368,7 +374,7 @@ export class GodBrain {
     const seed = this.rng.u32();
     const { sim: root, hidden } = this.belief(state, me, topo);
     const opening = this.opening(state);
-    const budget = this.budgetMs(firstOfTurn, ctx, opening);
+    const budget = this.budgetMs(firstOfTurn, ctx, opening, !this.multi(state, me));
     const rng = new FastRng(seed ^ 0x51);
 
     let move: number;
@@ -424,7 +430,7 @@ export class GodBrain {
             placeModel(scratch, me);
             return finish(scratch, r);
           };
-          const res = this.halving(top.length, run, this.opts.emuAttackRollouts ?? Math.round(0.16 * (this.opts.rollouts ?? 1000)), t0, Math.min(this.opts.maxDecisionMs, firstOfTurn ? (opening ? this.opts.openingRescoreMs : this.opts.rescoreMs) : opening ? this.opts.openingRescoreOtherMs : this.opts.rescoreMs));
+          const res = this.halving(top.length, run, this.opts.emuAttackRollouts ?? Math.round(0.16 * (this.opts.rollouts ?? 1000)), t0, Math.min(this.opts.maxDecisionMs, firstOfTurn ? (opening ? this.opts.openingRescoreMs : this.opts.rescoreMs * this.opts.duelLateScale) : opening ? this.opts.openingRescoreOtherMs : this.opts.rescoreMs * this.opts.duelLateScale));
           move = top[res.best].move;
           iters += res.spent;
         }
@@ -666,7 +672,7 @@ export class GodBrain {
       this.sampleLuck(scratch, r);
       return finish(scratch, r);
     };
-    const ms = this.opening(state) ? this.opts.openingPowerMs : this.opts.powerMs;
+    const ms = this.opening(state) ? this.opts.openingPowerMs : this.opts.powerMs * this.opts.duelLateScale;
     const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(ms, this.opts.maxDecisionMs));
     this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length };
     return this.toPlacement(state, root, cands[best.best], me);
@@ -700,7 +706,9 @@ export class GodBrain {
       }
       return t;
     };
-    const iters = this.opts.emuIters;
+    // the emulated opponent must be about as strong as the real one: a real-time Master searches a lot,
+    // so real-time GOD emulates with 128 iterations per move (fixed-budget mode: 32, fast and deterministic)
+    const iters = this.opts.emuIters ?? (this.opts.rollouts === undefined ? 128 : 32);
     const tmp = root.clone();
     const playEmu = (sim: Sim, slot: number, rng: FastRng, lastTo = -1) => {
       const t = treeFor(slot);

@@ -36,9 +36,19 @@ alone beats a third of Master's games.
   `evalPhase`, which generalises Master's ratio `2·cells / enemy power`. There is incremental Zobrist
   hashing. The tree is reused across the turn's decisions and is pondered in the worker during
   animations.
-- *First attack of each turn*: the tree's four favourite moves are re-scored by emulated rollouts. A
-  rollout plays the rest of GOD's phase, GOD's placement, the opponent's emulated reply and GOD's next
-  attack phase, then evaluates.
+- *Re-scored attacks*: every attack of the opening (rounds 0–3) and the first attack of later turns.
+  The tree's four favourite moves are re-scored by emulated rollouts. A rollout plays the rest of
+  GOD's phase, GOD's placement, the opponent's emulated reply and GOD's next attack phase, then
+  evaluates. Doing this for every opening attack instead of only the first of each turn moved the
+  fixed-budget paired score from 63.8% to 76.7% (240 games). Doing it in later rounds too changed
+  no outcome: those games are already decided.
+- *Expert rollouts*: each source cell caches its best target. After a fight only the attacker, the
+  target and the target's own neighbours are rescored. Leaves are closed-form, from own cell count
+  and enemy power tracked incrementally. Together with incremental hashing this makes the search
+  about 35% faster than the first version.
+- *Starved budgets*: every search runs at least 16 iterations, and when the search has no answer
+  while attacks exist GOD plays Master's expert move. It never ends the attack phase because time
+  ran out.
 - *Placement* (best response):
   - Threat minimums come first. Every own cell an enemy stack `u` can reach (through greys at 1 per
     cell, through third parties at their power) is raised to `min(u−1, cap)`. This is Master §7.5
