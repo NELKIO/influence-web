@@ -2,17 +2,20 @@
  * Finds, for every puzzle scenario, the hardest knob (your starting strength) at which a strong
  * stand-in player (Master in your seat) still wins at least TARGET of the games, and reports how an
  * average player (Hunter in your seat) does there.
- * Run: N=10 P=80 npx vite-node scripts/calibrate-puzzles.ts [scenario]
+ * Bots use fixed budgets: Master P playouts, GOD G rollouts per decision (synchronous, deterministic).
+ * Run: N=10 P=80 G=60 npx vite-node scripts/calibrate-puzzles.ts [scenario,...] [from-knob]
  */
 import { runMatch } from '../src/ai/arena';
 import { createBot } from '../src/ai';
 import { buildScenario, SCENARIOS, type ScenarioId } from '../src/core/scenarios';
 import type { BotType } from '../src/core/types';
 
-const only = process.argv[2] as ScenarioId | undefined;
+const only = process.argv[2]?.split(',') as ScenarioId[] | undefined;
+const FROM = Number(process.argv[3] ?? 1);
 const N = Number(process.env.N ?? 10);
 const PLAYOUTS = Number(process.env.P ?? 80);
 const TARGET = Number(process.env.T ?? 0.7);
+const GOD = Number(process.env.G ?? 60);
 
 async function rate(id: ScenarioId, proxy: BotType, knob: number) {
   let wins = 0;
@@ -21,7 +24,7 @@ async function rate(id: ScenarioId, proxy: BotType, knob: number) {
     const seed = 1000 + i * 7919;
     const state = buildScenario(id, seed, knob);
     const bots = state.settings.players.map((p, slot) =>
-      createBot(slot === 0 ? proxy : (p as BotType), { seed: seed + slot, master: { playouts: PLAYOUTS } }),
+      createBot(slot === 0 ? proxy : (p as BotType), { seed: seed + slot, master: { playouts: PLAYOUTS }, god: { sync: true, rollouts: GOD } }),
     );
     const res = await runMatch(state.settings, { seed, bots, state, maxRounds: 120 });
     if (res.winner === 0 || res.state.ended?.humanWon) wins++;
@@ -33,10 +36,10 @@ async function rate(id: ScenarioId, proxy: BotType, knob: number) {
 
 const result: Record<string, number> = {};
 for (const id of SCENARIOS) {
-  if (only && id !== only) continue;
+  if (only && !only.includes(id)) continue;
   let chosen = 12;
   let m = { wins: 0, rounds: 0 };
-  for (let knob = 1; knob <= 12; knob += 0.5) {
+  for (let knob = FROM; knob <= 12; knob += 0.5) {
     m = await rate(id, 'master', knob);
     if (m.wins >= TARGET) {
       chosen = knob;

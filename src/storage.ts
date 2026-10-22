@@ -90,7 +90,7 @@ export interface SetupPrefs {
 
 export const DEFAULT_SETUP: SetupPrefs = {
   size: 'M',
-  players: ['human', 'dummy', 'hunter', 'dummy'],
+  players: ['human', 'hunter', 'master', 'hunter'],
   darkness: false,
   symmetry: true,
   crowded: false,

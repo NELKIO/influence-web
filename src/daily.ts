@@ -79,6 +79,37 @@ const SCENARIO_LEVEL: Record<DailyScenarioId, number> = {
   spear: 4,
 };
 
+/**
+ * The map of the day is a fixed challenge: each scenario plays with these bots and this starting
+ * strength (calibrated for them), whatever the battle setup recommends.
+ */
+const DAILY_LINEUP: Record<DailyScenarioId, { bots: PlayerType[]; knob: number }> = {
+  siege: { bots: ['hunter'], knob: 7 },
+  cauldron: { bots: ['master'], knob: 2 },
+  bastion: { bots: ['hunter'], knob: 6.5 },
+  archipelago: { bots: ['hunter', 'hunter'], knob: 4 },
+  labyrinth: { bots: ['master'], knob: 5.5 },
+  spiral: { bots: ['hunter'], knob: 1 },
+  twofronts: { bots: ['hunter', 'hunter'], knob: 2.5 },
+  greysea: { bots: ['master'], knob: 1.5 },
+  checker: { bots: ['master'], knob: 2.5 },
+  dam: { bots: ['hunter'], knob: 1.5 },
+  ringmap: { bots: ['hunter', 'hunter'], knob: 4 },
+  hill: { bots: ['hunter', 'master'], knob: 6.5 },
+  awakening: { bots: ['hunter'], knob: 3.5 },
+  hydra: { bots: ['hunter'], knob: 6 },
+  trojan: { bots: ['hunter'], knob: 5.5 },
+  thermopylae: { bots: ['master'], knob: 4.5 },
+  minefield: { bots: ['master'], knob: 5 },
+  hourglass: { bots: ['hunter'], knob: 3 },
+  pincer: { bots: ['master'], knob: 4 },
+  hive: { bots: ['master'], knob: 5 },
+  overload: { bots: ['hunter'], knob: 1.5 },
+  treasury: { bots: ['master'], knob: 4 },
+  bridges: { bots: ['hunter'], knob: 2 },
+  spear: { bots: ['hunter'], knob: 3 },
+};
+
 export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: DailyScenarioId };
 
 /** What the map of a given day is. */
@@ -135,7 +166,8 @@ export function dailySeed(id: string): number {
 export function createDailyMatch(id: string): MatchState {
   const k = dailyKind(id);
   if (k.kind === 'puzzle') {
-    const st = buildScenario(k.scenario, dailySeed(id));
+    const { bots, knob } = DAILY_LINEUP[k.scenario];
+    const st = buildScenario(k.scenario, dailySeed(id), knob, ['human', ...bots]);
     st.settings = { ...st.settings, kind: 'daily', dailyId: id };
     return st;
   }

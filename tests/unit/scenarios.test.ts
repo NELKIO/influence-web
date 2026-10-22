@@ -46,7 +46,7 @@ describe('puzzle scenarios', () => {
         const seed = 500 + i * 37;
         const state = buildScenario(id, seed);
         const bots = state.settings.players.map((p, slot) =>
-          createBot(slot === 0 ? 'master' : (p as BotType), { seed: seed + slot, master: { playouts: 60 } }),
+          createBot(slot === 0 ? 'master' : (p as BotType), { seed: seed + slot, master: { playouts: 60 }, god: { sync: true, rollouts: 40 } }),
         );
         const res = await runMatch(state.settings, { seed, bots, state, maxRounds: 120 });
         if (res.winner === 0 || res.state.ended?.humanWon) wins++;
@@ -71,6 +71,16 @@ describe('scenarios as battle presets', () => {
     expect(st.settings.puzzle).toBe('titans');
     expect(st.settings.unions).toBe(true);
     expect(JSON.stringify(st.field)).toBe(JSON.stringify(buildScenario('titans', 9).field));
+  });
+
+  it('recommended opponents are Hunters at least, mostly Masters, at most one GOD', () => {
+    const all = SCENARIOS.flatMap((id) => {
+      const bots = SCENARIO_META[id].players.slice(1);
+      for (const b of bots) expect(['hunter', 'master', 'god']).toContain(b);
+      expect(bots.filter((b) => b === 'god').length).toBeLessThanOrEqual(1);
+      return bots;
+    });
+    expect(all.filter((b) => b === 'master' || b === 'god').length).toBeGreaterThan(all.length * 0.6);
   });
 
   it('battle scenarios have three to six seats', () => {

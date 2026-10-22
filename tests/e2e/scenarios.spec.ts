@@ -34,22 +34,22 @@ test('a scenario is selected, not started: seats are fixed, a bot level can be c
   await expect(page.locator('.player-row')).toHaveCount(6);
   await expect(page.getByRole('button', { name: 'Добавить соперника' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Убрать' })).toHaveCount(0);
-  // the designed level is marked; switch seat 2 from it to Master
-  await expect(page.locator('.type-pick').first().locator('button.rec')).toHaveText('Охотник');
-  await page.locator('.type-pick').first().getByRole('button', { name: 'Мастер' }).click();
+  // the designed level is marked; switch seat 2 from it to Hunter
+  await expect(page.locator('.type-pick').first().locator('button.rec')).toHaveText('Мастер');
+  await page.locator('.type-pick').first().getByRole('button', { name: 'Охотник' }).click();
 
   // the choice is remembered
   await page.getByRole('button', { name: 'back' }).click();
   await openSetup(page);
   await expect(page.getByTestId('scenario-pick')).toContainText('Олимп');
   await page.locator('.steps button').nth(1).click();
-  await expect(page.locator('.type-pick').first().locator('button.on')).toHaveText('Мастер');
+  await expect(page.locator('.type-pick').first().locator('button.on')).toHaveText('Охотник');
 
   await page.getByRole('button', { name: /^В бой/ }).first().click();
   await waitGame(page);
   const info = await gameInfo(page);
   expect(info.puzzle).toBe('olympus');
-  expect(info.players).toEqual(['human', 'master', 'dummy', 'master', 'dummy', 'hunter']);
+  expect(info.players).toEqual(['human', 'hunter', 'hunter', 'god', 'hunter', 'master']);
   expect(info.darkness).toBe(false);
   await expectNoErrors(errors);
 });
@@ -69,7 +69,7 @@ test('a scenario locks the modes', async ({ page }) => {
   await page.getByRole('button', { name: /В бой · 3 игрока/ }).click();
   await waitGame(page);
   const info = await gameInfo(page);
-  expect(info).toMatchObject({ puzzle: 'titans', unions: true, darkness: false, players: ['human', 'hunter', 'hunter'] });
+  expect(info).toMatchObject({ puzzle: 'titans', unions: true, darkness: false, players: ['human', 'master', 'master'] });
   await expectNoErrors(errors);
 });
 
