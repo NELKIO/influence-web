@@ -334,7 +334,8 @@ describe('composite fallback', () => {
     const a = guest('G1', false);
     const b = guest('G2', true);
     await until(() => host.canStart, 8000, 'both seated');
-    expect(a.g.link).toBe('relay');
+    // the guest learns its own link from its own event, which may come after the host seats it
+    await until(() => a.g.link === 'relay', 8000, 'G1 on the relay');
     expect(a.t.fellBackBecause).toMatch(/not open/);
     expect(b.g.link).toBe('direct');
     expect(net.connectedOf('G2')).toEqual([]);
@@ -354,7 +355,8 @@ describe('composite fallback', () => {
     await sleep(20);
     hub.guestEndpoint('G1')!._emit('error', { code: 'webrtc', message: 'ICE failed', fatal: false });
     await until(() => host.canStart, 8000, 'both seated');
-    expect(a.g.link).toBe('relay');
+    // the guest learns its own link from its own event, which may come after the host seats it
+    await until(() => a.g.link === 'relay', 8000, 'G1 on the relay');
     expect(a.t.fellBackBecause).toBe('direct: webrtc');
     host.start();
     await until(() => [a.g, b.g].every((g) => g.status === 'playing'));
