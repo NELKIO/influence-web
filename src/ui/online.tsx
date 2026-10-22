@@ -99,6 +99,11 @@ function OnlineHud({ session, ctrl }: { session: DuelSession; ctrl: GameControll
   const st = ctrl.state;
   return (
     <>
+      {session.link && !st.ended && (
+        <div class="muted" data-testid="link-kind" data-link={session.link} style={{ fontSize: 11, textAlign: 'center', opacity: 0.7 }}>
+          {session.link === 'relay' ? t('linkRelay') : t('linkDirect')}
+        </div>
+      )}
       {total > 0 && left !== null && !st.ended && (
         <div class="hud-row" style={{ gap: 8 }}>
           <div class="timer-bar" style={{ flex: 1 }}>

@@ -151,6 +151,8 @@ export const en: typeof ru = {
   battleCreate: 'Create a room',
   battleRoomClosed: 'The host closed the room',
   battleRoomFull: 'No free seats in this room',
+  linkDirect: 'direct',
+  linkRelay: 'relay',
   continue: 'Continue',
   quickStart: 'Quick start',
   daily: 'Map of the day',

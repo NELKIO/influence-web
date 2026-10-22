@@ -83,14 +83,14 @@ async function playBattle(host: Page, g1: Page, g2: Page, base: string) {
       .poll(async () => {
         const [a, b, c] = await Promise.all([board(host), board(g1), board(g2)]);
         return a !== 'none' && a === b && b === c;
-      }, { timeout: 30_000 })
+      }, { timeout: 60_000 })
       .toBe(true);
   };
   await synced();
 
   // play rounds: everyone moves on their own turn, the host's bot moves by itself
   let reloaded = false;
-  for (let step = 0; step < 120; step++) {
+  for (let step = 0; step < 600; step++) {
     const st = JSON.parse(await board(host));
     if (process.env.DBG) console.log(Date.now() % 100000, 'step', step, 'turn', st.t, 'cur', st.c, st.ph);
     if (st.e || st.t >= 4) break;

@@ -106,7 +106,7 @@ async function duel(browser: Browser, base: string, expectRelay: boolean) {
   await guest.getByText('Онлайн с другом').click();
   const label = guest.getByTestId('duel-row').first().getByTestId('link-kind');
   await expect(label).toBeVisible({ timeout: 60_000 });
-  const link = (await label.textContent())!.trim();
+  const link = (await label.getAttribute('data-link'))!;
   console.log(`duel ${code}: link after guest reload = ${link}`);
   if (expectRelay) expect(link).toBe('relay');
   await guest.getByTestId('duel-row').first().click();
@@ -149,7 +149,7 @@ async function battle(browser: Browser, base: string, expectRelay: boolean) {
   for (const g of [g1, g2]) {
     const label = g.getByTestId('link-kind');
     await expect(label).toBeVisible({ timeout: 30_000 });
-    const link = (await label.textContent())!.trim();
+    const link = (await label.getAttribute('data-link'))!;
     console.log(`battle ${code}: guest link = ${link}`);
     if (expectRelay) expect(link).toBe('relay');
   }

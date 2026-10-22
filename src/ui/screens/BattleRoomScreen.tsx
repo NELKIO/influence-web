@@ -87,7 +87,7 @@ export function BattleRoomScreen({ join }: { join?: string }) {
     navigate({ name: 'menu' });
   };
 
-  const linkText = (r: RosterEntry) => (r.link ? ` · ${r.link === 'relay' ? 'relay' : 'P2P'}` : '');
+  const linkText = (r: RosterEntry) => (r.link ? ` · ${r.link === 'relay' ? t('linkRelay') : t('linkDirect')}` : '');
   const seatStatus = (r: RosterEntry) => {
     if (r.you) return t('battleSeatYou') + linkText(r);
     if (r.onHost) return t('battleSeatHost');

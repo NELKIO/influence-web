@@ -148,8 +148,8 @@ export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions
                             {st.tone === 'go' && <span class="live-dot" />}
                             {st.text}
                             {s?.link && (
-                              <span class="muted" data-testid="link-kind" style={{ fontSize: 11, fontWeight: 600, marginLeft: 6 }}>
-                                {s.link === 'relay' ? 'relay' : 'P2P'}
+                              <span class="muted" data-testid="link-kind" data-link={s.link} style={{ fontSize: 11, fontWeight: 600, marginLeft: 6 }}>
+                                {s.link === 'relay' ? t('linkRelay') : t('linkDirect')}
                               </span>
                             )}
                           </div>

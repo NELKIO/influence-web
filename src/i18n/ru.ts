@@ -150,6 +150,8 @@ export const ru = {
   battleCreate: 'Создать комнату',
   battleRoomClosed: 'Хост закрыл комнату',
   battleRoomFull: 'В комнате нет свободных мест',
+  linkDirect: 'напрямую',
+  linkRelay: 'через ретранслятор',
   continue: 'Продолжить',
   quickStart: 'Быстрый старт',
   daily: 'Карта дня',

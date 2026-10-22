@@ -219,7 +219,8 @@ function RoomHud({ roster, ctrl, offline }: { roster: RosterEntry[]; ctrl: GameC
   const away = roster.filter((r) => r.taken && !r.connected && !r.you);
   // guest: its own link; host: 'relay' as soon as any guest is relayed
   const links = roster.map((r) => r.link).filter(Boolean);
-  const link = links.length ? (links.includes('relay') ? 'relay' : 'P2P') : null;
+  const linkKind = links.length ? (links.includes('relay') ? 'relay' : 'direct') : null;
+  const link = linkKind ? (linkKind === 'relay' ? t('linkRelay') : t('linkDirect')) : null;
   return (
     <>
       {away.length > 0 && (
@@ -228,7 +229,7 @@ function RoomHud({ roster, ctrl, offline }: { roster: RosterEntry[]; ctrl: GameC
         </div>
       )}
       {link && (
-        <div class="muted" data-testid="link-kind" style={{ fontSize: 11, textAlign: 'center', opacity: 0.7 }}>
+        <div class="muted" data-testid="link-kind" data-link={linkKind} style={{ fontSize: 11, textAlign: 'center', opacity: 0.7 }}>
           {link}
         </div>
       )}
