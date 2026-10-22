@@ -302,8 +302,8 @@ function rot(a: Ax, k: number): Ax {
 
 // ---------------------------------------------------------------- scenarios
 
-/** The scenarios of the map of the day. Frozen: the daily schedule shuffles exactly this list. */
-export const DAILY_SCENARIOS = [
+/** The first scenarios: duels and three-player fights. */
+const CLASSIC_SCENARIOS = [
   'siege',
   'cauldron',
   'bastion',
@@ -330,15 +330,13 @@ export const DAILY_SCENARIOS = [
   'spear',
 ] as const;
 
-export type DailyScenarioId = (typeof DAILY_SCENARIOS)[number];
-
-/** Battles for three to six players, offered in the battle setup only. */
+/** Battles for three to six players. */
 export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans'] as const;
 
-export type ScenarioId = DailyScenarioId | (typeof BATTLE_SCENARIOS)[number];
+export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number];
 
-/** Every scenario, in the order of the setup gallery. */
-export const SCENARIOS: ScenarioId[] = [...BATTLE_SCENARIOS, ...DAILY_SCENARIOS];
+/** Every scenario, in the order of the setup gallery. The map of the day rotates through all of them. */
+export const SCENARIOS: ScenarioId[] = [...BATTLE_SCENARIOS, ...CLASSIC_SCENARIOS];
 
 export function isScenarioId(id: unknown): id is ScenarioId {
   return typeof id === 'string' && (SCENARIOS as string[]).includes(id);
@@ -348,6 +346,8 @@ export function isScenarioId(id: unknown): id is ScenarioId {
 export interface ScenarioMeta {
   /** recommended seat types; seat 0 is you (the map of the day plays exactly these) */
   players: PlayerType[];
+  /** difficulty 1..5 with these opponents (shown on the map of the day), from the calibration */
+  level: number;
   size: FieldSize;
   darkness?: boolean;
   unions?: boolean;
@@ -358,34 +358,34 @@ export interface ScenarioMeta {
 }
 
 export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
-  siege: { players: ['human', 'master'], size: 'L' },
-  cauldron: { players: ['human', 'master'], size: 'L' },
-  bastion: { players: ['human', 'master'], size: 'L' },
-  archipelago: { players: ['human', 'god', 'master'], size: 'L' },
-  labyrinth: { players: ['human', 'master'], size: 'L' },
-  spiral: { players: ['human', 'master'], size: 'L' },
-  twofronts: { players: ['human', 'god', 'master'], size: 'L' },
-  greysea: { players: ['human', 'master'], size: 'L' },
-  checker: { players: ['human', 'master'], size: 'M' },
-  dam: { players: ['human', 'master'], size: 'L' },
-  ringmap: { players: ['human', 'god', 'master'], size: 'L' },
-  hill: { players: ['human', 'master', 'god'], size: 'L' },
-  awakening: { players: ['human', 'master'], size: 'L' },
-  hydra: { players: ['human', 'master'], size: 'L' },
-  trojan: { players: ['human', 'hunter'], size: 'L' },
-  thermopylae: { players: ['human', 'master'], size: 'L' },
-  minefield: { players: ['human', 'master'], size: 'L' },
-  hourglass: { players: ['human', 'master'], size: 'L' },
-  pincer: { players: ['human', 'master'], size: 'L' },
-  hive: { players: ['human', 'master'], size: 'M' },
-  overload: { players: ['human', 'master'], size: 'L' },
-  treasury: { players: ['human', 'master'], size: 'L' },
-  bridges: { players: ['human', 'master'], size: 'L' },
-  spear: { players: ['human', 'master'], size: 'L' },
-  landing: { players: ['human', 'god', 'master', 'hunter', 'master', 'hunter'], size: 'XL', darkness: true, blind: true },
-  laststand: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], size: 'L' },
-  titans: { players: ['human', 'master', 'master'], size: 'L', unions: true },
-  olympus: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], size: 'L' },
+  siege: { players: ['human', 'master'], level: 4, size: 'L' },
+  cauldron: { players: ['human', 'master'], level: 3, size: 'L' },
+  bastion: { players: ['human', 'master'], level: 4, size: 'L' },
+  archipelago: { players: ['human', 'god', 'master'], level: 4, size: 'L' },
+  labyrinth: { players: ['human', 'master'], level: 4, size: 'L' },
+  spiral: { players: ['human', 'master'], level: 4, size: 'L' },
+  twofronts: { players: ['human', 'god', 'master'], level: 4, size: 'L' },
+  greysea: { players: ['human', 'master'], level: 3, size: 'L' },
+  checker: { players: ['human', 'master'], level: 2, size: 'M' },
+  dam: { players: ['human', 'master'], level: 4, size: 'L' },
+  ringmap: { players: ['human', 'god', 'master'], level: 3, size: 'L' },
+  hill: { players: ['human', 'master', 'god'], level: 3, size: 'L' },
+  awakening: { players: ['human', 'master'], level: 2, size: 'L' },
+  hydra: { players: ['human', 'master'], level: 4, size: 'L' },
+  trojan: { players: ['human', 'hunter'], level: 4, size: 'L' },
+  thermopylae: { players: ['human', 'master'], level: 4, size: 'L' },
+  minefield: { players: ['human', 'master'], level: 2, size: 'L' },
+  hourglass: { players: ['human', 'master'], level: 4, size: 'L' },
+  pincer: { players: ['human', 'master'], level: 4, size: 'L' },
+  hive: { players: ['human', 'master'], level: 4, size: 'M' },
+  overload: { players: ['human', 'master'], level: 4, size: 'L' },
+  treasury: { players: ['human', 'master'], level: 4, size: 'L' },
+  bridges: { players: ['human', 'master'], level: 3, size: 'L' },
+  spear: { players: ['human', 'master'], level: 4, size: 'L' },
+  landing: { players: ['human', 'god', 'master', 'hunter', 'master', 'hunter'], level: 3, size: 'XL', darkness: true, blind: true },
+  laststand: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 4, size: 'L' },
+  titans: { players: ['human', 'master', 'master'], level: 3, size: 'L', unions: true },
+  olympus: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 3, size: 'L' },
 };
 
 /**

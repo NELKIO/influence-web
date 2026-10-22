@@ -260,3 +260,39 @@ test('night drop hot-seat: each person keeps their own explored land, the hand-o
   expect((await fogInfo(page, 1)).seen).toEqual(b1.seen);
   await expectNoErrors(errors);
 });
+
+test('map of the day: a night drop day shows no map, old results and the streak stay', async ({ page }) => {
+  const errors = await fresh(page);
+  const today = await page.evaluate(() => {
+    const d = new Date();
+    const id = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    const y = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+    // results stored before the schedule changed stay the results of their dates
+    localStorage.setItem(
+      'infweb.daily2',
+      JSON.stringify({ [id(d)]: { attempts: 2, bestRounds: 9 }, [id(y)]: { attempts: 1, bestRounds: 14 }, '2026-09-16': { attempts: 3, bestRounds: 12 } }),
+    );
+    return id(d);
+  });
+  test.skip(today < '2026-10-01' || today >= '2026-11-01', 'the calendar steps assume October 2026');
+  await page.reload();
+  await page.locator('.mode-card', { hasText: 'Карта дня' }).click();
+  await expect(page.getByText('Лучший результат: победа за 9 р.')).toBeVisible();
+  await expect(page.locator('.big-stats b').first()).toHaveText('2');
+  // September 16th, 2026 is a night drop
+  await page.locator('.card .icon-btn').first().click();
+  await page.locator('.calendar button', { hasText: /^16$/ }).click();
+  await expect(page.locator('.puzzle-brief')).toContainText('Десант во тьме');
+  await expect(page.locator('[data-unknown-map]')).toHaveCount(1);
+  await expect(page.getByText('Неизведанная карта')).toBeVisible();
+  await expect(page.getByText(/Попыток: 3/)).toBeVisible();
+  await expect(page.getByText('Лучший результат: победа за 12 р.')).toBeVisible();
+  await page.getByRole('button', { name: 'Ещё попытка' }).click();
+  await waitGame(page);
+  const info = await page.evaluate(() => {
+    const s = (window as any).__infweb.ctrl.state;
+    return { kind: s.settings.kind, puzzle: s.settings.puzzle, blind: s.settings.blind, players: s.settings.players };
+  });
+  expect(info).toEqual({ kind: 'daily', puzzle: 'landing', blind: true, players: ['human', 'god', 'master', 'hunter', 'master', 'hunter'] });
+  await expectNoErrors(errors);
+});

@@ -8,7 +8,7 @@ import { prepareHost } from '../battle';
 import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../core/types';
 import { SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconMoon, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
-import { MiniMap, UnknownMap } from '../components/MiniMap';
+import { MiniMap, SecretMap } from '../components/MiniMap';
 import { sfx } from '../../audio/sfx';
 
 const TYPES: PlayerType[] = ['dummy', 'hunter', 'master', 'god', 'human', 'online'];
@@ -16,16 +16,10 @@ const LEVEL: Partial<Record<PlayerType, number>> = { dummy: 1, hunter: 2, master
 
 const playersLabel = (n: number) => t(n >= 5 ? 'playersCountMany' : 'playersCount', { n });
 
-/** The map without anybody on it (a scenario in darkness must not give away where people start). */
-function terrain(field: Field): Field {
-  return { ...field, cells: field.cells.map((c) => ({ ...c, owner: -1, power: 0 })) };
-}
-
 /** Picture of a scenario's map: in darkness without the starts, under exploration fog not even the shape. */
 function ScenarioMap({ id, field, maxHeight }: { id: ScenarioId; field: Field; maxHeight: number }) {
   const m = SCENARIO_META[id];
-  if (m.blind) return <UnknownMap maxHeight={maxHeight} />;
-  return <MiniMap field={m.darkness ? terrain(field) : field} maxHeight={maxHeight} />;
+  return <SecretMap field={field} darkness={m.darkness} blind={m.blind} maxHeight={maxHeight} />;
 }
 
 export function SetupScreen() {

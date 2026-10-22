@@ -86,3 +86,13 @@ export function UnknownMap({ maxHeight = 200 }: { maxHeight?: number }) {
     </svg>
   );
 }
+
+/**
+ * A map as a player may see it before a scenario starts: in darkness without anybody on it, under
+ * exploration fog not even its shape.
+ */
+export function SecretMap({ field, darkness, blind, maxHeight }: { field: Field; darkness?: boolean; blind?: boolean; maxHeight?: number }) {
+  if (blind) return <UnknownMap maxHeight={maxHeight} />;
+  if (!darkness) return <MiniMap field={field} maxHeight={maxHeight} />;
+  return <MiniMap field={{ ...field, cells: field.cells.map((c) => ({ ...c, owner: -1, power: 0 })) }} maxHeight={maxHeight} />;
+}

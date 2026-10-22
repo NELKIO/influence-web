@@ -2,10 +2,10 @@ import { useMemo, useState } from 'preact/hooks';
 import { getLang, t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
-import { createDailyMatch, dailyLevel, dayId, dayNumber, parseDay, type DailyScenarioId } from '../../daily';
+import { createDailyMatch, dailyLevel, dayId, dayNumber, parseDay, type ScenarioId } from '../../daily';
 import { loadDaily, loadSavedGame } from '../../storage';
 import { IconBack, IconArrow } from '../components/icons';
-import { MiniMap } from '../components/MiniMap';
+import { SecretMap } from '../components/MiniMap';
 import { useDiscardGuard } from '../components/DiscardGuard';
 import { sfx, unlockAudio } from '../../audio/sfx';
 
@@ -23,7 +23,7 @@ export function DailyScreen() {
   const results = loadDaily();
   const preview = useMemo(() => createDailyMatch(sel), [sel]);
   const cfg = preview.settings;
-  const puzzle = cfg.puzzle as DailyScenarioId | undefined;
+  const puzzle = cfg.puzzle as ScenarioId | undefined;
   const res = results[sel];
 
   const streak = useMemo(() => {
@@ -88,7 +88,8 @@ export function DailyScreen() {
               </div>
             </div>
             <div style={{ width: 120, flex: 'none' }}>
-              <MiniMap field={preview.field} maxHeight={130} />
+              {/* a scenario in darkness gives away neither the starts nor (under exploration fog) the map */}
+              <SecretMap field={preview.field} darkness={!!puzzle && cfg.darkness} blind={cfg.blind} maxHeight={130} />
             </div>
           </div>
           {puzzle && (
@@ -105,6 +106,7 @@ export function DailyScreen() {
               </span>
             ))}
             {cfg.darkness && <span class="tag">{t('darkness')}</span>}
+            {cfg.blind && <span class="tag">{t('scenarioUncharted')}</span>}
             {cfg.symmetry && <span class="tag">{t('symmetry')}</span>}
             {cfg.unions && <span class="tag">{t('unions')}</span>}
           </div>

@@ -1,5 +1,5 @@
 import { Rng, hashString } from './core/rng';
-import { buildScenario, DAILY_SCENARIOS, type DailyScenarioId } from './core/scenarios';
+import { buildScenario, SCENARIO_META, SCENARIOS, type ScenarioId } from './core/scenarios';
 import { createMatch } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -48,69 +48,7 @@ const BATTLES: BattlePlan[] = [
   { bots: ['master', 'hunter', 'hunter'], sizes: ['XL'], dark: 0, unions: true, level: 4 },
 ];
 
-/**
- * Difficulty of each scenario (from the calibration: how often an average player wins). The daily
- * map plays a scenario with its recommended bots, so these levels stay fixed.
- */
-const SCENARIO_LEVEL: Record<DailyScenarioId, number> = {
-  siege: 3,
-  cauldron: 3,
-  bastion: 4,
-  archipelago: 2,
-  labyrinth: 4,
-  spiral: 4,
-  twofronts: 3,
-  greysea: 3,
-  checker: 2,
-  dam: 4,
-  ringmap: 2,
-  hill: 3,
-  awakening: 3,
-  hydra: 4,
-  trojan: 4,
-  thermopylae: 4,
-  minefield: 2,
-  hourglass: 4,
-  pincer: 4,
-  hive: 4,
-  overload: 2,
-  treasury: 4,
-  bridges: 3,
-  spear: 4,
-};
-
-/**
- * The map of the day is a fixed challenge: each scenario plays with these bots and this starting
- * strength (calibrated for them), whatever the battle setup recommends.
- */
-const DAILY_LINEUP: Record<DailyScenarioId, { bots: PlayerType[]; knob: number }> = {
-  siege: { bots: ['hunter'], knob: 7 },
-  cauldron: { bots: ['master'], knob: 2 },
-  bastion: { bots: ['hunter'], knob: 6.5 },
-  archipelago: { bots: ['hunter', 'hunter'], knob: 4 },
-  labyrinth: { bots: ['master'], knob: 5.5 },
-  spiral: { bots: ['hunter'], knob: 1 },
-  twofronts: { bots: ['hunter', 'hunter'], knob: 2.5 },
-  greysea: { bots: ['master'], knob: 1.5 },
-  checker: { bots: ['master'], knob: 2.5 },
-  dam: { bots: ['hunter'], knob: 1.5 },
-  ringmap: { bots: ['hunter', 'hunter'], knob: 4 },
-  hill: { bots: ['hunter', 'master'], knob: 6.5 },
-  awakening: { bots: ['hunter'], knob: 3.5 },
-  hydra: { bots: ['hunter'], knob: 6 },
-  trojan: { bots: ['hunter'], knob: 5.5 },
-  thermopylae: { bots: ['master'], knob: 4.5 },
-  minefield: { bots: ['master'], knob: 5 },
-  hourglass: { bots: ['hunter'], knob: 3 },
-  pincer: { bots: ['master'], knob: 4 },
-  hive: { bots: ['master'], knob: 5 },
-  overload: { bots: ['hunter'], knob: 1.5 },
-  treasury: { bots: ['master'], knob: 4 },
-  bridges: { bots: ['hunter'], knob: 2 },
-  spear: { bots: ['hunter'], knob: 3 },
-};
-
-export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: DailyScenarioId };
+export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: ScenarioId };
 
 /** What the map of a given day is. */
 export function dailyKind(id: string): DailyKind {
@@ -119,10 +57,10 @@ export function dailyKind(id: string): DailyKind {
   if (((n % 4) + 4) % 4 !== 3) {
     // index among puzzle days only, so the scenario sequence has no gaps
     const i = n - Math.floor((n + 1) / 4);
-    const len = DAILY_SCENARIOS.length;
+    const len = SCENARIOS.length;
     const cycle = Math.floor(i / len);
-    // all scenarios in a shuffled order before any repeats (a frozen list, so past days keep theirs)
-    const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...DAILY_SCENARIOS]);
+    // all scenarios in a shuffled order before any repeats
+    const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...SCENARIOS]);
     return { kind: 'puzzle', scenario: order[((i % len) + len) % len] };
   }
   return { kind: 'battle', plan: BATTLES[(parseDay(id).getDay() + 6) % 7] };
@@ -131,7 +69,7 @@ export function dailyKind(id: string): DailyKind {
 /** Difficulty of the daily map, 1..5. */
 export function dailyLevel(id: string): number {
   const k = dailyKind(id);
-  if (k.kind === 'puzzle') return SCENARIO_LEVEL[k.scenario];
+  if (k.kind === 'puzzle') return SCENARIO_META[k.scenario].level;
   return k.plan.level;
 }
 
@@ -166,12 +104,12 @@ export function dailySeed(id: string): number {
 export function createDailyMatch(id: string): MatchState {
   const k = dailyKind(id);
   if (k.kind === 'puzzle') {
-    const { bots, knob } = DAILY_LINEUP[k.scenario];
-    const st = buildScenario(k.scenario, dailySeed(id), knob, ['human', ...bots]);
+    // the scenario as the battle setup recommends it; the seed of the day fixes the map (and the night drop's landing spots)
+    const st = buildScenario(k.scenario, dailySeed(id));
     st.settings = { ...st.settings, kind: 'daily', dailyId: id };
     return st;
   }
   return createMatch(dailySettings(id), { seed: dailySeed(id) });
 }
 
-export type { DailyScenarioId };
+export type { ScenarioId };

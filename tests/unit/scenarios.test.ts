@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BATTLE_SCENARIOS, buildScenario, DAILY_SCENARIOS, SCENARIO_META, SCENARIOS, startMatch } from '../../src/core/scenarios';
+import { BATTLE_SCENARIOS, buildScenario, SCENARIO_META, SCENARIOS, startMatch } from '../../src/core/scenarios';
 import { isConnected } from '../../src/core/field';
 import { articulationPoints, chokePoints } from '../../src/core/connectivity';
-import { dailyKind } from '../../src/daily';
+import { createDailyMatch, dailyKind, dailyLevel, dailySeed, dayId } from '../../src/daily';
 import { runMatch } from '../../src/ai/arena';
 import { createBot } from '../../src/ai';
 import type { BotType } from '../../src/core/types';
@@ -109,22 +109,48 @@ describe('scenarios as battle presets', () => {
     expect(spots.size).toBeGreaterThan(8);
   });
 
-  it('the map of the day keeps its frozen list of scenarios', () => {
-    expect(DAILY_SCENARIOS).toHaveLength(24);
-    for (const id of BATTLE_SCENARIOS) expect(DAILY_SCENARIOS as readonly string[]).not.toContain(id);
-    expect(SCENARIOS).toHaveLength(DAILY_SCENARIOS.length + BATTLE_SCENARIOS.length);
-    // the schedule of past days is unchanged
-    const past: Record<string, string> = {
-      '2026-09-01': 'archipelago',
-      '2026-10-01': 'hydra',
-      '2026-10-21': 'hydra',
-      '2026-10-22': 'thermopylae',
-      '2026-10-23': 'twofronts',
-      '2026-11-15': 'checker',
-    };
-    for (const [day, id] of Object.entries(past)) {
-      const k = dailyKind(day);
-      expect(k.kind === 'puzzle' && k.scenario).toBe(id);
+  it('the map of the day rotates through every scenario, played as the setup recommends it', () => {
+    // puzzle days from the anchor on: one full cycle covers each scenario exactly once
+    const seen: string[] = [];
+    for (let i = 0; seen.length < SCENARIOS.length; i++) {
+      const id = dayId(new Date(2026, 9, 21 + i));
+      const k = dailyKind(id);
+      if (k.kind !== 'puzzle') continue;
+      seen.push(k.scenario);
+      const m = createDailyMatch(id);
+      expect(m.settings.kind).toBe('daily');
+      expect(m.settings.players).toEqual(SCENARIO_META[k.scenario].players);
+      expect(dailyLevel(id)).toBe(SCENARIO_META[k.scenario].level);
+      expect(JSON.stringify(m.field)).toBe(JSON.stringify(buildScenario(k.scenario, dailySeed(id)).field));
     }
+    expect(new Set(seen).size).toBe(SCENARIOS.length);
+    // the schedule (counted both ways from the anchor)
+    const days: Record<string, string> = {
+      '2026-09-01': 'overload',
+      '2026-10-01': 'archipelago',
+      '2026-10-21': 'awakening',
+      '2026-10-22': 'spear',
+      '2026-10-23': 'thermopylae',
+      '2026-10-24': 'battle',
+      '2026-11-15': 'ringmap',
+    };
+    for (const [day, id] of Object.entries(days)) {
+      const k = dailyKind(day);
+      expect(k.kind === 'puzzle' ? k.scenario : 'battle').toBe(id);
+    }
+  });
+
+  it('the night drop of the day is the same for everyone', () => {
+    let day = '';
+    for (let i = 0; !day; i++) {
+      const id = dayId(new Date(2026, 9, 21 + i));
+      const k = dailyKind(id);
+      if (k.kind === 'puzzle' && k.scenario === 'landing') day = id;
+    }
+    const a = createDailyMatch(day);
+    const b = createDailyMatch(day);
+    expect(a.settings.blind).toBe(true);
+    expect(JSON.stringify(a.field)).toBe(JSON.stringify(b.field));
+    expect(a.explored).toEqual(b.explored);
   });
 });
