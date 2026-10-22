@@ -1,5 +1,5 @@
 /**
- * GOD ("БОГ.") — the strongest computer player.
+ * GOD ("БОГ") — the strongest computer player.
  *
  * Search (all on GOD's own luck-exact simulator, src/ai/godSim.ts):
  *  - Duel (two players alive): every attack is chosen by UCT over GOD's own attack phase with chance
@@ -71,6 +71,12 @@ export interface GodOptions {
   c?: number;
   /** canonical placement cells in the whole-turn search */
   powerCells?: number;
+  /** duel placement: 'heuristic' (tuned threat minimums + attack stack) or 'emulate' (best response) */
+  duelPower?: 'heuristic' | 'emulate';
+  emuCands?: number;
+  emuIters?: number;
+  /** fixed-budget mode: emulated rollouts per duel placement */
+  emuRollouts?: number;
   /** ignore the fog (experiments only; the game never sets this) */
   cheat?: boolean;
 }
@@ -84,6 +90,10 @@ export const DEFAULT_GOD_OPTIONS = {
   mode: 'auto' as 'auto' | 'duel' | 'multi',
   c: 0.25,
   powerCells: 30,
+  duelPower: 'emulate' as 'heuristic' | 'emulate',
+  emuCands: 10,
+  emuIters: 32,
+  emuRollouts: 400,
 };
 
 const now = (): number => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -468,6 +478,7 @@ export class GodBrain {
     const seed = this.rng.u32();
     const { sim: root, hidden } = this.belief(state, me, topo);
     if (this.multi(state, me)) return this.gamePower(state, root, me, t0, seed, hidden);
+    if (this.opts.duelPower === 'emulate') return this.emulatePower(state, root, me, t0, seed, hidden);
     // duel: threat minimums, then the best attack stacks, the rest on the border
     const sim = root.clone();
     let left = threatMinimums(sim, me, state.powerLeft, 0);
@@ -475,6 +486,153 @@ export class GodBrain {
     smartyPlace(sim, me, left);
     this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: 1 };
     return this.toPlacement(state, root, sim, me);
+  }
+
+  /**
+   * Duel placement as a best response: candidates "threat minimums + fill cell X (+ the usual rest)" for
+   * the best attack-stack cells, each scored by rollouts in which the opponent's whole turn is played by a
+   * small tree search with Master's objective (a faithful emulation of Master-like play), then GOD's next
+   * attack phase by the same small search, then evalPhase. Common random numbers + successive halving.
+   */
+  private emulatePower(state: MatchState, root: Sim, me: number, t0: number, seed: number, hidden: number): Map<number, number> {
+    const left = state.powerLeft;
+    const w = this.stackW();
+    const base = root.clone();
+    const l0 = threatMinimums(base, me, left, 0);
+    const order = stackOrder(base, me, w).slice(0, this.opts.emuCands);
+    const cands: Sim[] = [];
+    const seen = new Set<string>();
+    const push = (s: Sim) => {
+      const k = s.power.join(',');
+      if (!seen.has(k)) {
+        seen.add(k);
+        cands.push(s);
+      }
+    };
+    {
+      const s = base.clone();
+      const l = stackPlace(s, me, l0, l0, 0, w);
+      smartyPlace(s, me, l);
+      push(s);
+    }
+    for (const c of order) {
+      const s = base.clone();
+      let l = l0;
+      const v = Math.min(l, s.t.cap[c] - s.power[c]);
+      s.power[c] += v;
+      l -= v;
+      l = stackPlace(s, me, l, l, 0, w);
+      smartyPlace(s, me, l);
+      push(s);
+    }
+    if (cands.length === 1 || l0 <= 0) {
+      this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: cands.length };
+      return this.toPlacement(state, root, cands[0], me);
+    }
+    const slots = root.t.slots;
+    const emu = new Map<number, AttackTree>();
+    const P = this.P;
+    const treeFor = (slot: number) => {
+      let t = emu.get(slot);
+      if (!t) {
+        const memo = { lastTo: -1 };
+        t = new AttackTree(
+          root.t,
+          slot,
+          { stop: false, forced: true, c: 0.25 },
+          (b) => evalPhase(b, slot, P, slot === me ? hidden : 0),
+          (b, lastTo) => {
+            memo.lastTo = lastTo;
+            return masterAttack(b, slot, memo);
+          },
+          seed ^ (slot * 7919),
+        );
+        emu.set(slot, t);
+      }
+      return t;
+    };
+    const iters = this.opts.emuIters;
+    const scratch = root.clone();
+    const tmp = root.clone();
+    const playEmu = (sim: Sim, slot: number, rng: FastRng) => {
+      const t = treeFor(slot);
+      let lastTo = -1;
+      for (let k = 0; k < 200; k++) {
+        const moves = t.moves(sim, lastTo);
+        if (!moves.length || sim.aliveCount() <= 1) break;
+        let mv = moves[0];
+        if (moves.length > 1) {
+          t.reset();
+          for (let i = 0; i < iters; i++) {
+            tmp.copyFrom(sim);
+            tmp.rng = rng;
+            t.iterate(tmp, lastTo, rng);
+          }
+          mv = t.best(sim, lastTo).move;
+        }
+        if (mv < 0) break;
+        sim.fight(mv >> 10, mv & 1023);
+        lastTo = mv & 1023;
+      }
+    };
+    const run = (c: number, i: number): number => {
+      scratch.copyFrom(cands[c]);
+      const r = new FastRng((Math.imul(seed ^ (i * 0x9e3779b9), 0x85ebca6b) ^ (i + 1)) >>> 0);
+      scratch.rng = r;
+      this.sampleLuck(scratch, r);
+      for (let k = 1; k < slots; k++) {
+        const q = (me + k) % slots;
+        if (scratch.cnt[q] <= 0) continue;
+        playEmu(scratch, q, r);
+        if (scratch.cnt[me] === 0) return 0;
+        let lq = threatMinimums(scratch, q, scratch.income(q), 0);
+        lq = stackPlace(scratch, q, lq, lq, 0, w);
+        smartyPlace(scratch, q, lq);
+      }
+      playEmu(scratch, me, r);
+      return evalPhase(scratch, me, P, hidden);
+    };
+    const best = this.halving(cands.length, run, this.opts.emuRollouts, t0, Math.min(this.opts.powerMs, this.opts.maxDecisionMs));
+    this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length };
+    return this.toPlacement(state, root, cands[best.best], me);
+  }
+
+  /** successive halving with common random numbers (rollout i uses the same dice for every candidate) */
+  private halving(count: number, run: (c: number, i: number) => number, fixed: number, t0: number, ms: number): { best: number; spent: number } {
+    const sums = new Float64Array(count);
+    const done = new Int32Array(count);
+    let alive = Array.from({ length: count }, (_, i) => i);
+    let spent = 0;
+    const timed = this.opts.rollouts === undefined;
+    const tStart = now();
+    for (const c of alive) {
+      sums[c] += run(c, done[c]++);
+      spent++;
+    }
+    let total = fixed;
+    if (timed) {
+      const per = Math.max(1e-3, (now() - tStart) / spent);
+      total = spent + Math.max(0, Math.floor((ms - (now() - t0)) / per));
+    }
+    const rounds = Math.max(1, Math.ceil(Math.log2(count)));
+    for (let r = 0; r < rounds && alive.length > 1; r++) {
+      const per = Math.floor(Math.max(0, total - spent) / ((rounds - r) * alive.length));
+      const target = done[alive[0]] + per;
+      for (const c of alive) {
+        while (done[c] < target) {
+          if (timed && now() - t0 > this.opts.maxDecisionMs) break;
+          sums[c] += run(c, done[c]++);
+          spent++;
+        }
+      }
+      const m = Math.min(...alive.map((c) => done[c]));
+      alive.sort((a, b) => sums[b] / done[b] - sums[a] / done[a] || a - b);
+      void m;
+      alive = alive.slice(0, Math.max(1, Math.ceil(alive.length / 2)));
+      if (timed && now() - t0 > this.opts.maxDecisionMs) break;
+    }
+    alive.sort((a, b) => sums[b] / done[b] - sums[a] / done[a] || a - b);
+    return { best: alive[0], spent };
   }
 
   /** whole-turn search: forced threat minimums, then one searched chunk at a time */

@@ -68,6 +68,11 @@ export class AttackTree {
     return this.table.size;
   }
 
+  /** forget all nodes (reuse the object for another position) */
+  reset(): void {
+    this.table.clear();
+  }
+
   hash(sim: Sim, lastTo: number): number {
     const { n } = this.t;
     let h1 = 0;
