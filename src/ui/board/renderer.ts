@@ -7,6 +7,8 @@ export interface BoardView {
   state: MatchState;
   /** 1 = visible */
   visible: Uint8Array;
+  /** exploration fog: 1 = seen at some point; cells never seen are not drawn at all (null: no fog) */
+  known: Uint8Array | null;
   selected: number;
   /** legal targets of the selected cell */
   targets: Set<number>;
@@ -116,6 +118,12 @@ export class BoardRenderer {
   private bounds = { minX: 0, minY: 0, maxX: 1, maxY: 1 };
   private centers: [number, number][] = [];
   private fieldRef: Field | null = null;
+  /**
+   * Exploration fog: the camera keeps the scale that fits the whole map (stable, never zooming into a
+   * few cells) but is centred on, and pans within, what the viewer has seen, so the drawn part says
+   * nothing about where it lies on the map.
+   */
+  private fog: { viewer: number; minX: number; maxX: number; minY: number; maxY: number } | null = null;
   /** camera: screen = (world - cam) * scale + screen centre */
   scale = 1;
   fitScale = 1;
@@ -123,6 +131,8 @@ export class BoardRenderer {
   camY = 0;
   insets = { top: 0, bottom: 0, right: 0 };
   onAnimating: ((busy: boolean) => void) | null = null;
+  /** cells drawn in the last frame (tests) */
+  drawnCells = 0;
   /** camera (zoom) changed — lets the HUD keep its zoom button in sync */
   onCamera: (() => void) | null = null;
 
@@ -167,9 +177,14 @@ export class BoardRenderer {
       prev.w === view.state.field.w &&
       prev.cells.every((c, i) => c.id === view.state.field.cells[i].id);
     const fieldChanged = view.state.field !== prev;
+    const fogBefore = this.fog;
+    this.fog = this.fogBox(view);
+    // under fog the camera follows the person at the device: re-centre when it changes (hot-seat) or the fog lifts
+    const refocus = !!fogBefore !== !!this.fog || (!!this.fog && fogBefore!.viewer !== this.fog.viewer);
     if (fieldChanged && sameShape) {
       this.fieldRef = view.state.field;
       this.view = view;
+      if (refocus) this.resetCamera();
       this.invalidate();
       return;
     }
@@ -186,9 +201,34 @@ export class BoardRenderer {
         maxY: Math.max(...ys) + 1.1,
       };
       this.computeFit();
+      this.fog = this.fogBox(view);
       this.resetCamera();
-    }
+    } else if (refocus) this.resetCamera();
     this.invalidate();
+  }
+
+  /** Bounding box of the cells the viewer has seen (null without fog). */
+  private fogBox(view: BoardView): BoardRenderer['fog'] {
+    if (!view.known || !this.centers.length) return null;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    view.known.forEach((k, i) => {
+      if (!k || !this.centers[i]) return;
+      const [x, y] = this.centers[i];
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    });
+    if (minX > maxX) return null;
+    return { viewer: view.state.viewer, minX, maxX, minY, maxY };
+  }
+
+  /** Drag-pan works when zoomed in, and always under fog (the seen part may lie off screen). */
+  get pannable() {
+    return this.zoomed || !!this.fog;
   }
 
   private computeFit() {
@@ -214,8 +254,9 @@ export class BoardRenderer {
 
   resetCamera() {
     this.scale = this.fitScale;
-    this.camX = (this.bounds.minX + this.bounds.maxX) / 2;
-    this.camY = (this.bounds.minY + this.bounds.maxY) / 2;
+    const box = this.fog ?? this.bounds;
+    this.camX = (box.minX + box.maxX) / 2;
+    this.camY = (box.minY + box.maxY) / 2;
     this.invalidate();
     this.onCamera?.();
   }
@@ -264,6 +305,12 @@ export class BoardRenderer {
     const halfH = (this.cssH - this.insets.top - this.insets.bottom) / 2 / this.scale;
     const { minX, maxX, minY, maxY } = this.bounds;
     const clamp = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
+    if (this.fog) {
+      // keep some of the seen cells on screen, wherever they lie
+      this.camX = clamp(this.camX, this.fog.minX - halfW * 0.6, this.fog.maxX + halfW * 0.6);
+      this.camY = clamp(this.camY, this.fog.minY - halfH * 0.6, this.fog.maxY + halfH * 0.6);
+      return;
+    }
     this.camX = clamp(this.camX, minX + halfW - 0.5, maxX - halfW + 0.5);
     this.camY = clamp(this.camY, minY + halfH - 0.5, maxY - halfH + 0.5);
     void sy;
@@ -271,7 +318,7 @@ export class BoardRenderer {
 
   /** Make sure a cell is on screen (used when following bot moves on zoomed boards). */
   ensureVisible(cell: number) {
-    if (!this.zoomed || !this.centers[cell]) return;
+    if (!this.pannable || !this.centers[cell]) return;
     const [x, y] = this.worldToScreen(...this.centers[cell]);
     const m = 40;
     const top = this.insets.top + m;
@@ -290,7 +337,9 @@ export class BoardRenderer {
     const [wx, wy] = this.screenToWorld(px, py);
     let best = -1;
     let bestD = 0.93 * 0.93;
+    const known = this.view.known;
     this.centers.forEach(([cx, cy], i) => {
+      if (known && !known[i]) return;
       const d = (cx - wx) ** 2 + (cy - wy) ** 2;
       if (d < bestD) {
         bestD = d;
@@ -368,6 +417,7 @@ export class BoardRenderer {
     ctx.clearRect(0, 0, this.staticLayer.width, this.staticLayer.height);
     if (!v) return;
     const { cells, adj, walls } = v.state.field;
+    const known = v.known;
     const s = this.scale;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const pos = this.centers.map(([x, y]) => this.worldToScreen(x, y));
@@ -381,6 +431,7 @@ export class BoardRenderer {
     for (let i = 0; i < cells.length; i++) {
       for (const j of adj[i]) {
         if (j < i || (!v.visible[i] && !v.visible[j]) || (!onScreen(i) && !onScreen(j))) continue;
+        if (known && (!known[i] || !known[j])) continue;
         const a = cells[i];
         const b = cells[j];
         const bridge = a.owner >= 0 && a.owner === b.owner && v.visible[i] && v.visible[j];
@@ -409,6 +460,7 @@ export class BoardRenderer {
     ctx.lineCap = 'round';
     for (const [i, j] of walls) {
       if (!v.visible[i] && !v.visible[j]) continue;
+      if (known && (!known[i] || !known[j])) continue;
       const mx = (pos[i][0] + pos[j][0]) / 2;
       const my = (pos[i][1] + pos[j][1]) / 2;
       const dx = pos[j][0] - pos[i][0];
@@ -426,8 +478,10 @@ export class BoardRenderer {
     const fontSize = Math.max(8, s * 0.56);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    this.drawnCells = 0;
     for (let i = 0; i < cells.length; i++) {
-      if (!onScreen(i)) continue;
+      if (!onScreen(i) || (known && !known[i])) continue;
+      this.drawnCells++;
       const c = cells[i];
       const [x, y] = pos[i];
       const r = cellRadius(c.maxPower) * s;

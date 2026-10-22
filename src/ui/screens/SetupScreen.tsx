@@ -8,7 +8,7 @@ import { prepareHost } from '../battle';
 import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../core/types';
 import { SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconMoon, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
-import { MiniMap } from '../components/MiniMap';
+import { MiniMap, UnknownMap } from '../components/MiniMap';
 import { sfx } from '../../audio/sfx';
 
 const TYPES: PlayerType[] = ['dummy', 'hunter', 'master', 'god', 'human', 'online'];
@@ -19,6 +19,13 @@ const playersLabel = (n: number) => t(n >= 5 ? 'playersCountMany' : 'playersCoun
 /** The map without anybody on it (a scenario in darkness must not give away where people start). */
 function terrain(field: Field): Field {
   return { ...field, cells: field.cells.map((c) => ({ ...c, owner: -1, power: 0 })) };
+}
+
+/** Picture of a scenario's map: in darkness without the starts, under exploration fog not even the shape. */
+function ScenarioMap({ id, field, maxHeight }: { id: ScenarioId; field: Field; maxHeight: number }) {
+  const m = SCENARIO_META[id];
+  if (m.blind) return <UnknownMap maxHeight={maxHeight} />;
+  return <MiniMap field={m.darkness ? terrain(field) : field} maxHeight={maxHeight} />;
 }
 
 export function SetupScreen() {
@@ -105,7 +112,7 @@ export function SetupScreen() {
           <>
             {scenario && meta ? (
               <div class="card scenario-pick" data-testid="scenario-pick">
-                <MiniMap field={meta.darkness ? terrain(preview.field) : preview.field} maxHeight={220} />
+                <ScenarioMap id={scenario} field={preview.field} maxHeight={220} />
                 <div class="scenario-head">
                   <div class="grow">
                     <div class="kicker">{t('scenarioKicker')}</div>
@@ -120,11 +127,15 @@ export function SetupScreen() {
                   <span class="chip">
                     <IconUsers width={14} height={14} /> {playersLabel(players.length)}
                   </span>
-                  <span class="chip">{t('mapCells', { n: preview.field.cells.length })}</span>
                   {meta.darkness && (
                     <span class="chip dark">
                       <IconMoon width={13} height={13} /> {t('darkness')}
                     </span>
+                  )}
+                  {meta.blind ? (
+                    <span class="chip">{t('scenarioUncharted')}</span>
+                  ) : (
+                    <span class="chip">{t('mapCells', { n: preview.field.cells.length })}</span>
                   )}
                   {meta.unions && <span class="chip">{t('unions')}</span>}
                 </div>
@@ -188,7 +199,7 @@ export function SetupScreen() {
                 const on = id === scenario;
                 return (
                   <button key={id} class={`puzzle-card ${on ? 'on' : ''}`} aria-pressed={on} data-scenario={id} onClick={() => pickScenario(id)}>
-                    <MiniMap field={samples[id].field} maxHeight={84} />
+                    <ScenarioMap id={id} field={samples[id].field} maxHeight={84} />
                     <span class="name">{t(`puzzle_${id}` as 'puzzle_siege')}</span>
                     <span class="meta">
                       <IconUsers width={12} height={12} />

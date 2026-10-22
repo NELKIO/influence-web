@@ -97,6 +97,7 @@ export const ru = {
   scenarioSeatsNote: 'Места и стартовые позиции задаёт сценарий. Точкой отмечен задуманный соперник.',
   scenarioModesNote: 'Режимы задаёт сценарий «{name}»',
   scenarioRecommended: 'Как задумано в сценарии',
+  scenarioUncharted: 'Неизведанная карта',
   playersCountMany: '{n} игроков',
   puzzle_landing: 'Десант во тьме',
   puzzleDesc_landing: 'Огромная карта во тьме. Всех, и вас тоже, высадили в случайных местах. Где вы — и где остальные?',

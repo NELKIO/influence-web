@@ -353,6 +353,8 @@ export interface ScenarioMeta {
   unions?: boolean;
   /** the whole map starts taken (shown as the "crowded" mode) */
   crowded?: boolean;
+  /** exploration fog: the map itself is unknown until seen (with darkness) */
+  blind?: boolean;
 }
 
 export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
@@ -380,7 +382,7 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   treasury: { players: ['human', 'master'], size: 'L' },
   bridges: { players: ['human', 'hunter'], size: 'L' },
   spear: { players: ['human', 'hunter'], size: 'L' },
-  landing: { players: ['human', 'hunter', 'dummy', 'hunter', 'dummy', 'hunter'], size: 'XL', darkness: true },
+  landing: { players: ['human', 'hunter', 'dummy', 'hunter', 'dummy', 'hunter'], size: 'XL', darkness: true, blind: true },
   laststand: { players: ['human', 'hunter', 'dummy', 'hunter', 'dummy', 'hunter'], size: 'L' },
   titans: { players: ['human', 'hunter', 'hunter'], size: 'L', unions: true },
   olympus: { players: ['human', 'hunter', 'dummy', 'master', 'dummy', 'hunter'], size: 'L' },
@@ -1033,6 +1035,7 @@ export function buildScenario(id: ScenarioId, seed: number, knob = TUNING[id], p
       shuffle: false,
       duelRules: false,
       puzzle: id,
+      ...(meta.blind ? { blind: true } : {}),
     },
     { field, keepPlacement: true, seed: seed ^ 0x5bd1e995 },
   );

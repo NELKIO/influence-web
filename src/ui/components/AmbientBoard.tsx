@@ -29,6 +29,7 @@ export function AmbientBoard() {
       r.setView({
         state,
         visible: visibleCells(state, -1),
+        known: null,
         selected: -1,
         targets: new Set(),
         active: null,

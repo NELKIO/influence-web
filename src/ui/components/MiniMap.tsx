@@ -35,3 +35,54 @@ export function MiniMap({ field, starts: startCells = [], maxHeight = 200 }: { f
     </svg>
   );
 }
+
+/**
+ * Thumbnail of a map nobody has seen yet (exploration fog): a few hexes fading into the dark around
+ * a question mark. It shows neither the shape of the map nor where anybody starts.
+ */
+export function UnknownMap({ maxHeight = 200 }: { maxHeight?: number }) {
+  const R = 4;
+  const hexes: { x: number; y: number; d: number }[] = [];
+  for (let q = -R; q <= R; q++)
+    for (let r = -R; r <= R; r++) {
+      const d = Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
+      if (d > R) continue;
+      // a ragged edge, the same every time
+      if (d >= 3 && ((q * 7 + r * 13 + q * r) & 3) === 0) continue;
+      hexes.push({ x: (q + r / 2) * Math.sqrt(3), y: r * 1.5, d });
+    }
+  const hex = (cx: number, cy: number, r: number) =>
+    Array.from({ length: 6 }, (_, i) => {
+      const a = (Math.PI / 3) * i - Math.PI / 2;
+      return `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`;
+    }).join(' ');
+  const w = (R + 1) * Math.sqrt(3) * 2;
+  const h = (R * 1.5 + 1.2) * 2;
+  return (
+    <svg viewBox={`${-w / 2} ${-h / 2} ${w} ${h}`} style={{ width: '100%', maxHeight, display: 'block' }} aria-hidden="true" data-unknown-map>
+      {hexes.map((c, i) => (
+        <polygon
+          key={i}
+          points={hex(c.x, c.y, 0.8)}
+          fill="#1b1e24"
+          stroke="#2c3038"
+          stroke-width="0.08"
+          opacity={c.d === 0 ? 0 : Math.max(0.12, 1 - c.d * 0.22)}
+        />
+      ))}
+      <text
+        x="0"
+        y="0.1"
+        text-anchor="middle"
+        dominant-baseline="middle"
+        font-family="var(--display)"
+        font-weight="600"
+        font-size="3.2"
+        fill="#b9c2ff"
+        opacity="0.85"
+      >
+        ?
+      </text>
+    </svg>
+  );
+}

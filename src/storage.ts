@@ -147,6 +147,7 @@ export function setupToSettings(s: SetupPrefs): MatchSettings {
       shuffle: false,
       duelRules: false,
       puzzle: s.scenario,
+      ...(m.blind ? { blind: true } : {}),
     };
   }
   return {

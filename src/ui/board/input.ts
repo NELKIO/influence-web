@@ -74,7 +74,7 @@ export function attachBoardInput(canvas: HTMLCanvasElement, r: BoardRenderer, h:
         moved = true;
         clearLong();
       }
-      if (moved && r.zoomed) r.pan(x - p.x, y - p.y);
+      if (moved && r.pannable) r.pan(x - p.x, y - p.y);
     } else if (pts.size === 2) {
       const [a, b] = [...pts.entries()].map(([id, v]) => (id === e.pointerId ? { ...v, x, y } : v));
       const d = Math.hypot(a.x - b.x, a.y - b.y);

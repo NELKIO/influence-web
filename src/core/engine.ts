@@ -58,6 +58,7 @@ export function createMatch(settings: MatchSettings, opts: CreateOptions = {}): 
     ended: null,
     startedAt: Date.now(),
   };
+  explore(state);
   return state;
 }
 
@@ -305,6 +306,7 @@ export function attack(state: MatchState, from: number, to: number, forced?: { w
     state.outAt[defOwnerBefore] = state.turn;
   }
   state.selected = win ? to : from;
+  if (win) explore(state);
   const ev: FightEvent = {
     type: 'fight',
     player: A.owner,
@@ -332,6 +334,7 @@ export function applyFight(state: MatchState, ev: FightEvent): FightEvent | Atta
 export function endAttack(state: MatchState): UnionEvent | null {
   if (state.ended || state.phase !== 'attack') return null;
   const union = state.settings.unions ? maybeUnite(state) : null;
+  if (union) explore(state);
   state.phase = 'power';
   state.selected = -1;
   state.powerLeft = incomeFor(state, state.current);
@@ -538,4 +541,40 @@ export function visibleCells(state: MatchState, viewer = state.viewer): Uint8Arr
     }
   });
   return vis;
+}
+
+// ---------------------------------------------------------------- exploration fog
+
+/** Under exploration fog: add what every person sees now to the cells they have already seen. */
+export function explore(state: MatchState): void {
+  const s = state.settings;
+  if (!s.blind || !s.darkness) return;
+  const { cells, adj } = state.field;
+  const explored = (state.explored ??= []);
+  s.players.forEach((p, seat) => {
+    if (!isPersonType(p)) return;
+    const row = (explored[seat] ?? '').padEnd(cells.length, '0').split('');
+    let grew = !explored[seat];
+    cells.forEach((c, i) => {
+      if (c.owner !== seat) return;
+      for (const j of [i, ...adj[i]])
+        if (row[j] !== '1') {
+          row[j] = '1';
+          grew = true;
+        }
+    });
+    if (grew) explored[seat] = row.join('');
+  });
+}
+
+/**
+ * Cells shown to `viewer` under exploration fog: everything they have seen (null: no fog, show the
+ * whole map; also once the match is over or nobody is left to explore).
+ */
+export function exploredCells(state: MatchState, viewer = state.viewer): Uint8Array | null {
+  const row = state.explored?.[viewer];
+  if (!state.settings.blind || !state.settings.darkness || state.ended || !row || humansAlive(state).length === 0) return null;
+  const out = new Uint8Array(state.field.cells.length);
+  for (let i = 0; i < out.length; i++) out[i] = row.charCodeAt(i) === 49 ? 1 : 0;
+  return out;
 }

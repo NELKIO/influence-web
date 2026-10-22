@@ -98,6 +98,7 @@ export const en: typeof ru = {
   scenarioSeatsNote: 'The scenario sets the seats and starting positions. A dot marks the opponent it was designed for.',
   scenarioModesNote: 'Modes are set by the “{name}” scenario',
   scenarioRecommended: 'As designed',
+  scenarioUncharted: 'Uncharted map',
   playersCountMany: '{n} players',
   puzzle_landing: 'Night drop',
   puzzleDesc_landing: 'A huge map in darkness. Everyone, you included, is dropped at a random spot. Where are you, and where are the others?',

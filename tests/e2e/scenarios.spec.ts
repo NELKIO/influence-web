@@ -156,3 +156,104 @@ test('night drop starts in darkness at a random spot; quick start and hot-seat h
   await expect(page.getByTestId('handover')).toContainText('Игрок 2');
   await expectNoErrors(errors);
 });
+
+/** Seen cells of a seat (exploration fog) and how many cells the board drew in its last frame. */
+const fogInfo = (page: Page, seat: number) =>
+  page.evaluate((seat) => {
+    const { ctrl, renderer } = (window as any).__infweb;
+    const s = ctrl.state;
+    const row: string = s.explored?.[seat] ?? '';
+    const seen = [...row].flatMap((ch, i) => (ch === '1' ? [i] : []));
+    return { seen, drawn: renderer.drawnCells, total: s.field.cells.length, viewer: s.viewer };
+  }, seat);
+
+test('night drop: the board draws only the land you have seen', async ({ page }) => {
+  const errors = await fresh(page, { confirmEnd: false });
+  await openSetup(page);
+  await page.locator('[data-scenario="landing"]').click();
+  // neither the preview nor the card shows the shape of the map
+  await expect(page.getByTestId('scenario-pick').locator('[data-unknown-map]')).toHaveCount(1);
+  await expect(page.locator('[data-scenario="landing"] [data-unknown-map]')).toHaveCount(1);
+  await expect(page.getByTestId('scenario-pick')).toContainText('Неизведанная карта');
+  await page.getByRole('button', { name: /^В бой/ }).first().click();
+  await waitGame(page);
+  const start = await fogInfo(page, 0);
+  expect(start.seen.length).toBeGreaterThan(3);
+  expect(start.seen.length).toBeLessThan(start.total / 4);
+  await expect.poll(async () => (await fogInfo(page, 0)).drawn).toBe(start.seen.length);
+  // a cell far from anything seen is not drawn, so a tap there hits nothing
+  const far = await page.evaluate(() => {
+    const { ctrl, renderer } = (window as any).__infweb;
+    const s = ctrl.state;
+    const row: string = s.explored[0];
+    const unseen = s.field.cells.findIndex((_: unknown, i: number) => row[i] !== '1');
+    const p = renderer.cellScreenPos(unseen);
+    return renderer.cellAt(p[0], p[1]);
+  });
+  expect(far).toBe(-1);
+  // capture a neighbour: more land becomes known and is drawn, the camera does not jump
+  const cam0 = await page.evaluate(() => {
+    const r = (window as any).__infweb.renderer;
+    return [r.camX, r.camY, r.scale];
+  });
+  await page.evaluate(() => {
+    const { ctrl } = (window as any).__infweb;
+    const s = ctrl.state;
+    const a = s.field.cells.findIndex((c: any, i: number) => c.owner === 0 && c.power >= 2 && s.field.adj[i].some((j: number) => s.field.cells[j].owner === -1 && s.field.cells[j].power === 0));
+    const t = s.field.adj[a].find((j: number) => s.field.cells[j].owner === -1 && s.field.cells[j].power === 0);
+    ctrl.tap(a);
+    ctrl.tap(t);
+  });
+  await expect.poll(async () => (await fogInfo(page, 0)).seen.length).toBeGreaterThan(start.seen.length);
+  const grown = await fogInfo(page, 0);
+  await expect.poll(async () => (await fogInfo(page, 0)).drawn).toBe(grown.seen.length);
+  const cam1 = await page.evaluate(() => {
+    const r = (window as any).__infweb.renderer;
+    return [r.camX, r.camY, r.scale];
+  });
+  expect(cam1).toEqual(cam0);
+  await expectNoErrors(errors);
+});
+
+test('night drop hot-seat: each person keeps their own explored land, the hand-over shows none of it', async ({ page }) => {
+  const errors = await fresh(page, { confirmEnd: false });
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'infweb.setup',
+      JSON.stringify({ size: 'M', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, scenario: 'landing', scenarioSeats: { landing: ['human', 'human', 'dummy', 'dummy', 'dummy', 'dummy'] } }),
+    ),
+  );
+  await page.reload();
+  await page.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
+  await waitGame(page);
+  await expect(page.getByTestId('handover')).toBeVisible();
+  const a0 = await fogInfo(page, 0);
+  const b0 = await fogInfo(page, 1);
+  expect(a0.seen.length).toBeGreaterThan(0);
+  expect(b0.seen.length).toBeGreaterThan(0);
+  expect(a0.seen.filter((i) => b0.seen.includes(i))).toEqual([]);
+  await page.getByTestId('handover').click();
+  await expect(page.getByTestId('handover')).toHaveCount(0);
+  await expect.poll(async () => (await fogInfo(page, 0)).drawn).toBe(a0.seen.length);
+  // player 1 ends the turn: the hand-over covers the board, then player 2 sees only their own land
+  await page.evaluate(() => {
+    const c = (window as any).__infweb.ctrl;
+    c.endButton(true);
+    c.endButton(true);
+  });
+  await expect(page.getByTestId('handover')).toContainText('Игрок 2');
+  await expect(page.getByTestId('handover')).toHaveClass(/solid/);
+  await page.getByTestId('handover').click();
+  await expect(page.getByTestId('handover')).toHaveCount(0);
+  const b1 = await fogInfo(page, 1);
+  expect(b1.viewer).toBe(1);
+  await expect.poll(async () => (await fogInfo(page, 1)).drawn).toBe(b1.seen.length);
+  // the sets stay apart after reload (saved with the match)
+  await page.reload();
+  await page.locator('.play-btn.cont').click();
+  await waitGame(page);
+  const a2 = await fogInfo(page, 0);
+  expect(a2.seen.length).toBeGreaterThanOrEqual(a0.seen.length);
+  expect((await fogInfo(page, 1)).seen).toEqual(b1.seen);
+  await expectNoErrors(errors);
+});

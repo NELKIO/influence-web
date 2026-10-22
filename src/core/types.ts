@@ -93,6 +93,8 @@ export interface MatchSettings {
   dailyId?: string;
   /** puzzle scenario id (preset position) */
   puzzle?: string;
+  /** exploration fog (with darkness): cells a person has never seen are not shown at all */
+  blind?: boolean;
 }
 
 export type Phase = 'attack' | 'power';
@@ -122,6 +124,11 @@ export interface MatchState {
   lastStuck: number;
   /** last human who acted (darkness viewer) */
   viewer: number;
+  /**
+   * Exploration fog (`settings.blind`): per seat of a person, one character per cell, '1' = seen at
+   * some point. Bots have no entry.
+   */
+  explored?: string[];
   /** cell index of the currently selected cell (UI convenience, kept in state for bots/continuation) */
   selected: number;
   chronicle: Chronicle;

@@ -17,6 +17,7 @@ import {
   isHuman,
   targetsFrom,
   visibleCells,
+  exploredCells,
   winChance,
   type StuckOffer,
 } from '../../core/engine';
@@ -221,6 +222,7 @@ export class GameController {
   view(): BoardView {
     const s = this.state;
     const visible = visibleCells(s, s.viewer);
+    const known = exploredCells(s, s.viewer);
     const local = this.isLocalTurn && this.overlay.kind !== 'handover';
     const selected = local && s.phase === 'attack' ? s.selected : -1;
     const targets = new Set<number>(selected >= 0 ? targetsFrom(s, selected) : []);
@@ -246,6 +248,7 @@ export class GameController {
     return {
       state: s,
       visible,
+      known,
       selected,
       targets,
       chances,
