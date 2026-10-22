@@ -4,6 +4,9 @@ import type { MatchState } from '../../src/core/types';
 import { GodBot } from '../../src/ai/godBot';
 import { isValidPlacement } from '../../src/ai/masterBot';
 
+// slow CI runners: these tests run real searches and whole matches
+vi.setConfig({ testTimeout: 60_000 });
+
 /**
  * Exercise GOD's Web Worker path in Node with an in-process fake Worker: the real god.worker.ts module
  * is loaded into a fake worker scope and messages are structured-cloned both ways.

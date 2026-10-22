@@ -130,6 +130,8 @@ interface Ponder {
 }
 
 const PONDER_LIMIT_MS = 3000;
+/** iterations every search runs even when its time budget is already used up (slow devices) */
+const MIN_ITERS = 16;
 
 /** Stateful GOD decision maker (one per bot / worker). */
 export class GodBrain {
@@ -356,7 +358,7 @@ export class GodBrain {
         for (;;) {
           if (fixed !== undefined) {
             if (iters >= fixed) break;
-          } else if ((iters & 7) === 0 && now() - t0 >= budget) break;
+          } else if (iters >= MIN_ITERS && (iters & 7) === 0 && now() - t0 >= budget) break;
           copy.copyFrom(root);
           this.sampleLuck(copy, rng);
           tree.iterate(copy, this.lastTo, new FastRng(rng.u32()), rh);
@@ -401,6 +403,8 @@ export class GodBrain {
       }
     }
     this.lastInfo = { rollouts: iters, ms: now() - t0, candidates: count };
+    // never end the phase only because the search had no answer (starved budget): expert fallback
+    if (move < 0 && count > 0) move = this.fallbackMove(root, me, move);
     if (move < 0) return null;
     const from = move >> 10;
     const to = move & 1023;
@@ -413,6 +417,16 @@ export class GodBrain {
     this.lastFight = { turn: state.turn, to, bucket: p === 0.25 ? 0 : p === 0.5 ? 1 : p === 0.75 ? 2 : -1 };
     if (this.opts.rollouts === undefined && !this.multi(state, me)) this.preparePonder(root, from, to, p);
     return { from, to };
+  }
+
+  /**
+   * The search found nothing to play although attacks exist. GOD never voluntarily stops (it has no
+   * STOP move), so −1 here can only mean "no statistics" (e.g. a starved time budget): play Master's
+   * expert move instead.
+   */
+  private fallbackMove(root: Sim, me: number, move: number): number {
+    const mv = masterAttack(root, me, { lastTo: this.lastTo });
+    return mv >= 0 ? mv : move;
   }
 
   private attackTree(root: Sim, me: number, key: string, seed: number, hidden: number): AttackTree {
@@ -456,7 +470,7 @@ export class GodBrain {
     for (;;) {
       if (fixed !== undefined) {
         if (it >= fixed) break;
-      } else if ((it & 7) === 0 && now() - t0 >= budgetMs) break;
+      } else if (it >= MIN_ITERS && (it & 7) === 0 && now() - t0 >= budgetMs) break;
       copy.copyFrom(root);
       this.sampleLuck(copy.sim, rng);
       tree.iterate(copy, new FastRng(rng.u32()));

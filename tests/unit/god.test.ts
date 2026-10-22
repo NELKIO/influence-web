@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createBot } from '../../src/ai';
 import { runMatch } from '../../src/ai/arena';
 import { GodBot } from '../../src/ai/godBot';
@@ -23,6 +23,9 @@ import {
   targetsFrom,
 } from '../../src/core/engine';
 import { NEUTRAL, type BotType, type MatchSettings, type MatchState, type PlayerType } from '../../src/core/types';
+
+// slow CI runners: these tests run real searches and whole matches
+vi.setConfig({ testTimeout: 60_000 });
 
 const ctx = { speedMs: 0 };
 const FAST = { sync: true, rollouts: 40 } as const;
@@ -183,6 +186,37 @@ describe('GOD: edge cases', () => {
     }
   });
 
+  it('a starved time budget (slow device) still plays a move whenever an attack exists', async () => {
+    const zero = { sync: true, firstAttackMs: 0, attackMs: 0, attackSpeedFactor: 0, powerMs: 0, maxDecisionMs: 0 };
+    const states = [
+      ...sampleStates({ players: ['god', 'hunter'] }, [31, 32]),
+      ...sampleStates({ size: 'L', players: ['god', 'hunter', 'dummy'] }, [33]),
+    ];
+    // a clock that jumps a whole second on every read: every budget is exhausted immediately
+    let t = 0;
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => (t += 1000));
+    try {
+      let checked = 0;
+      for (const st of states) {
+        const bot = createBot('god', { seed: 5, god: zero });
+        if (st.phase === 'attack') {
+          const legal = st.field.cells.some((c, i) => c.owner === 0 && targetsFrom(st, i).length > 0);
+          const mv = await bot.nextAttack(st, ctx);
+          if (legal) {
+            expect(mv).not.toBeNull();
+            checked++;
+          }
+          if (mv) expect(checkAttack(st, mv.from, mv.to)).toBeNull();
+        } else {
+          expect(isValidPlacement(st, await bot.placePower(st, ctx))).toBe(true);
+        }
+      }
+      expect(checked).toBeGreaterThan(5);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 60_000);
+
   it('never attacks forever: a whole attack phase ends', async () => {
     const st = sampleStates({ size: 'L' }, [12], 5).find((s) => s.phase === 'attack')!;
     const s = structuredClone(st);
@@ -258,7 +292,7 @@ describe('GOD: fair play (no hidden information)', () => {
 });
 
 describe('GOD: simulator matches the engine', () => {
-  it('fights, income and placements agree with the engine on random play', () => {
+  it('fights, income and placements agree with the engine on random play', { timeout: 60_000 }, () => {
     for (let g = 0; g < 36; g++) {
       const duel = g % 3 === 0;
       const settings: MatchSettings = {

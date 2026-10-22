@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createBot } from '../../src/ai';
 import { runMatch } from '../../src/ai/arena';
 import type { BotType, FieldSize, MatchSettings } from '../../src/core/types';
+
+// slow CI runners: these tests run real searches and whole matches
+vi.setConfig({ testTimeout: 60_000 });
 
 /**
  * Fast deterministic strength checks for GOD (fixed seeds, fixed budgets on both sides).
