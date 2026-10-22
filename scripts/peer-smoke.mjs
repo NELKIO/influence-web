@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Real-network smoke test of online duels: starts the Vite dev server, opens dev/peer-harness.html
- * in two isolated Chromium contexts and plays a duel over the public PeerJS broker + WebRTC.
+ * in two isolated Chromium contexts and plays a duel over WebRTC (PeerJS broker), falling back to the
+ * MQTT relay when WebRTC cannot connect (LINK=relay|direct forces one path).
  * Also checks a bad room code, a guest page reload and a host page reload (resume from localStorage).
  *
  *   node scripts/peer-smoke.mjs            # headless
@@ -41,7 +42,7 @@ const server = await createServer({
   logLevel: 'warn',
 });
 await server.listen();
-const url = `http://127.0.0.1:${PORT}/influence-web/dev/peer-harness.html?debug=${process.env.PEER_DEBUG ?? 1}`;
+const url = `http://127.0.0.1:${PORT}/influence-web/dev/peer-harness.html?debug=${process.env.PEER_DEBUG ?? 1}${process.env.LINK ? `&transport=${process.env.LINK}` : ''}`;
 say('dev server at', url);
 
 // Chromium hides local IPs behind mDNS names; resolving those between two headless contexts is
@@ -73,8 +74,8 @@ try {
 
   // ---- environment probe: can this machine open any WebRTC data channel (same page, no network)?
   const probe = await A.evaluate(() => window.H.loopbackProbe());
-  check('local WebRTC loopback (environment probe)', probe === 'open', probe);
-  if (probe !== 'open') say('WARNING: WebRTC is blocked on this machine (VPN/TUN, firewall?); P2P cannot work here');
+  say('local WebRTC loopback (environment probe):', probe);
+  if (probe !== 'open') say('NOTE: WebRTC is blocked on this machine (VPN/TUN, firewall?): the duel has to use the MQTT relay');
 
   // ---- host
   await A.evaluate(() => window.H.host({ size: 'M', hostFirst: true }));
@@ -94,7 +95,7 @@ try {
   const joined =
     (await waitFor(B, () => window.H.info().status === 'playing', null, 45_000, 'guest playing')) &&
     (await waitFor(A, () => window.H.info().status === 'playing', null, 10_000, 'host playing'));
-  check('guest connected over WebRTC and got the match', joined, `${Date.now() - tJoin} ms`);
+  check('guest connected and got the match', joined, `${Date.now() - tJoin} ms, link ${(await info(B)).link}`);
   if (!joined) throw new Error('P2P connection failed');
 
   const same = async () => {

@@ -42,7 +42,7 @@ function wireHost(h: BattleHost) {
   h.onStatus((s) => log('status', s, h.code));
   h.onRoster((r) => log('roster', r.map((x) => `${x.seat}:${x.kind}${x.connected ? '' : '(off)'}:${x.name ?? ''}`).join(' ')));
   h.onError((e) => {
-    errors.push(e.code);
+    if (e.fatal) errors.push(e.code);
     log('error', e);
   });
   h.on('resync', (r) => {
@@ -59,7 +59,7 @@ function wireGuest(g: BattleGuest) {
   g.onStatus((s) => log('status', s, g.code, 'seat', g.seat));
   g.onRoster((r) => log('roster', r.map((x) => `${x.seat}:${x.kind}${x.connected ? '' : '(off)'}:${x.name ?? ''}`).join(' ')));
   g.onError((e) => {
-    errors.push(e.code);
+    if (e.fatal) errors.push(e.code);
     log('error', e);
   });
   g.on('resync', (r) => {
@@ -81,6 +81,7 @@ function info() {
     code: s?.code ?? null,
     seat: guest?.seat ?? -1,
     connected: guest ? guest.connected : !!host?.ready,
+    link: guest ? guest.link : (host?.roster.filter((r) => r.kind === 'online').map((r) => r.link ?? null) ?? []),
     canStart: host?.canStart ?? false,
     seq: s?.seq ?? 0,
     hash: st ? battleHash(st) : '',

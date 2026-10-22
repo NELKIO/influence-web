@@ -10,3 +10,6 @@ export * from './broadcastBattle';
 export * from './battleProtocol';
 export * from './battleRules';
 export * from './battleRoom';
+export * from './mqttRelay';
+export * from './composite';
+export { roomKeys, DEFAULT_KDF_ITERATIONS } from './relayCrypto';

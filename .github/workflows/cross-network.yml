@@ -1,0 +1,56 @@
+name: Cross-network host
+
+# Runs the HOST side of an online duel / battle on a GitHub runner (scripts/cross-network.mjs), so the
+# GUEST side can be run from another network, e.g. locally behind a VPN:
+#   ROLE=guest KIND=<kind> CODE=<code> node scripts/cross-network.mjs
+on:
+  workflow_dispatch:
+    inputs:
+      code:
+        description: 'Room code: 4 characters for a duel, 5 for a battle (A-Z, 2-9, no I/O)'
+        required: true
+      kind:
+        description: 'duel or battle'
+        type: choice
+        options: [duel, battle]
+        default: duel
+      base_url:
+        description: 'Site to load (empty: a local dev server of this commit on the runner)'
+        required: false
+        default: ''
+      minutes:
+        description: 'How long the host keeps the room open'
+        required: false
+        default: '15'
+      link:
+        description: 'auto (WebRTC, relay fallback), relay or direct'
+        type: choice
+        options: [auto, relay, direct]
+        default: auto
+      guests:
+        description: 'Battle: number of online seats (guests)'
+        required: false
+        default: '1'
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Host the room
+        run: node scripts/cross-network.mjs
+        env:
+          ROLE: host
+          CODE: ${{ inputs.code }}
+          KIND: ${{ inputs.kind }}
+          BASE_URL: ${{ inputs.base_url }}
+          MINUTES: ${{ inputs.minutes }}
+          LINK: ${{ inputs.link }}
+          GUESTS: ${{ inputs.guests }}

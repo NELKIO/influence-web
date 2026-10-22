@@ -27,7 +27,9 @@ import {
   type SyncMsg,
 } from './protocol';
 import { isValidCode, normalizeCode, randomId } from './room';
-import { PeerTransport, type PeerTransportOptions, type Transport, type TransportError, type TransportErrorCode } from './transport';
+import { createDuelGuestTransport, createDuelHostTransport, type LinkMode } from './composite';
+import type { RelayOptions } from './mqttRelay';
+import type { LinkKind, PeerTransportOptions, Transport, TransportError, TransportErrorCode } from './transport';
 
 export type DuelRole = 'host' | 'guest';
 export type DuelStatus = 'connecting' | 'waiting' | 'playing' | 'reconnecting' | 'ended' | 'error';
@@ -109,6 +111,12 @@ export interface DuelOptions {
   pingMs?: number;
   /** PeerJS transport tuning (broker, ICE, logging) */
   peer?: Omit<PeerTransportOptions, 'clientId'>;
+  /** relay fallback tuning (brokers, MQTT client factory); false disables the relay */
+  relay?: RelayOptions | false;
+  /** 'auto' (WebRTC, relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
+  linkMode?: LinkMode;
+  /** guest: switch to the relay when WebRTC is not open after this long (ms, default 5000) */
+  fallbackMs?: number;
 }
 
 export interface HostOptions extends DuelOptions, Partial<DuelConfig> {
@@ -193,6 +201,10 @@ export function duelSettings(config: DuelConfig, localSlot: number): MatchSettin
   };
 }
 
+function netOpts(opts: DuelOptions) {
+  return { peer: opts.peer, relay: opts.relay, mode: opts.linkMode, fallbackMs: opts.fallbackMs };
+}
+
 function resolveStorage(opts: DuelOptions): KVStorage | null {
   return opts.storage === undefined ? defaultStorage() : opts.storage;
 }
@@ -249,7 +261,7 @@ export class DuelSession {
   static host(opts: HostOptions = {}): DuelSession {
     const storage = resolveStorage(opts);
     const clientId = opts.clientId ?? getClientId(storage);
-    const transport = opts.transport ?? PeerTransport.host({ ...opts.peer, clientId, code: opts.code });
+    const transport = opts.transport ?? createDuelHostTransport({ ...netOpts(opts), clientId, code: opts.code });
     const config: DuelConfig = {
       size: opts.size ?? DEFAULT_CONFIG.size,
       darkness: opts.darkness ?? DEFAULT_CONFIG.darkness,
@@ -266,10 +278,10 @@ export class DuelSession {
     const c = normalizeCode(code);
     const saved = opts.fresh ? null : readJson<SavedDuel>(storage, DUEL_SESSION_KEY);
     const resume = saved && saved.v === 1 && saved.role === 'guest' && saved.code === c ? saved : null;
-    const transport = opts.transport ?? PeerTransport.join(c, { ...opts.peer, clientId });
+    const transport = opts.transport ?? createDuelGuestTransport(c, { ...netOpts(opts), clientId });
     const s = new DuelSession('guest', transport, { ...opts, storage, clientId }, { ...DEFAULT_CONFIG }, resume);
     if (!transport.code) s.code = c;
-    if (!isValidCode(c) && opts.transport) {
+    if (!isValidCode(c)) {
       queueMicrotask(() => s.fail({ code: 'bad-code', message: `Invalid room code "${code}"`, fatal: true }));
     }
     return s;
@@ -284,8 +296,8 @@ export class DuelSession {
     const transport =
       opts.transport ??
       (saved.role === 'host'
-        ? PeerTransport.host({ ...opts.peer, clientId, code: saved.code, expectClientId: saved.peerClientId })
-        : PeerTransport.join(saved.code, { ...opts.peer, clientId }));
+        ? createDuelHostTransport({ ...netOpts(opts), clientId, code: saved.code, fixed: true, expectClientId: saved.peerClientId })
+        : createDuelGuestTransport(saved.code, { ...netOpts(opts), clientId }));
     return new DuelSession(saved.role, transport, { ...opts, storage, clientId, name: opts.name ?? saved.name }, saved.config, saved);
   }
 
@@ -369,6 +381,11 @@ export class DuelSession {
   }
 
   // ------------------------------------------------------------------ public API: queries
+
+  /** how the link to the opponent is carried right now ('direct' WebRTC or 'relay'), null when offline */
+  get link(): LinkKind | null {
+    return this.connected ? (this.transport.linkKind ?? null) : null;
+  }
 
   get isHost(): boolean {
     return this.role === 'host';
@@ -532,20 +549,27 @@ export class DuelSession {
 
   /** Close the connection but keep the saved session (it can be resumed later). */
   dispose(): void {
+    this.shutdown(true);
+  }
+
+  private shutdown(keepRoom: boolean) {
     if (this.closed) return;
     this.persist();
     this.closed = true;
     this.stopTimers();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.transport.close();
+    // keepRoom: the relay presence of a hosted room stays, so the room can be resumed
+    const t = this.transport as Transport & { detach?: () => void };
+    if (keepRoom && t.detach) t.detach();
+    else t.close();
     this.connected = false;
     this.em.clear();
   }
 
   /** Leave the room for good: close the connection and forget the saved session. */
   leave(): void {
-    this.dispose();
+    this.shutdown(false);
     DuelSession.clearSaved(this.storage);
   }
 

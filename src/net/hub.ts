@@ -30,6 +30,10 @@ export interface MultiHostTransport {
   send(clientId: string, msg: unknown): boolean;
   /** close one guest's link (it may dial again) */
   kick(clientId: string): void;
+  /** refuse a guest for good (it gets a fatal 'room-full'); optional */
+  refuse?(clientId: string): void;
+  /** kind of the link a guest uses right now; optional */
+  linkOf?(clientId: string): import('./transport').LinkKind | null;
   onReady(cb: (code: string) => void): Unsubscribe;
   onJoin(cb: (clientId: string) => void): Unsubscribe;
   onLeave(cb: (clientId: string) => void): Unsubscribe;

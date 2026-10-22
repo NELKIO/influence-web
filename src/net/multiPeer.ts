@@ -75,6 +75,24 @@ export class MultiPeerHost extends BaseMultiHost {
     }
   }
 
+  linkOf(clientId: string): 'direct' | null {
+    return this.links.has(clientId) ? 'direct' : null;
+  }
+
+  /** refuse a guest for good: it gets the 'busy' frame (fatal 'room-full' on its side) */
+  refuse(clientId: string): void {
+    const l = this.links.get(clientId);
+    if (!l) return;
+    try {
+      void l.conn.send(JSON.stringify({ __ctl: 'busy' } satisfies Ctl));
+    } catch {
+      /* ignore */
+    }
+    this.links.delete(clientId);
+    this.em.emit('leave', clientId);
+    setTimeout(() => l.conn.close(), 1500);
+  }
+
   kick(clientId: string): void {
     const l = this.links.get(clientId);
     if (l) this.drop(clientId, l.conn);

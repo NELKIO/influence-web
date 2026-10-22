@@ -87,12 +87,13 @@ export function BattleRoomScreen({ join }: { join?: string }) {
     navigate({ name: 'menu' });
   };
 
+  const linkText = (r: RosterEntry) => (r.link ? ` · ${r.link === 'relay' ? 'relay' : 'P2P'}` : '');
   const seatStatus = (r: RosterEntry) => {
-    if (r.you) return t('battleSeatYou');
+    if (r.you) return t('battleSeatYou') + linkText(r);
     if (r.onHost) return t('battleSeatHost');
     if (r.kind === 'online' || r.kind === 'remote') {
       if (!r.taken) return t('battleSeatWaiting');
-      return r.connected ? t('battleSeatOnline') : t('battleSeatOffline');
+      return (r.connected ? t('battleSeatOnline') : t('battleSeatOffline')) + linkText(r);
     }
     return '';
   };

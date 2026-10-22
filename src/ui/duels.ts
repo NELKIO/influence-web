@@ -3,11 +3,15 @@
  * namespace, so DuelSession persistence (one session per storage) works unchanged. Sessions stay
  * connected in the background while the player is on other screens or in another match.
  */
+import * as net from '../net';
 import { DuelSession, getClientId, type KVStorage } from '../net';
 import { BroadcastTransport, useBroadcastTransport } from '../net/broadcast';
 import { randomId } from '../net/room';
 
 export const MAX_DUELS = 5;
+
+// scripted cross-network tests (scripts/cross-network.mjs) drive sessions directly through this
+if (typeof window !== 'undefined') (window as unknown as { __infwebNet: typeof net }).__infwebNet = net;
 
 const BC = useBroadcastTransport();
 const REGISTRY = 'infweb.duelSlots';
@@ -93,6 +97,7 @@ function watch(id: string, s: DuelSession) {
   live.set(id, s);
   const offs = [
     s.onStatus(changed),
+    s.on('connection', changed),
     s.onState(changed),
     s.onOpponent(changed),
     s.onRematch(changed),

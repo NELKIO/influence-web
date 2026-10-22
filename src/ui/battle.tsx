@@ -217,10 +217,21 @@ function RoomHud({ roster, ctrl, offline }: { roster: RosterEntry[]; ctrl: GameC
   if (ctrl.state.ended) return null;
   if (offline) return <div class="hint" style={{ color: 'var(--warn)' }}>{t('duelReconnecting')}</div>;
   const away = roster.filter((r) => r.taken && !r.connected && !r.you);
-  if (!away.length) return null;
+  // guest: its own link; host: 'relay' as soon as any guest is relayed
+  const links = roster.map((r) => r.link).filter(Boolean);
+  const link = links.length ? (links.includes('relay') ? 'relay' : 'P2P') : null;
   return (
-    <div class="hint" style={{ color: 'var(--warn)' }}>
-      {t('battleAway', { names: away.map((r) => r.name || t('playerN', { n: r.seat + 1 })).join(', ') })}
-    </div>
+    <>
+      {away.length > 0 && (
+        <div class="hint" style={{ color: 'var(--warn)' }}>
+          {t('battleAway', { names: away.map((r) => r.name || t('playerN', { n: r.seat + 1 })).join(', ') })}
+        </div>
+      )}
+      {link && (
+        <div class="muted" data-testid="link-kind" style={{ fontSize: 11, textAlign: 'center', opacity: 0.7 }}>
+          {link}
+        </div>
+      )}
+    </>
   );
 }

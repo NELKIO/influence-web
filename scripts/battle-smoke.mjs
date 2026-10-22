@@ -4,7 +4,8 @@
  * dev/battle-harness.html three times and plays a match with autoplay. Checks the lobby, a bad code,
  * identical states, a guest page reload and a host page reload (resume from storage).
  *
- *   node scripts/battle-smoke.mjs                 # real network: public PeerJS broker + WebRTC
+ *   node scripts/battle-smoke.mjs                 # real network: WebRTC, falling back to the MQTT relay
+ *   LINK=relay node scripts/battle-smoke.mjs      # real network, relay only (?transport=relay)
  *   TRANSPORT=bc node scripts/battle-smoke.mjs    # three tabs of one browser over BroadcastChannel
  *   HEADED=1 SEATS=human,online,online,online,hunter node scripts/battle-smoke.mjs
  *
@@ -46,7 +47,8 @@ const server = await createServer({
   logLevel: 'warn',
 });
 await server.listen();
-const url = `http://127.0.0.1:${PORT}/influence-web/dev/battle-harness.html?debug=${process.env.PEER_DEBUG ?? 1}${BC ? '&transport=bc' : ''}`;
+const mode = BC ? '&transport=bc' : process.env.LINK ? `&transport=${process.env.LINK}` : '';
+const url = `http://127.0.0.1:${PORT}/influence-web/dev/battle-harness.html?debug=${process.env.PEER_DEBUG ?? 1}${mode}`;
 say('dev server at', url, BC ? '(BroadcastChannel)' : '(PeerJS)');
 
 const browser = await chromium.launch({
@@ -144,7 +146,8 @@ try {
   await playRounds(ROUNDS);
   check('states identical at the end', await same('final'));
   const fin = await info(A);
-  check('no transport errors on the host', fin.errors.length === 0, JSON.stringify(fin.errors));
+  check('no fatal transport errors on the host', fin.errors.length === 0, JSON.stringify(fin.errors));
+  say('links: host sees', JSON.stringify(fin.link), 'guests:', JSON.stringify(await Promise.all(guests.map(async (g) => (await info(g)).link))));
 } catch (e) {
   say('ERROR', e?.message ?? e);
   exitCode = 1;

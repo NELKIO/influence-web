@@ -12,6 +12,9 @@ import { CODE_LENGTH, generateCode, hostPeerId, isValidCode, PEER_ID_PREFIX, ran
 
 export type TransportRole = 'host' | 'guest';
 
+/** How a link is carried: a direct WebRTC data channel or the MQTT relay. */
+export type LinkKind = 'direct' | 'relay';
+
 export type TransportErrorCode =
   /** guest: no room with that code (host not on the broker) */
   | 'bad-code'
@@ -48,6 +51,8 @@ export interface Transport {
   readonly isOpen: boolean;
   /** clientId of the connected / bound remote side if known */
   readonly remoteClientId: string | null;
+  /** kind of the open link (composite / relay / PeerJS transports; absent for test transports) */
+  readonly linkKind?: LinkKind | null;
   /** send a JSON-serialisable message; returns false (message dropped) when not open */
   send(msg: unknown): boolean;
   onReady(cb: (code: string) => void): Unsubscribe;
@@ -326,6 +331,10 @@ export class PeerTransport extends BaseTransport {
   private onPageHide = (e: PageTransitionEvent) => {
     if (!e.persisted) this.peer?.destroy();
   };
+
+  get linkKind(): LinkKind | null {
+    return this.isOpen ? 'direct' : null;
+  }
 
   /** Create a room on the public PeerJS broker. Listen to `onReady(code)` for the final code. */
   static host(opts: PeerHostOptions): PeerTransport {

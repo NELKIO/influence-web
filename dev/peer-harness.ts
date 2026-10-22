@@ -54,6 +54,7 @@ function info() {
     ended: s?.state?.ended ?? null,
     matchId: s?.matchId ?? null,
     rtt: s?.rtt ?? null,
+    link: s?.link ?? null,
     opponent: s?.opponentName ?? null,
     remoteFights: fights.length,
     errors: [...errors],

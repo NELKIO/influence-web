@@ -51,17 +51,16 @@ import {
 import { applyBattleAction, concedeSeat, localizeBattleState, localizePlayers, shuffledSeatOrder } from './battleRules';
 import { Emitter, type Unsubscribe } from './emitter';
 import type { MultiHostTransport } from './hub';
-import { MultiPeerHost } from './multiPeer';
+import { createBattleGuestTransport, createBattleHostTransport, type LinkMode, type NetLinkOptions } from './composite';
+import type { RelayOptions } from './mqttRelay';
 import { defaultStorage, getClientId, readJson, writeJson, type KVStorage } from './persist';
 import {
-  BATTLE_CODE_LENGTH,
-  BATTLE_PEER_ID_PREFIX,
   generateBattleCode,
   isValidBattleCode,
   normalizeCode,
   randomId,
 } from './room';
-import { PeerTransport, type PeerTransportOptions, type Transport, type TransportError, type TransportErrorCode } from './transport';
+import type { LinkKind, PeerTransportOptions, Transport, TransportError, TransportErrorCode } from './transport';
 
 export type BattleStatus = 'connecting' | 'lobby' | 'playing' | 'ended' | 'error';
 
@@ -82,6 +81,8 @@ export interface RosterEntry {
   you: boolean;
   /** played on the host's device (host 'human' seats) */
   onHost: boolean;
+  /** online seat: how that guest's link is carried ('direct' WebRTC / 'relay'); guest view: own link for `you` */
+  link?: LinkKind | null;
 }
 
 export interface BattleError {
@@ -130,6 +131,10 @@ export interface BattleHostOptions {
   transport?: MultiHostTransport | ((code: string, resume: boolean) => MultiHostTransport);
   /** PeerJS tuning (broker, ICE, logging) */
   peer?: Omit<PeerTransportOptions, 'clientId'>;
+  /** relay fallback tuning; false disables the relay */
+  relay?: RelayOptions | false;
+  /** 'auto' (WebRTC with relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
+  linkMode?: LinkMode;
   /** heartbeat interval (ms, default 3000, 0 = only manual `heartbeat()` calls) */
   heartbeatMs?: number;
 }
@@ -137,6 +142,10 @@ export interface BattleHostOptions {
 export interface BattleResumeOptions {
   transport?: BattleHostOptions['transport'];
   peer?: Omit<PeerTransportOptions, 'clientId'>;
+  /** relay fallback tuning; false disables the relay */
+  relay?: RelayOptions | false;
+  /** 'auto' (WebRTC with relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
+  linkMode?: LinkMode;
   heartbeatMs?: number;
   /** ignore saves older than this (default 7 days) */
   maxAgeMs?: number;
@@ -238,7 +247,7 @@ export class BattleHost {
       clientId: null,
     }));
     const code = opts.code ? normalizeCode(opts.code) : generateBattleCode();
-    const transport = makeHostTransport(opts.transport, code, false, clientId, opts.peer, !!opts.code);
+    const transport = makeHostTransport(opts.transport, code, false, clientId, netOf(opts), !!opts.code);
     const host = new BattleHost(transport, storage, clientId, name, code, { ...opts.settings, players: [...opts.settings.players] }, opts.seed ?? null, seats);
     host.startHeartbeat(opts.heartbeatMs);
     return host;
@@ -248,7 +257,7 @@ export class BattleHost {
   static resume(storage: KVStorage | null = defaultStorage(), opts: BattleResumeOptions = {}): BattleHost | null {
     const saved = readJson<SavedHost>(storage, BATTLE_HOST_KEY);
     if (!saved || saved.v !== 1 || Date.now() - saved.savedAt > (opts.maxAgeMs ?? 7 * 24 * 3600_000)) return null;
-    const transport = makeHostTransport(opts.transport, saved.code, true, saved.clientId, opts.peer);
+    const transport = makeHostTransport(opts.transport, saved.code, true, saved.clientId, netOf(opts));
     const host = new BattleHost(transport, storage, saved.clientId, saved.name, saved.code, saved.lobby, saved.seed, saved.seats, saved);
     host.startHeartbeat(opts.heartbeatMs);
     return host;
@@ -339,7 +348,7 @@ export class BattleHost {
   }
 
   get roster(): RosterEntry[] {
-    return this.wireRoster().map((w) => ({ ...w, you: w.kind === 'human', onHost: w.kind === 'human' }));
+    return this.wireRoster().map((w) => ({ ...w, you: w.kind === 'human', onHost: w.kind === 'human', link: w.kind === 'online' ? this.linkOf(w.seat) : null }));
   }
 
   /** every online seat is held by a connected guest */
@@ -591,28 +600,35 @@ export class BattleHost {
   dispose(): void {
     if (this.closed) return;
     this.persist();
-    this.shutdown();
+    this.shutdown(true);
   }
 
   /** Close the room for good: tell the guests, forget the saved room. */
   close(): void {
     if (this.closed) return;
     for (const cid of this.helloed) this.transport.send(cid, { t: 'bClosed' });
-    this.shutdown();
+    this.shutdown(false);
     BattleHost.clearSaved(this.storage);
   }
 
-  private shutdown() {
+  private shutdown(keepRoom: boolean) {
     this.closed = true;
     if (this.hbTimer) clearInterval(this.hbTimer);
     if (this.turnTimer) clearTimeout(this.turnTimer);
     this.hbTimer = this.turnTimer = null;
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    // let queued messages (bClosed) leave before the links go down
-    const t = this.transport;
-    queueMicrotask(() => t.close());
+    // let queued messages (bClosed) leave before the links go down; keepRoom: the relay presence
+    // stays so the room can be resumed
+    const t = this.transport as MultiHostTransport & { detach?: () => void };
+    queueMicrotask(() => (keepRoom && t.detach ? t.detach() : t.close()));
     this.em.clear();
+  }
+
+  /** link kind of the guest in `seat` ('direct' / 'relay'), null if offline or not a guest seat */
+  linkOf(seat: number): LinkKind | null {
+    const cid = this.seats[seat]?.clientId;
+    return cid && this.seatConnected(seat) ? (this.transport.linkOf?.(cid) ?? null) : null;
   }
 
   // ------------------------------------------------------------------ internals
@@ -869,13 +885,17 @@ function makeHostTransport(
   code: string,
   resume: boolean,
   clientId: string,
-  peer?: Omit<PeerTransportOptions, 'clientId'>,
+  net: NetLinkOptions,
   fixed = resume,
 ): MultiHostTransport {
   if (typeof t === 'function') return t(code, resume);
   if (t) return t;
   if (useBroadcastTransport()) return BroadcastBattleHost.create(clientId, code);
-  return new MultiPeerHost({ ...peer, clientId, code, fixedCode: fixed });
+  return createBattleHostTransport({ ...net, clientId, code, fixed });
+}
+
+function netOf(o: { peer?: NetLinkOptions['peer']; relay?: RelayOptions | false; linkMode?: LinkMode; fallbackMs?: number }): NetLinkOptions {
+  return { peer: o.peer, relay: o.relay, mode: o.linkMode, fallbackMs: o.fallbackMs };
 }
 
 // ====================================================================================== guest
@@ -887,12 +907,18 @@ export interface BattleGuestOptions {
   /** custom transport (tests / e2e) or a factory receiving the room code. Default: BC with `?transport=bc`, PeerJS otherwise */
   transport?: Transport | ((code: string) => Transport);
   peer?: Omit<PeerTransportOptions, 'clientId'>;
+  /** relay fallback tuning; false disables the relay */
+  relay?: RelayOptions | false;
+  /** 'auto' (WebRTC with relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
+  linkMode?: LinkMode;
   /** ignore a saved session for the same room code */
   fresh?: boolean;
   /** a request without an answer resolves as { ok: false, reason: 'timeout' } after this long (default 20 s) */
   requestTimeoutMs?: number;
   /** re-send the hello this often until the host answers (default 4 s, 0 = only on host heartbeats) */
   helloRetryMs?: number;
+  /** switch to the relay when WebRTC is not open after this long (ms, default 5000) */
+  fallbackMs?: number;
 }
 
 export interface BattleGuestEvents {
@@ -975,13 +1001,7 @@ export class BattleGuest {
     if (typeof opts.transport === 'function') transport = opts.transport(c);
     else if (opts.transport) transport = opts.transport;
     else if (useBroadcastTransport()) transport = BroadcastBattleGuest.join(c, clientId);
-    else
-      transport = PeerTransport.join(c, {
-        ...opts.peer,
-        clientId,
-        idPrefix: BATTLE_PEER_ID_PREFIX,
-        codeLength: BATTLE_CODE_LENGTH,
-      });
+    else transport = createBattleGuestTransport(c, { ...netOf(opts), clientId });
     const g = new BattleGuest(transport, storage, clientId, (opts.name ?? resume?.name ?? '').slice(0, NAME_MAX), c, opts.requestTimeoutMs ?? 20_000, opts.helloRetryMs ?? 4000, resume);
     if (!isValidBattleCode(c)) queueMicrotask(() => g.fail({ code: 'bad-code', message: `Invalid room code "${code}"`, fatal: true }));
     return g;
@@ -1063,7 +1083,13 @@ export class BattleGuest {
       taken: w.taken,
       you: w.seat === this.seat,
       onHost: w.kind === 'human',
+      link: w.seat === this.seat ? this.link : null,
     }));
+  }
+
+  /** how the link to the host is carried right now ('direct' WebRTC or 'relay'), null when offline */
+  get link(): LinkKind | null {
+    return this.connected ? (this.transport.linkKind ?? null) : null;
   }
 
   get isMyTurn(): boolean {
