@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BATTLE_SCENARIOS, buildScenario, SCENARIO_META, SCENARIOS, startMatch } from '../../src/core/scenarios';
 import { isConnected } from '../../src/core/field';
 import { articulationPoints, chokePoints } from '../../src/core/connectivity';
-import { createDailyMatch, dailyKind, dailyLevel, dailySeed, dayId } from '../../src/daily';
+import { createDailyMatch, dailyKind, dailyLevel, dailySeed, dayId, ROTATION } from '../../src/daily';
 import { runMatch } from '../../src/ai/arena';
 import { createBot } from '../../src/ai';
 import type { BotType } from '../../src/core/types';
@@ -112,7 +112,7 @@ describe('scenarios as battle presets', () => {
   it('the map of the day rotates through every scenario, played as the setup recommends it', () => {
     // from the switch to all scenarios on, one stretch of puzzle days covers each scenario
     const seen: string[] = [];
-    for (let i = 0; seen.length < SCENARIOS.length; i++) {
+    for (let i = 0; seen.length < ROTATION.length; i++) {
       const id = dayId(new Date(2026, 9, 23 + i));
       const k = dailyKind(id);
       if (k.kind !== 'puzzle') continue;
@@ -123,7 +123,7 @@ describe('scenarios as battle presets', () => {
       expect(dailyLevel(id)).toBe(SCENARIO_META[k.scenario].level);
       expect(JSON.stringify(m.field)).toBe(JSON.stringify(buildScenario(k.scenario, dailySeed(id)).field));
     }
-    expect(new Set(seen).size).toBe(SCENARIOS.length);
+    expect(new Set(seen).size).toBe(ROTATION.length);
     // past days keep the scenario people played (the classic rotation); the switch brings a new one
     const days: Record<string, string> = {
       '2026-09-01': 'archipelago',

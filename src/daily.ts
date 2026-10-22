@@ -1,5 +1,5 @@
 import { Rng, hashString } from './core/rng';
-import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, SCENARIOS, type ScenarioId } from './core/scenarios';
+import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, type ScenarioId } from './core/scenarios';
 import { createMatch } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -71,13 +71,19 @@ function classicPuzzle(i: number): ScenarioId {
   return order[((i % len) + len) % len];
 }
 
+/**
+ * The scenarios of the rotation from the switch on. A fixed list: a scenario added later must not
+ * reshuffle days that are already out (it joins with a later switch).
+ */
+export const ROTATION: ScenarioId[] = ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS];
+
 const switchIndex = puzzleIndex(dayNumber(ROTATION_SWITCH) - dayNumber(PUZZLE_ANCHOR));
 /** puzzle scenarios from the switch on, generated cycle by cycle on demand */
 const sequence: ScenarioId[] = [];
 
 function currentPuzzle(j: number): ScenarioId {
-  for (let cycle = sequence.length / SCENARIOS.length; sequence.length <= j; cycle++) {
-    const order = new Rng(hashString(`puzzle-cycle-all:${cycle}`)).shuffle([...SCENARIOS]);
+  for (let cycle = sequence.length / ROTATION.length; sequence.length <= j; cycle++) {
+    const order = new Rng(hashString(`puzzle-cycle-all:${cycle}`)).shuffle([...ROTATION]);
     // whatever was played in the last few puzzle days goes to the back of this cycle
     const recent = new Set<ScenarioId>();
     for (let k = 1; k <= NO_REPEAT; k++) {

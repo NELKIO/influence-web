@@ -331,7 +331,7 @@ export const CLASSIC_SCENARIOS = [
 ] as const;
 
 /** Battles for three to six players. */
-export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans'] as const;
+export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans', 'hollow'] as const;
 
 export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number];
 
@@ -386,6 +386,7 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   laststand: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 4, size: 'L' },
   titans: { players: ['human', 'master', 'master'], level: 3, size: 'L', unions: true },
   olympus: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 3, size: 'L' },
+  hollow: { players: ['human', 'master', 'god', 'master'], level: 3, size: 'L' },
 };
 
 /**
@@ -422,6 +423,7 @@ export const TUNING: Record<ScenarioId, number> = {
   laststand: 6,
   olympus: 4.5,
   titans: 8,
+  hollow: 0,
 };
 
 const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board> = {
@@ -976,14 +978,17 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
     return b;
   },
 
-  /** Two empires at war across one front; your small realm lies just below where they clash. */
+  /**
+   * Colossi on feet of clay: two vast empires at war, strong only along their mutual front, empty
+   * (power 0) everywhere behind it. Your realm below is small but full.
+   */
   titans(rng, k) {
     const b = new Board();
     for (let r = -5; r <= 5; r++) for (let x = -6; x <= 6; x++) b.add(x - Math.floor(r / 2), r, { max: rollMax(rng, 0.25) });
     for (const c of b.all()) {
       const x = c.q + Math.floor(c.r / 2);
-      if (c.r >= 4 && Math.abs(x) <= 1) Object.assign(c, { owner: 0, power: kp(rng, k) });
-      else if (c.r <= -1 && Math.abs(x) <= 4 && x !== 0) Object.assign(c, { owner: x < 0 ? 1 : 2, power: 3 + rng.int(2) });
+      if (c.r >= 4 && Math.abs(x) <= 1) Object.assign(c, { owner: 0, power: Math.min(c.max, kp(rng, k)) });
+      else if (c.r <= 1 && x !== 0) Object.assign(c, { owner: x < 0 ? 1 : 2, power: Math.abs(x) <= 2 ? 4 + rng.int(3) : 0 });
     }
     return b;
   },
@@ -1009,6 +1014,56 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
         if (hexDist([c.q, c.r], at) <= 1 && hexDist([c.q, c.r], [0, 0]) >= 5) Object.assign(c, { owner: p, power: p === 0 ? kp(rng, k) : 3 });
     }
     for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 6 && c.owner === NEUTRAL && rng.float() < 0.3) b.remove(c.q, c.r);
+    return b;
+  },
+
+  /**
+   * Hollow lands: the whole map is split into four equal realms, mirror images of each other. Each is
+   * almost all power 0, with a front row of 1s along the borders: huge income, nothing to fight with
+   * yet. Knob: more than 0 turns that many of your empty cells into 1s, less than 0 empties your front.
+   */
+  hollow(rng, k) {
+    const b = new Board();
+    const W = 5; // even rows 2W+1 cells, odd rows 2W, centred: symmetric left/right and up/down
+    for (let r = -6; r <= 6; r++)
+      for (let x2 = -2 * W; x2 <= 2 * W; x2++) if ((x2 + r) % 2 === 0) b.add((x2 - r) / 2, r);
+    // capacities the same in all four realms
+    const caps = new Map<string, number>();
+    for (const c of b.all()) {
+      const id = `${Math.abs(2 * c.q + c.r)},${Math.abs(c.r)}`;
+      if (!caps.has(id)) caps.set(id, rollMax(rng, 0.25));
+      c.max = caps.get(id)!;
+    }
+    // realms by quadrant; the cells on the axes are dealt out so that every realm gets as many
+    const realm = (x2: number, r: number): number => {
+      if (x2 === 0 && r === 0) return NEUTRAL;
+      let top: boolean;
+      let left: boolean;
+      if (r === 0) {
+        left = x2 < 0;
+        top = (Math.abs(x2) / 2) % 2 === 1 ? left : !left;
+      } else if (x2 === 0) {
+        top = r < 0;
+        left = (Math.abs(r) / 2) % 2 === 1 ? !top : top;
+      } else {
+        top = r < 0;
+        left = x2 < 0;
+      }
+      // seats around the table: 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left
+      return top ? (left ? 0 : 1) : left ? 3 : 2;
+    };
+    for (const c of b.all()) c.owner = realm(2 * c.q + c.r, c.r);
+    // a front row of 1s wherever a realm touches another one
+    for (const c of b.all())
+      if (c.owner >= 0 && DIRS.some(([dq, dr]) => {
+        const n = b.get(c.q + dq, c.r + dr);
+        return !!n && n.owner >= 0 && n.owner !== c.owner;
+      }))
+        c.power = 1;
+    const mine = b.all().filter((c) => c.owner === 0);
+    if (k > 0) for (const c of rng.shuffle(mine.filter((c) => c.power === 0)).slice(0, Math.round(k))) c.power = 1;
+    if (k < 0) for (const c of rng.shuffle(mine.filter((c) => c.power === 1)).slice(0, Math.round(-k))) c.power = 0;
+    b.rotate(rng.int(2) * 3);
     return b;
   },
 };
