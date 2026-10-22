@@ -68,6 +68,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const [hudTop, setHudTop] = useState(90);
   const [dontAsk, setDontAsk] = useState(false);
   const [askConcede, setAskConcede] = useState(false);
+  /** the result window is put aside to look at the final board (the fog has lifted by then) */
+  const [viewingBoard, setViewingBoard] = useState(false);
   const online = launch.online as OnlineBinding | undefined;
 
   const ctrl = useMemo(() => {
@@ -306,14 +308,22 @@ export function GameScreen({ launch }: { launch: Launch }) {
           <button class="side-btn" aria-label="zoom" disabled={!canZoom} onClick={toggleZoom}>
             {zoomed ? <IconZoomOut /> : <IconZoomIn />}
           </button>
-          <div class="status">
-            {phaseLabel && (
-              <div class="phase" style={{ color: curColor }}>
-                {phaseLabel}
-              </div>
-            )}
-            <div class="text">{statusText}</div>
-          </div>
+          {ov.kind === 'result' && s.ended && viewingBoard ? (
+            <div class="status">
+              <button class="btn primary small" style={{ margin: '0 auto' }} onClick={() => setViewingBoard(false)}>
+                {t('backToResult')}
+              </button>
+            </div>
+          ) : (
+            <div class="status">
+              {phaseLabel && (
+                <div class="phase" style={{ color: curColor }}>
+                  {phaseLabel}
+                </div>
+              )}
+              <div class="text">{statusText}</div>
+            </div>
+          )}
           <EndButton
             ctrl={ctrl}
             color={curColor}
@@ -438,12 +448,13 @@ export function GameScreen({ launch }: { launch: Launch }) {
         </Modal>
       )}
 
-      {ov.kind === 'result' && s.ended && (
+      {ov.kind === 'result' && s.ended && !viewingBoard && (
         <ResultModal
           ctrl={ctrl}
           onMenu={exitToMenu}
           onRestart={s.settings.kind !== 'duelOnline' ? restartSame : undefined}
           onNew={s.settings.kind !== 'duelOnline' ? quickRematch : undefined}
+          onViewBoard={() => setViewingBoard(true)}
           extra={online?.ResultActions ? <online.ResultActions ctrl={ctrl} /> : null}
         />
       )}
@@ -539,12 +550,14 @@ function ResultModal({
   onMenu,
   onRestart,
   onNew,
+  onViewBoard,
   extra,
 }: {
   ctrl: GameController;
   onMenu: () => void;
   onRestart?: () => void;
   onNew?: () => void;
+  onViewBoard: () => void;
   extra: preact.JSX.Element | null;
 }) {
   const s = ctrl.state;
@@ -611,6 +624,9 @@ function ResultModal({
           {s.settings.kind === 'daily' ? t('dailyRetry') : t('newGame')}
         </button>
       )}
+      <button class="btn ghost small" onClick={onViewBoard}>
+        {s.settings.darkness ? t('viewWholeMap') : t('viewBoard')}
+      </button>
       <div class="row">
         <button class="btn ghost" onClick={onMenu}>
           <IconHome width={18} height={18} /> {t('toMenu')}

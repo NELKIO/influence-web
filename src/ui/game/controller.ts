@@ -269,6 +269,11 @@ export class GameController {
     return this.opts.nameOf(slot);
   }
 
+  /** the seat is the only person at this device, shown as "Вы" (needs its own grammar in messages) */
+  private isYou(slot: number) {
+    return isHuman(this.state, slot) && this.humansCount === 1;
+  }
+
   // ------------------------------------------------------------ hints
 
   showHint(text: string, color?: string, ms = 2600) {
@@ -495,7 +500,8 @@ export class GameController {
     if (ev.eliminated !== null) {
       sfx.eliminated();
       if (seen) this.renderer?.ring(ev.to, playerColor(ev.eliminated), true);
-      this.showHint(this.opts.t('eliminated', { name: this.name(ev.eliminated) }), playerColor(ev.eliminated), 3000);
+      const text = this.isYou(ev.eliminated) ? this.opts.t('youEliminated') : this.opts.t('eliminated', { name: this.name(ev.eliminated) });
+      this.showHint(text, playerColor(ev.eliminated), 3000);
     }
   }
 
@@ -512,7 +518,10 @@ export class GameController {
 
   private onUnion(u: UnionEvent) {
     sfx.eliminated();
-    this.showHint(this.opts.t('united', { a: this.name(u.absorbed), b: this.name(u.absorber) }), playerColor(u.absorber), 3500);
+    const text = this.isYou(u.absorber)
+      ? this.opts.t('unitedYou', { a: this.name(u.absorbed) })
+      : this.opts.t('united', { a: this.name(u.absorbed), b: this.name(u.absorber) });
+    this.showHint(text, playerColor(u.absorber), 3500);
   }
 
   private saveAndEmit() {

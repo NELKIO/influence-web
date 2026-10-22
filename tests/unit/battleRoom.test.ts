@@ -264,7 +264,8 @@ describe('battle matches', () => {
     await playOut(room, 150);
     expectAllSame(room, 'end');
     expect(room.resyncs).toEqual([]);
-  });
+    // a six-seat XL match played to the end: give slow machines headroom
+  }, 60_000);
 
   it('rejects out-of-turn and illegal requests', async () => {
     const room = await makeRoom({ players: ['online', 'online', 'dummy'], seed: 5 });

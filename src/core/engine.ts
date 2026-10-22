@@ -530,7 +530,8 @@ export function concede(state: MatchState, loser: number): void {
 export function visibleCells(state: MatchState, viewer = state.viewer): Uint8Array {
   const { cells, adj } = state.field;
   const vis = new Uint8Array(cells.length);
-  if (!state.settings.darkness || viewer < 0 || humansAlive(state).length === 0 && state.settings.kind !== 'duelOnline') {
+  // the fog lifts when the match is over: everyone sees how the map really looked
+  if (!state.settings.darkness || viewer < 0 || state.ended || (humansAlive(state).length === 0 && state.settings.kind !== 'duelOnline')) {
     vis.fill(1);
     return vis;
   }

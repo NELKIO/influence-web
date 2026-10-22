@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alivePlayers, cellCount, checkEnd, checkStuck, concede, createMatch, finishEarly, isAlive } from '../../src/core/engine';
+import { alivePlayers, cellCount, checkEnd, checkStuck, concede, visibleCells, createMatch, finishEarly, isAlive } from '../../src/core/engine';
 import type { MatchSettings, MatchState, PlayerType } from '../../src/core/types';
 
 function match(players: PlayerType[], seed = 3): MatchState {
@@ -117,5 +117,20 @@ describe('early finish with several people', () => {
     s.current = 0;
     const offer = checkStuck(s)!;
     expect(offer.enough).toBe(true);
+  });
+});
+
+describe('darkness at the end of a match', () => {
+  it('the fog lifts for everyone once the match is over', () => {
+    const s = createMatch(
+      { kind: 'single', size: 'M', players: ['human', 'hunter', 'master'], darkness: true, symmetry: false, crowded: false, unions: false, shuffle: false, duelRules: false },
+      { seed: 4 },
+    );
+    expect(visibleCells(s, 0).every((v) => v === 1)).toBe(false);
+    concede(s, 1);
+    concede(s, 2);
+    expect(s.ended).not.toBeNull();
+    // the person is still alive, yet sees the whole map
+    expect(visibleCells(s, 0).every((v) => v === 1)).toBe(true);
   });
 });

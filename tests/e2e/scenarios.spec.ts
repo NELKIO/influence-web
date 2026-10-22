@@ -199,8 +199,11 @@ test('night drop: the board draws only the land you have seen', async ({ page })
   await page.evaluate(() => {
     const { ctrl } = (window as any).__infweb;
     const s = ctrl.state;
-    const a = s.field.cells.findIndex((c: any, i: number) => c.owner === 0 && c.power >= 2 && s.field.adj[i].some((j: number) => s.field.cells[j].owner === -1 && s.field.cells[j].power === 0));
-    const t = s.field.adj[a].find((j: number) => s.field.cells[j].owner === -1 && s.field.cells[j].power === 0);
+    const row: string = s.explored[0];
+    // an empty neighbour that borders unknown land, so taking it must reveal something new
+    const good = (j: number) => s.field.cells[j].owner === -1 && s.field.cells[j].power === 0 && s.field.adj[j].some((k: number) => row[k] !== '1');
+    const a = s.field.cells.findIndex((c: any, i: number) => c.owner === 0 && c.power >= 2 && s.field.adj[i].some(good));
+    const t = s.field.adj[a].find(good);
     ctrl.tap(a);
     ctrl.tap(t);
   });
