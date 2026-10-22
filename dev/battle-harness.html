@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Battle Harness</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { background: #05070f; color: #cfe; font: 14px/1.4 ui-monospace, monospace; margin: 0; padding: 16px; }
+      button, input, select { font: inherit; margin: 2px; }
+      #log { white-space: pre-wrap; max-height: 55vh; overflow: auto; border: 1px solid #234; padding: 8px; }
+      #info { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h3>Influence Web — battle room harness (dev only)</h3>
+    <p>
+      <input id="seats" value="human,online,online,hunter" size="40" title="seat kinds, comma separated" />
+      <button id="host">Host</button>
+      <button id="start">Start</button>
+      <button id="fill">Fill with bots</button>
+    </p>
+    <p>
+      <input id="code" placeholder="CODE" size="7" />
+      <button id="join">Join</button>
+      <button id="resume">Resume</button>
+      <label><input id="auto" type="checkbox" checked /> autoplay</label>
+      <button id="leave">Leave</button>
+    </p>
+    <div id="info"></div>
+    <div id="log"></div>
+    <script type="module" src="./battle-harness.ts"></script>
+  </body>
+</html>

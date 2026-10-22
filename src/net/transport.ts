@@ -8,7 +8,7 @@
  */
 import type { DataConnection, Peer, PeerOptions } from 'peerjs';
 import { Emitter, type Unsubscribe } from './emitter';
-import { generateCode, hostPeerId, isValidCode, PEER_ID_PREFIX, randomId } from './room';
+import { CODE_LENGTH, generateCode, hostPeerId, isValidCode, PEER_ID_PREFIX, randomId } from './room';
 
 export type TransportRole = 'host' | 'guest';
 
@@ -283,6 +283,8 @@ export interface PeerTransportOptions {
   dialTimeoutMs?: number;
   /** console logging */
   log?: boolean;
+  /** guest: expected room code length (default 4, battle rooms use 5) */
+  codeLength?: number;
 }
 
 export interface PeerHostOptions extends PeerTransportOptions {
@@ -347,10 +349,11 @@ export class PeerTransport extends BaseTransport {
       deadAfterMs: 9000,
       dialTimeoutMs: 15000,
       log: false,
+      codeLength: CODE_LENGTH,
       ...opts,
     };
     if (typeof window !== 'undefined') window.addEventListener('pagehide', this.onPageHide);
-    if (role === 'guest' && code !== null && !isValidCode(code)) {
+    if (role === 'guest' && code !== null && !isValidCode(code, this.opts.codeLength)) {
       queueMicrotask(() => this.fatal('bad-code', `Invalid room code "${code}"`));
       return;
     }
