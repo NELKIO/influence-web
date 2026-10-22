@@ -6,7 +6,7 @@
  * Moves: every legal attack, plus STOP when enabled. Optional forced continuation from a freshly
  * captured cell (as Master). Leaves: end of the attack phase, valued by a pluggable evaluation.
  */
-import { FastRng, Sim, type Topo } from './godSim';
+import { FastRng, Sim, masterReturn, type Topo } from './godSim';
 
 const MAX_NODES = 150_000;
 
@@ -34,6 +34,12 @@ export interface TreeOptions {
   forced: boolean;
   /** UCT exploration constant */
   c: number;
+  /**
+   * Fast path (default evaluation weights, no duel rules): leaves are pCell·cells / (qPow·(enemy power +
+   * hidden)) mapped by x/(1+x), computed from incrementally tracked totals, and rollouts are Master's
+   * expert policy over a maintained list of source cells. Same values as evalPhase + masterAttack.
+   */
+  fast?: { pCell: number; qPow: number; hidden: number };
 }
 
 export type LeafEval = (sim: Sim) => number;
@@ -62,6 +68,47 @@ export class AttackTree {
       this.z2[i] = r.u32();
     }
     this.scratch = new Sim(t, new FastRng(1));
+    this.srcBuf = new Int32Array(t.n + 8);
+    this.bestV = new Float64Array(t.n);
+    this.bestM = new Int32Array(t.n).fill(-1);
+    this.rootV = new Float64Array(t.n);
+    this.rootM = new Int32Array(t.n).fill(-1);
+    this.rootSrc = new Int32Array(t.n + 8);
+  }
+
+  private enemyPower(sim: Sim): number {
+    let e = 0;
+    const me = this.me;
+    for (let i = 0; i < this.t.n; i++) {
+      const o = sim.owner[i];
+      if (o >= 0 && o !== me) e += sim.power[i];
+    }
+    return e;
+  }
+
+  private value(b: Sim): number {
+    const f = this.opts.fast;
+    if (!f) return this.leaf(b);
+    if (b.cnt[this.me] === 0) return 0;
+    const den = f.qPow * (this.ep + f.hidden);
+    if (den <= 0) return 1;
+    const x = (f.pCell * b.cnt[this.me]) / den;
+    return x / (1 + x);
+  }
+
+  /** fight with incremental hash and enemy-power bookkeeping */
+  private play(b: Sim, s: number, t: number): boolean {
+    const me = this.me;
+    const ot = b.owner[t];
+    if (ot >= 0 && ot !== me) this.ep -= b.power[t];
+    this.toggle(b, s);
+    this.toggle(b, t);
+    const won = b.fight(s, t);
+    this.toggle(b, s);
+    this.toggle(b, t);
+    const nt = b.owner[t];
+    if (nt >= 0 && nt !== me) this.ep += b.power[t];
+    return won;
   }
 
   get size(): number {
@@ -111,6 +158,19 @@ export class AttackTree {
 
   private h1 = 0;
   private h2 = 0;
+  /** enemy power of the board being searched (fast path) */
+  private ep = 0;
+  private srcBuf: Int32Array;
+  private bestV: Float64Array;
+  private bestM: Int32Array;
+  /** fast path: source scores of the root (valid while rootValid) and the moves played since the root */
+  private rootV: Float64Array;
+  private rootM: Int32Array;
+  private rootSrc: Int32Array;
+  private rootNs = 0;
+  private rootValid = false;
+  private path2: number[] = [];
+  private pathFromRoot = false;
 
   hash(sim: Sim, lastTo: number): number {
     this.base(sim);
@@ -173,21 +233,90 @@ export class AttackTree {
   }
 
   /** board hash halves of a root, to pass to iterate() when the same position is searched repeatedly */
-  rootHash(sim: Sim): [number, number] {
+  rootHash(sim: Sim): [number, number, number] {
     this.base(sim);
-    return [this.h1, this.h2];
+    const h: [number, number, number] = [this.h1, this.h2, 0];
+    if (this.opts.fast) {
+      h[2] = this.enemyPower(sim);
+      this.scoreAll(sim);
+      this.rootV.set(this.bestV);
+      this.rootM.set(this.bestM);
+      this.rootSrc.set(this.srcBuf);
+      this.rootNs = this.srcN;
+      this.rootValid = true;
+    }
+    return h;
+  }
+
+  private srcN = 0;
+
+  /** best expert target of source s (Master's expectedReturn), cached in bestV / bestM */
+  private rescore(b: Sim, s: number): void {
+    const me = this.me;
+    const { adjStart, adj } = this.t;
+    const owner = b.owner;
+    const power = b.power;
+    let best = -1;
+    let bestV = -Infinity;
+    if (owner[s] === me && power[s] > 1) {
+      const greys = this.t.duel && b.hasNeutralNb(s);
+      const a = power[s];
+      for (let k = adjStart[s]; k < adjStart[s + 1]; k++) {
+        const t = adj[k];
+        const o = owner[t];
+        if (o === me || (greys && o >= 0)) continue;
+        const v = masterReturn(a, o < 0 ? 0 : power[t]);
+        if (v > bestV) {
+          bestV = v;
+          best = s * 1024 + t;
+        }
+      }
+    }
+    this.bestV[s] = bestV;
+    this.bestM[s] = best;
+  }
+
+  private scoreAll(b: Sim): void {
+    const { n } = this.t;
+    let ns = 0;
+    for (let i = 0; i < n; i++) {
+      if (b.owner[i] === this.me && b.power[i] > 1) {
+        this.rescore(b, i);
+        if (this.bestM[i] >= 0) this.srcBuf[ns++] = i;
+      }
+    }
+    this.srcN = ns;
+  }
+
+  /** after the fight s → t: rescore the attacker, the target and the target's own neighbours */
+  private touch(b: Sim, s: number, t: number): void {
+    const { adjStart, adj } = this.t;
+    this.rescore(b, s);
+    this.rescore(b, t);
+    if (this.bestM[t] >= 0 && this.srcN < this.srcBuf.length) this.srcBuf[this.srcN++] = t;
+    for (let q = adjStart[t]; q < adjStart[t + 1]; q++) {
+      const u = adj[q];
+      if (u !== s && b.owner[u] === this.me) this.rescore(b, u);
+    }
   }
 
   /** one iteration from `root` (luck counters already sampled into `root`); `rh` = rootHash(root) */
-  iterate(root: Sim, rootLast: number, rng: FastRng, rh?: [number, number]): void {
+  iterate(root: Sim, rootLast: number, rng: FastRng, rh?: [number, number, number]): void {
     const b = this.scratch;
     b.copyFrom(root);
     b.rng = rng;
     let lastTo = rootLast;
+    const fromRoot = !!rh && this.rootValid;
     if (rh) {
       this.h1 = rh[0];
       this.h2 = rh[1];
-    } else this.base(b);
+      this.ep = rh[2];
+    } else {
+      this.base(b);
+      if (this.opts.fast) this.ep = this.enemyPower(b);
+    }
+    this.path2.length = 0;
+    this.pathFromRoot = fromRoot;
     let nd = this.node(this.key(lastTo));
     const path: TNode[] = [nd];
     let guard = 0;
@@ -199,7 +328,7 @@ export class AttackTree {
       }
       const moves = nd.moves;
       if (moves.length === 0 || b.aliveCount() <= 1) {
-        value = this.leaf(b);
+        value = this.value(b);
         break;
       }
       if (nd.count === 0) {
@@ -227,16 +356,13 @@ export class AttackTree {
         e.n++;
         e.wins++;
         path.push(child);
-        value = this.leaf(b);
+        value = this.value(b);
         break;
       }
       const s = mv >> 10;
       const t = mv & 1023;
-      this.toggle(b, s);
-      this.toggle(b, t);
-      const won = b.fight(s, t);
-      this.toggle(b, s);
-      this.toggle(b, t);
+      const won = this.play(b, s, t);
+      this.path2.push(s, t);
       lastTo = t;
       e.n++;
       if (won) e.wins++;
@@ -250,7 +376,7 @@ export class AttackTree {
       path.push(child);
       nd = child;
     }
-    if (value < 0) value = this.leaf(b);
+    if (value < 0) value = this.value(b);
     for (const p of path) {
       p.count++;
       p.value += value;
@@ -258,16 +384,66 @@ export class AttackTree {
   }
 
   private finishRollout(b: Sim, lastTo: number): number {
-    let k = 0;
-    while (k++ < 400 && b.aliveCount() > 1) {
-      const mv = this.rollout(b, lastTo);
-      if (mv < 0) break;
-      const s = mv >> 10;
-      const t = mv & 1023;
-      b.fight(s, t);
-      lastTo = t;
+    if (!this.opts.fast) {
+      let k = 0;
+      while (k++ < 400 && b.aliveCount() > 1) {
+        const mv = this.rollout(b, lastTo);
+        if (mv < 0) break;
+        const s = mv >> 10;
+        const t = mv & 1023;
+        b.fight(s, t);
+        lastTo = t;
+      }
+      return this.leaf(b);
     }
-    return this.leaf(b);
+    // Master's expert policy over cached source scores: start from the root's scores and rescore only
+    // the cells the tree path touched, then after each fight only the cells that fight touched
+    const me = this.me;
+    const owner = b.owner;
+    const power = b.power;
+    const src = this.srcBuf;
+    const bv = this.bestV;
+    const bm = this.bestM;
+    if (this.pathFromRoot) {
+      bv.set(this.rootV);
+      bm.set(this.rootM);
+      src.set(this.rootSrc);
+      this.srcN = this.rootNs;
+      const p2 = this.path2;
+      for (let i = 0; i < p2.length; i += 2) this.touch(b, p2[i], p2[i + 1]);
+    } else this.scoreAll(b);
+    let ns = this.srcN;
+    for (let k = 0; k < 400; k++) {
+      if (b.aliveCount() <= 1) break;
+      let best = -1;
+      if (lastTo >= 0 && owner[lastTo] === me && power[lastTo] > 1 && bm[lastTo] >= 0) best = bm[lastTo];
+      if (best < 0) {
+        let w = 0;
+        let bestV = -Infinity;
+        for (let j = 0; j < ns; j++) {
+          const c = src[j];
+          if (bm[c] < 0) continue;
+          src[w++] = c;
+          if (bv[c] > bestV) {
+            bestV = bv[c];
+            best = bm[c];
+          }
+        }
+        ns = w;
+      }
+      if (best < 0) break;
+      const s = best >> 10;
+      const t = best & 1023;
+      const ot = owner[t];
+      if (ot >= 0 && ot !== me) this.ep -= power[t];
+      b.fight(s, t);
+      if (owner[t] !== me) this.ep += power[t];
+      lastTo = t;
+      this.srcN = ns;
+      this.touch(b, s, t);
+      ns = this.srcN;
+    }
+    return this.value(b);
   }
 
   /** Final choice at the root: lower confidence bound; unexplored moves lose. */

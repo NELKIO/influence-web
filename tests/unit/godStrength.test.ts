@@ -11,7 +11,7 @@ vi.setConfig({ testTimeout: 60_000 });
  * Bigger measurements: `npx vite-node scripts/god-strength.ts -- games=300 ...` (see the script header).
  */
 const DUEL_GAMES = 30;
-const THRESHOLD_DUEL = 17; // measured: 19 of 30
+const THRESHOLD_DUEL = 21; // measured: 24 of 30
 const FFA_GAMES = 12;
 const THRESHOLD_FFA = 6; // measured: 9 of 12 (25% share would be 3)
 

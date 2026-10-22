@@ -61,8 +61,17 @@ export interface GodOptions {
   /** later attack decisions: max(attackMs, attackSpeedFactor × ctx.speedMs) */
   attackMs?: number;
   attackSpeedFactor?: number;
-  /** power placement budget (ms, whole-turn search only) */
+  /** power placement budget (ms) */
   powerMs?: number;
+  /** total budget of the first attack of a turn including its emulated re-scoring (ms) */
+  rescoreMs?: number;
+  /** rounds 0 .. openingRounds−1 use the opening budgets below */
+  openingRounds?: number;
+  openingFirstMs?: number;
+  openingRescoreMs?: number;
+  openingAttackMs?: number;
+  openingPowerMs?: number;
+  openingRescoreOtherMs?: number;
   /** hard cap per decision (ms) */
   maxDecisionMs?: number;
   /** evaluation weights */
@@ -85,15 +94,30 @@ export interface GodOptions {
   attackEmu?: number;
   /** fixed-budget mode: emulated rollouts for that (default 0.16 × rollouts) */
   emuAttackRollouts?: number;
+  emuDepth?: number;
+  rescoreAllOpening?: boolean;
+  /** re-score every attack decision of the match */
+  rescoreAll?: boolean;
+  emuExtra?: boolean;
   /** ignore the fog (experiments only; the game never sets this) */
   cheat?: boolean;
 }
 
 export const DEFAULT_GOD_OPTIONS = {
   firstAttackMs: 450,
+  /** total budget of a first attack including the emulated re-scoring */
+  rescoreMs: 900,
+  /** rounds 0 .. openingRounds−1 get the opening budgets */
+  openingRounds: 4,
+  openingFirstMs: 500,
+  openingRescoreMs: 1300,
+  openingAttackMs: 200,
+  /** total budget of a later attack of an opening turn including its re-scoring */
+  openingRescoreOtherMs: 500,
+  openingPowerMs: 1200,
   attackMs: 150,
   attackSpeedFactor: 0.8,
-  maxDecisionMs: 1200,
+  maxDecisionMs: 2000,
   mode: 'auto' as 'auto' | 'duel' | 'multi',
   c: 0.25,
   powerCells: 30,
@@ -103,6 +127,12 @@ export const DEFAULT_GOD_OPTIONS = {
   emuIters: 32,
   /** first attack of a turn: re-score this many top moves by emulation (0 = off) */
   attackEmu: 4,
+  /** extra full rounds in emulated rollouts */
+  emuDepth: 0,
+  /** re-score every attack of the opening (not only the first of a turn) */
+  rescoreAllOpening: true,
+  /** more placement candidates (all-in without minimums, safer margin, split stacks) */
+  emuExtra: false as boolean,
 };
 
 const now = (): number => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -308,9 +338,15 @@ export class GodBrain {
     }
   }
 
-  private budgetMs(firstOfTurn: boolean, ctx: BotContext): number {
+  /** the opening (first rounds) decides most matches: it gets the bigger budgets */
+  private opening(state: MatchState): boolean {
+    return state.turn < this.opts.openingRounds;
+  }
+
+  private budgetMs(firstOfTurn: boolean, ctx: BotContext, opening: boolean): number {
     const o = this.opts;
-    return Math.min(o.maxDecisionMs, firstOfTurn ? o.firstAttackMs : Math.max(o.attackMs, o.attackSpeedFactor * ctx.speedMs));
+    const later = Math.max(opening ? o.openingAttackMs : o.attackMs, o.attackSpeedFactor * ctx.speedMs);
+    return Math.min(o.maxDecisionMs, firstOfTurn ? (opening ? o.openingFirstMs : o.firstAttackMs) : later);
   }
 
   // -------------------------------------------------------------- attack
@@ -331,7 +367,8 @@ export class GodBrain {
     } else this.observe(state, me);
     const seed = this.rng.u32();
     const { sim: root, hidden } = this.belief(state, me, topo);
-    const budget = this.budgetMs(firstOfTurn, ctx);
+    const opening = this.opening(state);
+    const budget = this.budgetMs(firstOfTurn, ctx, opening);
     const rng = new FastRng(seed ^ 0x51);
 
     let move: number;
@@ -367,16 +404,15 @@ export class GodBrain {
       }
       move = count === 0 ? -1 : count === 1 ? moves[0] : tree.best(root, this.lastTo).move;
       // first attack of the turn: re-score the tree's favourites by emulated continuations and replies
-      if (firstOfTurn && count > 1 && this.opts.attackEmu > 1) {
+      if ((firstOfTurn || this.opts.rescoreAll || (opening && this.opts.rescoreAllOpening)) && count > 1 && this.opts.attackEmu > 1) {
         const top = tree
           .rootStats(root, this.lastTo)
           .filter((x) => x.move >= 0 && x.n > 0)
           .sort((x, y) => y.n - x.n)
           .slice(0, this.opts.attackEmu);
         if (top.length > 1) {
-          const { playEmu, placeModel } = this.emulator(root, me, seed, hidden);
+          const { playEmu, placeModel, finish } = this.emulator(root, me, seed, hidden);
           const scratch = root.clone();
-          const slots = root.t.slots;
           const run = (c: number, i: number): number => {
             scratch.copyFrom(root);
             const r = new FastRng((Math.imul(seed ^ (i * 0x9e3779b9), 0x85ebca6b) ^ (i + 7)) >>> 0);
@@ -386,17 +422,9 @@ export class GodBrain {
             scratch.fight(mv >> 10, mv & 1023);
             playEmu(scratch, me, r, mv & 1023);
             placeModel(scratch, me);
-            for (let k = 1; k < slots; k++) {
-              const q = (me + k) % slots;
-              if (scratch.cnt[q] <= 0) continue;
-              playEmu(scratch, q, r);
-              if (scratch.cnt[me] === 0) return 0;
-              placeModel(scratch, q);
-            }
-            playEmu(scratch, me, r);
-            return evalPhase(scratch, me, this.P, hidden);
+            return finish(scratch, r);
           };
-          const res = this.halving(top.length, run, this.opts.emuAttackRollouts ?? Math.round(0.16 * (this.opts.rollouts ?? 1000)), t0, Math.min(this.opts.maxDecisionMs, budget * 2));
+          const res = this.halving(top.length, run, this.opts.emuAttackRollouts ?? Math.round(0.16 * (this.opts.rollouts ?? 1000)), t0, Math.min(this.opts.maxDecisionMs, firstOfTurn ? (opening ? this.opts.openingRescoreMs : this.opts.rescoreMs) : opening ? this.opts.openingRescoreOtherMs : this.opts.rescoreMs));
           move = top[res.best].move;
           iters += res.spent;
         }
@@ -429,6 +457,13 @@ export class GodBrain {
     return mv >= 0 ? mv : move;
   }
 
+  /** closed-form leaves are possible with the default evaluation weights outside duel rules */
+  private fastLeaf(t: Topo, hidden: number): { pCell: number; qPow: number; hidden: number } | undefined {
+    const P = this.P;
+    if (t.duel || P.clampMap || P.pPow || P.pInt || P.pExposed || P.qCell || P.qInt !== P.qPow) return undefined;
+    return { pCell: P.pCell, qPow: P.qPow, hidden };
+  }
+
   private attackTree(root: Sim, me: number, key: string, seed: number, hidden: number): AttackTree {
     if (!this.tree || this.treeKey !== key || this.tree.size > 120_000) {
       const P = this.P;
@@ -436,7 +471,7 @@ export class GodBrain {
       this.tree = new AttackTree(
         root.t,
         me,
-        { stop: false, forced: true, c: this.opts.c },
+        { stop: false, forced: true, c: this.opts.c, fast: this.fastLeaf(root.t, hidden) },
         (b) => evalPhase(b, me, P, hidden),
         (b, lastTo) => {
           memo.lastTo = lastTo;
@@ -584,30 +619,55 @@ export class GodBrain {
       smartyPlace(s, me, l);
       push(s);
     }
-    if (cands.length === 1 || l0 <= 0) {
+    if (this.opts.emuExtra) {
+      const fillTo = (s: Sim, c: number, l: number) => {
+        const v = Math.max(0, Math.min(l, s.t.cap[c] - s.power[c]));
+        s.power[c] += v;
+        return l - v;
+      };
+      // all-in without threat minimums on each of the three best cells
+      const raw = stackOrder(root, me, w).slice(0, 3);
+      for (const c of raw) {
+        const s = root.clone();
+        let l = fillTo(s, c, left);
+        l = stackPlace(s, me, l, l, 0, w);
+        smartyPlace(s, me, l);
+        push(s);
+      }
+      // a safer margin
+      {
+        const s = root.clone();
+        let l = threatMinimums(s, me, left, 1);
+        l = stackPlace(s, me, l, l, 0, w);
+        smartyPlace(s, me, l);
+        push(s);
+      }
+      // minimums, then the rest split between the two best cells
+      if (order.length >= 2 && l0 > 1) {
+        const s = base.clone();
+        const h = Math.ceil(l0 / 2);
+        let l = l0 - h + fillTo(s, order[0], h);
+        l = fillTo(s, order[1], l);
+        l = stackPlace(s, me, l, l, 0, w);
+        smartyPlace(s, me, l);
+        push(s);
+      }
+    }
+    if (cands.length === 1) {
       this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: cands.length };
       return this.toPlacement(state, root, cands[0], me);
     }
-    const slots = root.t.slots;
-    const P = this.P;
-    const { playEmu, placeModel } = this.emulator(root, me, seed, hidden);
+    const { finish } = this.emulator(root, me, seed, hidden);
     const scratch = root.clone();
     const run = (c: number, i: number): number => {
       scratch.copyFrom(cands[c]);
       const r = new FastRng((Math.imul(seed ^ (i * 0x9e3779b9), 0x85ebca6b) ^ (i + 1)) >>> 0);
       scratch.rng = r;
       this.sampleLuck(scratch, r);
-      for (let k = 1; k < slots; k++) {
-        const q = (me + k) % slots;
-        if (scratch.cnt[q] <= 0) continue;
-        playEmu(scratch, q, r);
-        if (scratch.cnt[me] === 0) return 0;
-        placeModel(scratch, q);
-      }
-      playEmu(scratch, me, r);
-      return evalPhase(scratch, me, P, hidden);
+      return finish(scratch, r);
     };
-    const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(this.opts.powerMs, this.opts.maxDecisionMs));
+    const ms = this.opening(state) ? this.opts.openingPowerMs : this.opts.powerMs;
+    const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(ms, this.opts.maxDecisionMs));
     this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length };
     return this.toPlacement(state, root, cands[best.best], me);
   }
@@ -628,7 +688,7 @@ export class GodBrain {
         t = new AttackTree(
           root.t,
           slot,
-          { stop: false, forced: true, c: 0.25 },
+          { stop: false, forced: true, c: 0.25, fast: this.fastLeaf(root.t, slot === me ? hidden : 0) },
           (b) => evalPhase(b, slot, P, slot === me ? hidden : 0),
           (b, lastTo) => {
             memo.lastTo = lastTo;
@@ -668,7 +728,24 @@ export class GodBrain {
       l = stackPlace(sim, slot, l, l, 0, w);
       smartyPlace(sim, slot, l);
     };
-    return { playEmu, placeModel };
+    const depth = this.opts.emuDepth;
+    const slots = root.t.slots;
+    /** after GOD's placement: every opponent's emulated turn, GOD's next attack phase (+ extra rounds) */
+    const finish = (sim: Sim, rng: FastRng): number => {
+      for (let d = 0; d <= depth; d++) {
+        if (d > 0) placeModel(sim, me);
+        for (let k = 1; k < slots; k++) {
+          const q = (me + k) % slots;
+          if (sim.cnt[q] <= 0) continue;
+          playEmu(sim, q, rng);
+          if (sim.cnt[me] === 0) return 0;
+          placeModel(sim, q);
+        }
+        playEmu(sim, me, rng);
+      }
+      return evalPhase(sim, me, P, hidden);
+    };
+    return { playEmu, placeModel, finish };
   }
 
   /** successive halving with common random numbers (rollout i uses the same dice for every candidate) */
@@ -678,6 +755,7 @@ export class GodBrain {
     let alive = Array.from({ length: count }, (_, i) => i);
     let spent = 0;
     const timed = this.opts.rollouts === undefined;
+    const hard = Math.min(this.opts.maxDecisionMs, ms * 1.1 + 20);
     const tStart = now();
     for (const c of alive) {
       sums[c] += run(c, done[c]++);
@@ -694,7 +772,7 @@ export class GodBrain {
       const target = done[alive[0]] + per;
       for (const c of alive) {
         while (done[c] < target) {
-          if (timed && now() - t0 > this.opts.maxDecisionMs) break;
+          if (timed && now() - t0 > hard) break;
           sums[c] += run(c, done[c]++);
           spent++;
         }
@@ -703,7 +781,7 @@ export class GodBrain {
       alive.sort((a, b) => sums[b] / done[b] - sums[a] / done[a] || a - b);
       void m;
       alive = alive.slice(0, Math.max(1, Math.ceil(alive.length / 2)));
-      if (timed && now() - t0 > this.opts.maxDecisionMs) break;
+      if (timed && now() - t0 > hard) break;
     }
     alive.sort((a, b) => sums[b] / done[b] - sums[a] / done[a] || a - b);
     return { best: alive[0], spent };

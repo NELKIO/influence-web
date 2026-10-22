@@ -533,7 +533,7 @@ export function freakAttack(sim: Sim, me: number): number {
   return -1;
 }
 
-function masterReturn(a: number, d: number): number {
+export function masterReturn(a: number, d: number): number {
   if (d === 0) return a - 1.01;
   const diff = a - d;
   return diff >= 2 ? diff : diff === 1 ? 1.25 : diff === 0 ? 1.5 : diff === -1 ? 1.75 : 1.0;
