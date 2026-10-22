@@ -122,7 +122,7 @@ export const en: typeof ru = {
   siteVisitors: 'Players',
   siteGames: 'Games played',
   siteStatsNote: 'Shared counters of all players. Anonymous: only a “+1” is sent, no personal data.',
-  player_god: 'GOD.',
+  player_god: 'GOD',
   player_online: 'Online',
   desc_god: 'Sees through the game and forgives nothing. A real challenge for the strongest.',
   desc_online: 'A player on another device who joins by code or link.',
