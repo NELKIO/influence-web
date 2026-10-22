@@ -134,7 +134,7 @@ for (let gi = 0; gi < games; gi++) {
 const ms = Math.round(performance.now() - t0);
 const tim = Object.fromEntries([...timing].map(([k, t]) => [k, { avg: +(t.sum / t.n).toFixed(1), max: +t.max.toFixed(0), n: t.n }]));
 if (json) {
-  console.log(JSON.stringify({ aw, bw, draws, games, rounds, ms, timing: tim }));
+  console.log(JSON.stringify({ aw, bw, draws, games, rounds, ms, timing: tim, perSize: Object.fromEntries(perSize) }));
 } else {
   console.log(`${mode} ${A} vs ${B}: ${aw}-${bw} (draws ${draws}) => ${A} ${((100 * aw) / games).toFixed(1)}%  [${ms} ms, avg ${(rounds / games).toFixed(1)} rounds]`);
   console.log('per size:', Object.fromEntries([...perSize].map(([k, [w, n]]) => [k, `${w}/${n}`])));

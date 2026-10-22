@@ -75,8 +75,12 @@ export interface GodOptions {
   duelPower?: 'heuristic' | 'emulate';
   emuCands?: number;
   emuIters?: number;
-  /** fixed-budget mode: emulated rollouts per duel placement */
+  /** fixed-budget mode: emulated rollouts per duel placement (default 0.4 × rollouts) */
   emuRollouts?: number;
+  /** first attack of a duel turn: re-score this many top tree moves by emulation (0 = off) */
+  attackEmu?: number;
+  /** fixed-budget mode: emulated rollouts for that (default 0.16 × rollouts) */
+  emuAttackRollouts?: number;
   /** ignore the fog (experiments only; the game never sets this) */
   cheat?: boolean;
 }
@@ -85,15 +89,16 @@ export const DEFAULT_GOD_OPTIONS = {
   firstAttackMs: 450,
   attackMs: 150,
   attackSpeedFactor: 0.8,
-  powerMs: 450,
   maxDecisionMs: 1200,
   mode: 'auto' as 'auto' | 'duel' | 'multi',
   c: 0.25,
   powerCells: 30,
+  powerMs: 600,
   duelPower: 'emulate' as 'heuristic' | 'emulate',
   emuCands: 10,
   emuIters: 32,
-  emuRollouts: 400,
+  /** first attack of a turn: re-score this many top moves by emulation (0 = off) */
+  attackEmu: 4,
 };
 
 const now = (): number => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -342,6 +347,7 @@ export class GodBrain {
       count = moves.length;
       if (count > 1) {
         const copy = root.clone();
+        const rh = tree.rootHash(root);
         const fixed = this.opts.rollouts;
         for (;;) {
           if (fixed !== undefined) {
@@ -349,11 +355,46 @@ export class GodBrain {
           } else if ((iters & 7) === 0 && now() - t0 >= budget) break;
           copy.copyFrom(root);
           this.sampleLuck(copy, rng);
-          tree.iterate(copy, this.lastTo, new FastRng(rng.u32()));
+          tree.iterate(copy, this.lastTo, new FastRng(rng.u32()), rh);
           iters++;
         }
       }
       move = count === 0 ? -1 : count === 1 ? moves[0] : tree.best(root, this.lastTo).move;
+      // first attack of the turn: re-score the tree's favourites by emulated continuations and replies
+      if (firstOfTurn && count > 1 && this.opts.attackEmu > 1) {
+        const top = tree
+          .rootStats(root, this.lastTo)
+          .filter((x) => x.move >= 0 && x.n > 0)
+          .sort((x, y) => y.n - x.n)
+          .slice(0, this.opts.attackEmu);
+        if (top.length > 1) {
+          const { playEmu, placeModel } = this.emulator(root, me, seed, hidden);
+          const scratch = root.clone();
+          const slots = root.t.slots;
+          const run = (c: number, i: number): number => {
+            scratch.copyFrom(root);
+            const r = new FastRng((Math.imul(seed ^ (i * 0x9e3779b9), 0x85ebca6b) ^ (i + 7)) >>> 0);
+            scratch.rng = r;
+            this.sampleLuck(scratch, r);
+            const mv = top[c].move;
+            scratch.fight(mv >> 10, mv & 1023);
+            playEmu(scratch, me, r, mv & 1023);
+            placeModel(scratch, me);
+            for (let k = 1; k < slots; k++) {
+              const q = (me + k) % slots;
+              if (scratch.cnt[q] <= 0) continue;
+              playEmu(scratch, q, r);
+              if (scratch.cnt[me] === 0) return 0;
+              placeModel(scratch, q);
+            }
+            playEmu(scratch, me, r);
+            return evalPhase(scratch, me, this.P, hidden);
+          };
+          const res = this.halving(top.length, run, this.opts.emuAttackRollouts ?? Math.round(0.16 * (this.opts.rollouts ?? 1000)), t0, Math.min(this.opts.maxDecisionMs, budget * 2));
+          move = top[res.best].move;
+          iters += res.spent;
+        }
+      }
     }
     this.lastInfo = { rollouts: iters, ms: now() - t0, candidates: count };
     if (move < 0) return null;
@@ -530,8 +571,38 @@ export class GodBrain {
       return this.toPlacement(state, root, cands[0], me);
     }
     const slots = root.t.slots;
+    const P = this.P;
+    const { playEmu, placeModel } = this.emulator(root, me, seed, hidden);
+    const scratch = root.clone();
+    const run = (c: number, i: number): number => {
+      scratch.copyFrom(cands[c]);
+      const r = new FastRng((Math.imul(seed ^ (i * 0x9e3779b9), 0x85ebca6b) ^ (i + 1)) >>> 0);
+      scratch.rng = r;
+      this.sampleLuck(scratch, r);
+      for (let k = 1; k < slots; k++) {
+        const q = (me + k) % slots;
+        if (scratch.cnt[q] <= 0) continue;
+        playEmu(scratch, q, r);
+        if (scratch.cnt[me] === 0) return 0;
+        placeModel(scratch, q);
+      }
+      playEmu(scratch, me, r);
+      return evalPhase(scratch, me, P, hidden);
+    };
+    const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(this.opts.powerMs, this.opts.maxDecisionMs));
+    this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length };
+    return this.toPlacement(state, root, cands[best.best], me);
+  }
+
+  /**
+   * Emulation of Master-like play: every attack decision by a small UCT search with Master's objective
+   * (evalPhase from the mover's point of view, expert rollouts), placements by threat minimums + the
+   * attack-stack key.
+   */
+  private emulator(root: Sim, me: number, seed: number, hidden: number) {
     const emu = new Map<number, AttackTree>();
     const P = this.P;
+    const w = this.stackW();
     const treeFor = (slot: number) => {
       let t = emu.get(slot);
       if (!t) {
@@ -552,21 +623,20 @@ export class GodBrain {
       return t;
     };
     const iters = this.opts.emuIters;
-    const scratch = root.clone();
     const tmp = root.clone();
-    const playEmu = (sim: Sim, slot: number, rng: FastRng) => {
+    const playEmu = (sim: Sim, slot: number, rng: FastRng, lastTo = -1) => {
       const t = treeFor(slot);
-      let lastTo = -1;
       for (let k = 0; k < 200; k++) {
         const moves = t.moves(sim, lastTo);
         if (!moves.length || sim.aliveCount() <= 1) break;
         let mv = moves[0];
         if (moves.length > 1) {
           t.reset();
+          const rh = t.rootHash(sim);
           for (let i = 0; i < iters; i++) {
             tmp.copyFrom(sim);
             tmp.rng = rng;
-            t.iterate(tmp, lastTo, rng);
+            t.iterate(tmp, lastTo, rng, rh);
           }
           mv = t.best(sim, lastTo).move;
         }
@@ -575,26 +645,12 @@ export class GodBrain {
         lastTo = mv & 1023;
       }
     };
-    const run = (c: number, i: number): number => {
-      scratch.copyFrom(cands[c]);
-      const r = new FastRng((Math.imul(seed ^ (i * 0x9e3779b9), 0x85ebca6b) ^ (i + 1)) >>> 0);
-      scratch.rng = r;
-      this.sampleLuck(scratch, r);
-      for (let k = 1; k < slots; k++) {
-        const q = (me + k) % slots;
-        if (scratch.cnt[q] <= 0) continue;
-        playEmu(scratch, q, r);
-        if (scratch.cnt[me] === 0) return 0;
-        let lq = threatMinimums(scratch, q, scratch.income(q), 0);
-        lq = stackPlace(scratch, q, lq, lq, 0, w);
-        smartyPlace(scratch, q, lq);
-      }
-      playEmu(scratch, me, r);
-      return evalPhase(scratch, me, P, hidden);
+    const placeModel = (sim: Sim, slot: number) => {
+      let l = threatMinimums(sim, slot, sim.income(slot), 0);
+      l = stackPlace(sim, slot, l, l, 0, w);
+      smartyPlace(sim, slot, l);
     };
-    const best = this.halving(cands.length, run, this.opts.emuRollouts, t0, Math.min(this.opts.powerMs, this.opts.maxDecisionMs));
-    this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length };
-    return this.toPlacement(state, root, cands[best.best], me);
+    return { playEmu, placeModel };
   }
 
   /** successive halving with common random numbers (rollout i uses the same dice for every candidate) */

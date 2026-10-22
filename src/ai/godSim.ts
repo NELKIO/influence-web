@@ -1,5 +1,5 @@
 /**
- * GOD ("БОГ.") simulator: a fast typed-array copy of the rules engine with per-player policy models.
+ * GOD ("БОГ") simulator: a fast typed-array copy of the rules engine with per-player policy models.
  *
  * - Exact fight arithmetic (overflow back to the attacker, defender keeps max(1,|a−d|) on a loss), exact
  *   income (cells, or the biggest group under duel rules, capped by free capacity), duel greys-first.
@@ -93,6 +93,8 @@ export interface GodParams {
   qInt: number;
   /** phase-end evaluation: penalty (in own-cell units) per own cell an adjacent enemy stack takes surely */
   pExposed: number;
+  /** map the ratio like Master (clamp((x − 0.3) / 2.7)) instead of x / (1 + x) */
+  clampMap?: boolean;
 }
 
 export const DEFAULT_PARAMS: GodParams = {
@@ -1128,6 +1130,10 @@ export function evalPhase(sim: Sim, me: number, P: GodParams, hidden = 0): numbe
   if (sim.cnt[me] === 0) return 0;
   if (den <= 0) return 1;
   const x = Math.max(0, num) / den;
+  if (P.clampMap) {
+    const v = (x - 0.3) / 2.7;
+    return v < 0 ? 0 : v > 1 ? 1 : v;
+  }
   return x / (1 + x);
 }
 

@@ -54,7 +54,7 @@ export class AttackTree {
     seed: number,
   ) {
     const r = new FastRng(seed ^ 0x2545f491);
-    const size = t.n * 32 + 64;
+    const size = t.n * 48 + 64;
     this.z1 = new Uint32Array(size);
     this.z2 = new Uint32Array(size);
     for (let i = 0; i < size; i++) {
@@ -73,27 +73,48 @@ export class AttackTree {
     this.table.clear();
   }
 
-  hash(sim: Sim, lastTo: number): number {
+  /** Zobrist code index of a cell, or −1 for an unarmed grey cell */
+  private code(i: number, o: number, p: number): number {
+    if (o < 0) return p > 0 ? i * 48 + 32 + p : -1; // armed grey cells (puzzles) lose power when attacked
+    return i * 48 + (o === this.me ? 0 : 16) + p;
+  }
+
+  /** board part of the hash (both halves), O(n) */
+  private base(sim: Sim): void {
     const { n } = this.t;
     let h1 = 0;
     let h2 = 0;
-    const owner = sim.owner;
-    const power = sim.power;
     for (let i = 0; i < n; i++) {
-      const o = owner[i];
-      if (o < 0) {
-        // armed grey cells (puzzles) lose power when attacked
-        if (power[i] > 0) h2 = (h2 + Math.imul(power[i] * 977 + i, 0x85ebca6b)) | 0;
-        continue;
-      }
-      const code = i * 32 + (o === this.me ? 0 : 16) + power[i];
-      h1 ^= this.z1[code];
-      h2 ^= this.z2[code];
+      const c = this.code(i, sim.owner[i], sim.power[i]);
+      if (c < 0) continue;
+      h1 ^= this.z1[c];
+      h2 ^= this.z2[c];
     }
+    this.h1 = h1;
+    this.h2 = h2;
+  }
+
+  /** XOR a cell's current code in or out of the running hash */
+  private toggle(sim: Sim, i: number): void {
+    const c = this.code(i, sim.owner[i], sim.power[i]);
+    if (c < 0) return;
+    this.h1 ^= this.z1[c];
+    this.h2 ^= this.z2[c];
+  }
+
+  private key(lastTo: number): number {
     const extra = lastTo + 2;
-    h1 = (h1 ^ Math.imul(extra, 0x27d4eb2d)) >>> 0;
-    h2 = (h2 ^ Math.imul(extra + 0x165667b1, 0x9e3779b1)) >>> 0;
+    const h1 = (this.h1 ^ Math.imul(extra, 0x27d4eb2d)) >>> 0;
+    const h2 = (this.h2 ^ Math.imul(extra + 0x165667b1, 0x9e3779b1)) >>> 0;
     return h1 * 2097152 + (h2 >>> 11);
+  }
+
+  private h1 = 0;
+  private h2 = 0;
+
+  hash(sim: Sim, lastTo: number): number {
+    this.base(sim);
+    return this.key(lastTo);
   }
 
   private node(key: number): TNode {
@@ -151,13 +172,23 @@ export class AttackTree {
     return v;
   }
 
-  /** one iteration from `root` (luck counters already sampled into `root`). */
-  iterate(root: Sim, rootLast: number, rng: FastRng): void {
+  /** board hash halves of a root, to pass to iterate() when the same position is searched repeatedly */
+  rootHash(sim: Sim): [number, number] {
+    this.base(sim);
+    return [this.h1, this.h2];
+  }
+
+  /** one iteration from `root` (luck counters already sampled into `root`); `rh` = rootHash(root) */
+  iterate(root: Sim, rootLast: number, rng: FastRng, rh?: [number, number]): void {
     const b = this.scratch;
     b.copyFrom(root);
     b.rng = rng;
     let lastTo = rootLast;
-    let nd = this.node(this.hash(b, lastTo));
+    if (rh) {
+      this.h1 = rh[0];
+      this.h2 = rh[1];
+    } else this.base(b);
+    let nd = this.node(this.key(lastTo));
     const path: TNode[] = [nd];
     let guard = 0;
     let value = -1;
@@ -201,7 +232,11 @@ export class AttackTree {
       }
       const s = mv >> 10;
       const t = mv & 1023;
+      this.toggle(b, s);
+      this.toggle(b, t);
       const won = b.fight(s, t);
+      this.toggle(b, s);
+      this.toggle(b, t);
       lastTo = t;
       e.n++;
       if (won) e.wins++;
@@ -209,7 +244,7 @@ export class AttackTree {
         value = this.finishRollout(b, lastTo);
         break;
       }
-      const child = this.node(this.hash(b, lastTo));
+      const child = this.node(this.key(lastTo));
       if (won) e.win = child;
       else e.loss = child;
       path.push(child);
