@@ -12,11 +12,14 @@ import { StatsScreen } from './screens/StatsScreen';
 import { RulesScreen } from './screens/RulesScreen';
 import { DailyScreen } from './screens/DailyScreen';
 import { DuelsScreen } from './screens/DuelsScreen';
+import { JoinScreen } from './screens/JoinScreen';
 
-/** Invite links look like #/duel/CODE */
-function readInvite(): string | null {
-  const m = /^#\/duel\/([A-Za-z0-9]{4})$/.exec(location.hash);
-  return m ? m[1].toUpperCase() : null;
+/** Invite links: #/duel/CODE (4 characters) and #/join/CODE (5-character battle rooms) */
+function readInvite(): { kind: 'duel' | 'battle'; code: string } | null {
+  const d = /^#\/duel\/([A-Za-z0-9]{4})$/.exec(location.hash);
+  if (d) return { kind: 'duel', code: d[1].toUpperCase() };
+  const b = /^#\/join\/([A-Za-z0-9]{5})$/.exec(location.hash);
+  return b ? { kind: 'battle', code: b[1].toUpperCase() } : null;
 }
 
 function Notice() {
@@ -68,11 +71,11 @@ function Screens() {
 
   useEffect(() => {
     const check = () => {
-      const code = readInvite();
-      if (code) {
-        history.replaceState(null, '', location.pathname + location.search);
-        navigate({ name: 'duels', join: code });
-      }
+      const inv = readInvite();
+      if (!inv) return;
+      history.replaceState(null, '', location.pathname + location.search);
+      if (inv.kind === 'duel') navigate({ name: 'duels', join: inv.code });
+      else navigate({ name: 'battleRoom', join: inv.code });
     };
     check();
     window.addEventListener('hashchange', check);
@@ -96,5 +99,9 @@ function Screens() {
       return <DailyScreen />;
     case 'duels':
       return <DuelsScreen key={route.join ?? 'duels'} join={route.join} online={route.online} />;
+    case 'join':
+      return <JoinScreen code={route.code} />;
+    case 'battleRoom':
+      return <JoinScreen code={route.join} />;
   }
 }

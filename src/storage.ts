@@ -85,7 +85,7 @@ export interface SetupPrefs {
 
 export const DEFAULT_SETUP: SetupPrefs = {
   size: 'M',
-  players: ['human', 'dummy', 'freak', 'dummy'],
+  players: ['human', 'dummy', 'hunter', 'dummy'],
   darkness: false,
   symmetry: true,
   crowded: false,
@@ -94,7 +94,11 @@ export const DEFAULT_SETUP: SetupPrefs = {
 };
 
 export function loadSetup(): SetupPrefs {
-  return { ...DEFAULT_SETUP, ...read<Partial<SetupPrefs>>('setup', {}) };
+  const s = { ...DEFAULT_SETUP, ...read<Partial<SetupPrefs>>('setup', {}) };
+  // Psycho is no longer offered: old setups get a Dummy in its place
+  s.players = s.players.slice(0, 6).map((p) => (p === 'freak' ? 'dummy' : p));
+  if (s.players[0] !== 'human') s.players[0] = 'human';
+  return s;
 }
 
 export function saveSetup(s: SetupPrefs) {

@@ -93,6 +93,8 @@ function shapePath(ctx: CanvasRenderingContext2D, owner: number, colorblind: boo
       return polyPath(ctx, cx, cy, r * 0.98, 5, -Math.PI / 2);
     case 4:
       return polyPath(ctx, cx, cy, r * 1.0, 4, Math.PI / 4);
+    case 5:
+      return polyPath(ctx, cx, cy - r * 0.12, r * 1.08, 3, Math.PI / 2);
     default:
       ctx.beginPath();
       ctx.arc(cx, cy, Math.max(0.1, r * 0.9), 0, Math.PI * 2);

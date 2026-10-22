@@ -2,9 +2,9 @@ import type { Palette } from '../storage';
 
 /** Pigment palettes: saturated but not neon, readable on the warm near-black board. */
 export const PALETTES: Record<Palette, string[]> = {
-  main: ['#3f8cff', '#2fbf83', '#f2b33d', '#f0604d', '#a070f5'],
-  classic: ['#2ea3d9', '#57b346', '#f5cf4b', '#de4b5b', '#8c63e6'],
-  soft: ['#6f9be8', '#62b89a', '#e3bd6f', '#e07c6a', '#b08fe0'],
+  main: ['#3f8cff', '#2fbf83', '#f2b33d', '#f0604d', '#a070f5', '#e8649e'],
+  classic: ['#2ea3d9', '#57b346', '#f5cf4b', '#de4b5b', '#8c63e6', '#ef7fb5'],
+  soft: ['#6f9be8', '#62b89a', '#e3bd6f', '#e07c6a', '#b08fe0', '#e59ac0'],
 };
 
 export const NEUTRAL_COLOR = '#3a3f49';

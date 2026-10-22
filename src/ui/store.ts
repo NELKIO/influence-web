@@ -54,6 +54,9 @@ export type Route =
   | { name: 'game'; launch: Launch }
   | { name: 'daily' }
   | { name: 'duels'; join?: string; online?: boolean }
+  | { name: 'join'; code?: string }
+  /** battle room: `join` = guest joining by code, otherwise the host's lobby for the current setup */
+  | { name: 'battleRoom'; join?: string }
   | { name: 'settings' }
   | { name: 'stats' }
   | { name: 'rules' };

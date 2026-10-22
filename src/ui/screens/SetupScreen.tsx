@@ -12,8 +12,8 @@ import { IconPlus, IconRestart, IconX, PlayerToken } from '../components/icons';
 import { MiniMap } from '../components/MiniMap';
 import { sfx } from '../../audio/sfx';
 
-const TYPES: PlayerType[] = ['freak', 'dummy', 'hunter', 'master', 'human'];
-const LEVEL: Partial<Record<PlayerType, number>> = { freak: 1, dummy: 2, hunter: 3, master: 4 };
+const TYPES: PlayerType[] = ['dummy', 'hunter', 'master', 'god', 'human', 'online'];
+const LEVEL: Partial<Record<PlayerType, number>> = { dummy: 1, hunter: 2, master: 3, god: 4 };
 
 export function SetupScreen() {
   const settings = useSettings();
@@ -100,7 +100,7 @@ export function SetupScreen() {
                   </div>
                   <div class="desc">
                     {t('mapCells', { n: preview.field.cells.length })}
-                    {preview.field.layout && ` · ${t(prefs.players.length === 3 ? 'layoutFair3' : 'layoutFair5')}`}
+                    {preview.field.layout && ` · ${t(prefs.players.length === 3 ? 'layoutFair3' : prefs.players.length === 6 ? 'layoutFair6' : 'layoutFair5')}`}
                   </div>
                 </div>
                 <button
@@ -164,20 +164,20 @@ export function SetupScreen() {
                       {TYPES.map((tp) => (
                         <button
                           key={tp}
-                          class={type === tp ? 'on' : ''}
+                          class={`${tp} ${type === tp ? 'on' : ''}`}
                           onClick={() => {
                             sfx.click();
                             setType(slot, tp);
                           }}
                         >
-                          {t(`player_${tp}` as 'player_human')}
+                          {tp === 'human' ? t('pick_human') : t(`player_${tp}` as 'player_human')}
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
               ))}
-              {prefs.players.length < 5 && (
+              {prefs.players.length < 6 && (
                 <button
                   class="add-row"
                   onClick={() => {

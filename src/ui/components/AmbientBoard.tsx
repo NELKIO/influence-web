@@ -19,8 +19,8 @@ export function AmbientBoard() {
     let state: MatchState;
     let bots: Bot[] = [];
     const lineups: PlayerType[][] = [
-      ['hunter', 'dummy', 'hunter', 'freak'],
-      ['hunter', 'hunter', 'dummy', 'dummy', 'freak'],
+      ['hunter', 'dummy', 'hunter', 'dummy'],
+      ['hunter', 'hunter', 'dummy', 'dummy', 'hunter', 'dummy'],
       ['hunter', 'dummy', 'hunter'],
     ];
     let round = 0;

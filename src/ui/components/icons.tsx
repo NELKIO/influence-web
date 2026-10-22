@@ -147,7 +147,8 @@ export function PlayerToken({ slot, size = 22, shape = false }: { slot: number; 
   else if (slot === 1) path = poly(3, -Math.PI / 2, 10);
   else if (slot === 2) path = poly(4, -Math.PI / 2);
   else if (slot === 3) path = poly(5, -Math.PI / 2);
-  else path = poly(4, Math.PI / 4);
+  else if (slot === 4) path = poly(4, Math.PI / 4);
+  else path = poly(3, Math.PI / 2, 10);
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} style={{ flex: 'none' }}>
       <polygon points={path} fill={c} stroke={c} stroke-width="1.5" stroke-linejoin="round" />

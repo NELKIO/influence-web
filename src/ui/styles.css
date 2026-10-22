@@ -20,6 +20,7 @@
   --p2: #f2b33d;
   --p3: #f0604d;
   --p4: #a070f5;
+  --p5: #e8649e;
   --accent: var(--p0);
   --good: var(--p1);
   --warn: var(--p2);
@@ -1998,4 +1999,77 @@ button {
   .puzzle-grid {
     grid-template-columns: repeat(4, 1fr);
   }
+}
+
+/* six seat types in one row */
+.type-pick {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+.type-pick button {
+  font-size: 11.5px;
+  padding: 8px 1px;
+}
+
+.type-pick button.god.on {
+  background: linear-gradient(135deg, #f2b33d, #f0604d);
+  color: #1c1303;
+}
+
+/* bright full-width "join a game" button in the main menu */
+.join-btn {
+  grid-column: span 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 0 16px 0 18px;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(100deg, #f2b33d 0%, #f08a3c 55%, #f0604d 100%);
+  color: #1c1003;
+  cursor: pointer;
+  text-align: left;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 -3px 0 rgba(0, 0, 0, 0.15) inset,
+    0 14px 28px -14px #f08a3c;
+  transition: transform 0.1s, filter 0.15s;
+}
+
+.join-btn:hover {
+  filter: brightness(1.06);
+}
+
+.join-btn:active {
+  transform: scale(0.985);
+}
+
+.join-btn .t {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.join-btn .d {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.join-btn .arrow {
+  margin-left: auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.14);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.join-btn svg {
+  width: 22px;
+  height: 22px;
 }

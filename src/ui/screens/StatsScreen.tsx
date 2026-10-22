@@ -46,7 +46,7 @@ export function StatsScreen() {
   const captured = battles.reduce((a, r) => a + r.captured, 0);
   const recent = [...records].reverse().slice(0, 15);
 
-  const byBot = (['freak', 'dummy', 'hunter', 'master'] as PlayerType[]).map((b) => ({
+  const byBot = (['dummy', 'hunter', 'master', 'god'] as PlayerType[]).map((b) => ({
     b,
     x: tally(battles.filter((r) => r.opponents.includes(b))),
   }));

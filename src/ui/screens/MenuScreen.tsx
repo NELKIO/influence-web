@@ -3,12 +3,11 @@ import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { loadSavedGame, loadSetup, saveGame, setupToSettings } from '../../storage';
 import { createMatch } from '../../core/engine';
-import { IconArrow, IconChart, IconGear, IconPlay, LogoMark, ModeArt } from '../components/icons';
+import { IconArrow, IconChart, IconGear, IconPlay, IconWifi, LogoMark, ModeArt } from '../components/icons';
 import { Modal } from '../components/controls';
 import { AmbientBoard } from '../components/AmbientBoard';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import { dayNumber, dayId } from '../../daily';
-import { playerName } from '../names';
 import { myTurnCount, onDuelsChange } from '../duels';
 import { useEffect } from 'preact/hooks';
 
@@ -46,7 +45,7 @@ export function MenuScreen() {
   };
 
   const opponents = setup.players.slice(1);
-  const quickSub = `${t(`size${setup.size}` as 'sizeM')} · ${opponents.map((_, i) => playerName({ ...setupToSettings(setup) }, i + 1)).join(', ')}`;
+  const quickSub = `${t(`size${setup.size}` as 'sizeM')} · ${t('opponentsN', { n: opponents.length })}`;
 
   return (
     <div class="menu-screen">
@@ -109,6 +108,16 @@ export function MenuScreen() {
               <ModeArt kind="rules" />
               <div class="t">{t('rules')}</div>
               <div class="d">{t('rulesCardSub')}</div>
+            </button>
+            <button class="join-btn" onClick={() => go(() => navigate({ name: 'join' }))}>
+              <IconWifi />
+              <div>
+                <div class="t">{t('joinGame')}</div>
+                <div class="d">{t('joinGameSub')}</div>
+              </div>
+              <span class="arrow">
+                <IconArrow />
+              </span>
             </button>
           </div>
 
