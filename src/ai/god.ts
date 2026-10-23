@@ -140,6 +140,11 @@ export interface GodOptions {
    */
   anchorMode?: 'all' | 'chance' | 'chanceP';
   /**
+   * share of an anchored comparison's rollouts kept to confirm the halving's winner against Master's choice
+   * on fresh dice (the winner of several noisy means is biased upwards); 0 = judge on the same rollouts
+   */
+  anchorConfirm?: number;
+  /**
    * GOD's own placement inside emulated rollouts: 'model' (threat minimums + GOD's attack-stack key, the
    * round-2 model), 'mstack' (the same with Master's key), 'expert' (Master's rollout policy) or
    * 'search:N' (a real Master placement search with N playouts per step: GOD's anchored placement is
@@ -283,6 +288,8 @@ export class GodBrain {
   /** diagnostics: anchored decisions and deviations from Master */
   anchorStats = { decisions: 0, deviations: 0 };
   anchorLast: { n: number; mean: number; sd: number; deviated: boolean } | null = null;
+  /** diagnostics: the candidates of the last compared duel placement (cell, points added), Master's first when anchored */
+  lastPlaceCands: { cands: [number, number][][]; anchor: number } | null = null;
   /** diagnostics: the candidates of the last re-scored attack (Master's choice first when anchored) */
   lastRescore: { cands: number[]; anchor: number; lastTo: number } | null = null;
   /** emulated rollouts past this time (ms, performance clock) search minimally */
@@ -952,6 +959,14 @@ export class GodBrain {
       this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: cands.length };
       return this.toPlacement(state, root, cands[0], me);
     }
+    this.lastPlaceCands = {
+      cands: cands.map((x) => {
+        const d: [number, number][] = [];
+        for (let i = 0; i < root.t.n; i++) if (x.power[i] > root.power[i]) d.push([i, x.power[i] - root.power[i]]);
+        return d;
+      }),
+      anchor: anchorCand,
+    };
     const { finish } = this.emulator(root, me, seed, hidden, state);
     const scratch = root.clone();
     const run = (c: number, i: number): number => {
@@ -1145,6 +1160,37 @@ export class GodBrain {
   }
 
   /**
+   * Diagnostics (scripts/god-oracle.ts): emulated-rollout values of placement candidates (cell, points)
+   * in the placement position `state`, `n` rollouts each with common random numbers, as emulatePower runs
+   * them. Returns vals[c][i].
+   */
+  placeRescoreProbe(state: MatchState, cands: [number, number][][], n: number, seed: number): number[][] {
+    const me = state.current;
+    const topo = this.topoFor(state);
+    this.luckBelief = this.luckPrior.map((d) => d.slice());
+    const { sim: root, hidden } = this.belief(state, me, topo);
+    this.inOpening = this.opening(state);
+    const boards = cands.map((pl) => {
+      const b = root.clone();
+      for (const [c, v] of pl) b.power[c] += v;
+      return b;
+    });
+    const { finish } = this.emulator(root, me, seed, hidden, state);
+    const scratch = root.clone();
+    const vals = cands.map(() => [] as number[]);
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < cands.length; c++) {
+        scratch.copyFrom(boards[c]);
+        const r = new FastRng((Math.imul(seed ^ (i * 0x9e3779b9), 0x85ebca6b) ^ (i + 1)) >>> 0);
+        scratch.rng = r;
+        this.sampleLuck(scratch, r);
+        vals[c].push(finish(scratch, r));
+      }
+    }
+    return vals;
+  }
+
+  /**
    * Diagnostics (scripts/god-placefid.ts): the placement of the player to move in `state` by one of the
    * in-rollout placement models ('model' = the emulator's threat minimums + attack stacks, 'expert' =
    * Master's rollout policy, 'search:N' = a Master search with N playouts per step).
@@ -1224,6 +1270,10 @@ export class GodBrain {
       const per = Math.max(1e-3, (now() - tStart) / spent);
       total = spent + Math.max(0, Math.floor((ms - (now() - t0)) / per));
     }
+    // anchorConfirm: part of the rollouts is kept to confirm the winner against the anchor on fresh dice
+    const confirm = anchor >= 0 ? (this.opts.anchorConfirm ?? 0) : 0;
+    const totalAll = total;
+    if (confirm > 0) total = spent + Math.floor(Math.max(0, total - spent) * (1 - confirm));
     const rounds = Math.max(1, Math.ceil(Math.log2(count)));
     for (let r = 0; r < rounds && alive.length > 1; r++) {
       const per = Math.floor(Math.max(0, total - spent) / ((rounds - r) * alive.length));
@@ -1243,17 +1293,36 @@ export class GodBrain {
       if (anchor >= 0 && alive.length === 2 && r === rounds - 1) break;
     }
     alive.sort((a, b) => sums[b] / done[b] - sums[a] / done[a] || a - b);
-    this.emuDeadline = Infinity;
     let best = alive[0];
     if (anchor >= 0) {
       this.anchorStats.decisions++;
       if (best !== anchor) {
         // paired comparison on the common rollouts (same dice): deviate only on a clear gain
-        const n = Math.min(vals[best].length, vals[anchor].length);
+        let va = vals[best];
+        let vb = vals[anchor];
+        if (confirm > 0) {
+          // the winner of the halving is biased upwards (the best of several noisy means): judge it
+          // against the anchor only on fresh rollouts (new dice indices)
+          const s0 = Math.max(done[best], done[anchor]);
+          done[best] = s0;
+          done[anchor] = s0;
+          const ca: number[] = [];
+          const cb: number[] = [];
+          const per = timed ? Infinity : Math.max(6, Math.floor((totalAll - spent) / 2));
+          while (ca.length < per) {
+            if (timed && (now() - t0 > ms || now() - t0 > hard)) break;
+            ca.push(run(best, done[best]++));
+            cb.push(run(anchor, done[anchor]++));
+            spent += 2;
+          }
+          va = ca;
+          vb = cb;
+        }
+        const n = Math.min(va.length, vb.length);
         let m = 0;
         let q = 0;
         for (let i = 0; i < n; i++) {
-          const d = vals[best][i] - vals[anchor][i];
+          const d = va[i] - vb[i];
           m += d;
           q += d * d;
         }
@@ -1265,6 +1334,7 @@ export class GodBrain {
         else best = anchor;
       }
     }
+    this.emuDeadline = Infinity;
     return { best, spent };
   }
 

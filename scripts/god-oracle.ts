@@ -2,12 +2,13 @@
  * Bias of GOD's emulated rollouts against an outcome oracle (round 7).
  *
  *  mode=collect   play GOD vs Master (same seeds and seats as scripts/god-strength.ts) and log every
- *                 re-scored opening attack decision of GOD: the position, its candidates (Master's own
- *                 choice first) and what GOD played.
+ *                 re-scored opening attack decision and every compared opening placement of GOD: the
+ *                 position, its candidates (Master's own choice first) and what GOD played.
  *                 npx vite-node scripts/god-oracle.ts -- mode=collect games=12 offset=0 sizes=S,M,L,XL,XXL out=dec.jsonl
  *  mode=oracle    for every logged decision and candidate: K full continuations (both seats played by
  *                 Master with mp playouts), common engine dice per continuation index; GOD's seat wins?
  *                 npx vite-node scripts/god-oracle.ts -- mode=oracle in=dec.jsonl from=0 to=20 k=16 mp=300 out=orc.jsonl
+ *                 (cont=god:200: GOD's seat is continued by GOD with 200 fixed rollouts per decision)
  *  mode=rollouts  for every logged decision: the paired emulated-rollout statistics of every candidate
  *                 against Master's choice, per GOD variant (GodOptions)
  *                 npx vite-node scripts/god-oracle.ts -- mode=rollouts in=dec.jsonl from=0 to=20 n=200 \
@@ -17,7 +18,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { runMatch } from '../src/ai/arena';
 import { createBot } from '../src/ai';
 import { GodBrain } from '../src/ai/god';
-import { alivePlayers, attack } from '../src/core/engine';
+import { addPower, alivePlayers, attack, finishTurn } from '../src/core/engine';
 import { Rng } from '../src/core/rng';
 import type { Bot } from '../src/ai/types';
 import type { BotType, FieldSize, MatchSettings, MatchState } from '../src/core/types';
@@ -33,6 +34,11 @@ const out = get('out', 'oracle.jsonl');
 
 interface Decision {
   id: string;
+  /** 'power': a placement decision (candidates in pcands, cands holds their indices) */
+  kind?: 'power';
+  pcands?: [number, number][][];
+  /** oracle mode: evaluate only these candidate indices (the others get no continuations) */
+  only?: number[];
   g: number;
   turn: number;
   godSeat: number;
@@ -52,11 +58,18 @@ function settingsOf(g: number, sizes: FieldSize[]) {
   return { settings, godSeat: swap ? 1 : 0 };
 }
 
-const readDecisions = (): Decision[] =>
-  readFileSync(get('in', 'dec.jsonl'), 'utf8')
+/**
+ * The logged decisions; stride=k keeps only every k-th decision plus every decision where GOD deviated
+ * from Master's choice (the same subset in every mode); from / to index the kept list.
+ */
+const readDecisions = (): Decision[] => {
+  const stride = Number(get('stride', '1'));
+  return readFileSync(get('in', 'dec.jsonl'), 'utf8')
     .split('\n')
     .filter(Boolean)
-    .map((l) => JSON.parse(l) as Decision);
+    .map((l) => JSON.parse(l) as Decision)
+    .filter((d, i) => stride <= 1 || i % stride === 0 || d.chosen !== d.anchor);
+};
 
 if (mode === 'collect') {
   const games = Number(get('games', '12'));
@@ -83,7 +96,20 @@ if (mode === 'collect') {
         }
         return mv;
       },
-      placePower: async (s, c) => brain.decidePower(s, c),
+      async placePower(s, c) {
+        const before = s.turn < rounds ? structuredClone(s) : null;
+        brain.lastPlaceCands = null;
+        const pl = brain.decidePower(s, c);
+        const r = brain.lastPlaceCands as { cands: [number, number][][]; anchor: number } | null;
+        if (before && r && r.cands.length > 1 && r.anchor === 0) {
+          const key = (x: [number, number][]) => x.map(([a, b]) => `${a}:${b}`).sort().join(',');
+          const real = key([...pl]);
+          const chosen = r.cands.findIndex((x) => key(x) === real);
+          const d: Decision = { id: `${g}.p${k++}`, kind: 'power', g, turn: s.turn, godSeat, state: before, lastTo: -1, cands: r.cands.map((_, i) => i), pcands: r.cands, anchor: 0, chosen: chosen < 0 ? 0 : chosen };
+          appendFileSync(out, JSON.stringify(d) + '\n');
+        }
+        return pl;
+      },
     };
     const opp = createBot('master', { seed: 1000 + g * 13 + (1 - godSeat), master: { sync: true } });
     const bots = godSeat === 0 ? [god, opp] : [opp, god];
@@ -97,19 +123,32 @@ if (mode === 'collect') {
   const to = Math.min(all.length, Number(get('to', String(all.length))));
   const K = Number(get('k', '16'));
   const mp = Number(get('mp', '300'));
+  const cont = get('cont', 'master');
+  const contGod = cont.startsWith('god:') ? Number(cont.slice(4)) : 0;
   for (let di = from; di < to; di++) {
     const d = all[di];
     const wins: number[][] = [];
-    for (const mv of d.cands) {
+    for (let ci = 0; ci < d.cands.length; ci++) {
+      const mv = d.cands[ci];
       const w: number[] = [];
-      for (let k = 0; k < K; k++) {
+      for (let k = 0; k < (d.only && !d.only.includes(ci) ? 0 : K); k++) {
         const s = structuredClone(d.state);
         s.rng = new Rng(0x5eed + k * 7919 + d.g * 31).state();
-        const ev = attack(s, mv >> 10, mv & 1023);
-        if (typeof ev === 'string') throw new Error(`illegal candidate ${mv} in ${d.id}: ${ev}`);
-        // the engine ends bot-only matches at the first fight ("no human left"); the arena undoes that
-        if (s.ended && s.ended.winner === -1 && alivePlayers(s).length > 1) s.ended = null;
-        const bots = [0, 1].map((p) => createBot('master', { seed: 900 + k * 2 + p, master: { sync: true, playouts: mp } }));
+        if (d.kind === 'power') {
+          for (const [c, v] of d.pcands![mv]) addPower(s, c, v);
+          finishTurn(s);
+        } else {
+          const ev = attack(s, mv >> 10, mv & 1023);
+          if (typeof ev === 'string') throw new Error(`illegal candidate ${mv} in ${d.id}: ${ev}`);
+          // the engine ends bot-only matches at the first fight ("no human left"); the arena undoes that
+          if (s.ended && s.ended.winner === -1 && alivePlayers(s).length > 1) s.ended = null;
+        }
+        // cont=god:N: GOD's seat is continued by GOD with N fixed rollouts per decision instead of Master
+        const bots = [0, 1].map((p) =>
+          p === d.godSeat && contGod > 0
+            ? createBot('god', { seed: 900 + k * 2 + p, god: { sync: true, rollouts: contGod } })
+            : createBot('master', { seed: 900 + k * 2 + p, master: { sync: true, playouts: mp } }),
+        );
         const res = s.ended ? { winner: s.ended.winner } : await runMatch(s.settings, { seed: 1, state: s, bots, maxRounds: 200, ctx: { speedMs: 0 } });
         if (args.has("debug")) console.log(d.id, mv, k, res.winner, (res as { rounds?: number }).rounds);
         w.push(res.winner === d.godSeat ? 1 : 0);
@@ -125,13 +164,15 @@ if (mode === 'collect') {
   const to = Math.min(all.length, Number(get('to', String(all.length))));
   const n = Number(get('n', '200'));
   const variants: Record<string, object> = JSON.parse(get('variants', '{"base":{}}'));
+  /** raw=1: also store every rollout value (split-half and subsampling analyses) */
+  const raw = get('raw', '1') === '1';
   for (let di = from; di < to; di++) {
     const d = all[di];
-    const res: Record<string, { mean: number[]; gain: number[]; sd: number[]; ms: number }> = {};
+    const res: Record<string, { mean: number[]; gain: number[]; sd: number[]; ms: number; vals?: number[][] }> = {};
     for (const [name, o] of Object.entries(variants)) {
       const brain = new GodBrain(4242, o);
       const t0 = performance.now();
-      const vals = brain.rescoreProbe(d.state, d.lastTo, d.cands, n, 0x1234567 ^ di);
+      const vals = d.kind === 'power' ? brain.placeRescoreProbe(d.state, d.pcands!, n, 0x1234567 ^ di) : brain.rescoreProbe(d.state, d.lastTo, d.cands, n, 0x1234567 ^ di);
       const ms = performance.now() - t0;
       const a = vals[0];
       const mean = vals.map((v) => v.reduce((x, y) => x + y, 0) / v.length);
@@ -149,7 +190,7 @@ if (mode === 'collect') {
         gain.push(m);
         sd.push(Math.sqrt(Math.max(0, q / v.length - m * m) * (v.length / Math.max(1, v.length - 1))));
       }
-      res[name] = { mean, gain, sd, ms };
+      res[name] = { mean, gain, sd, ms, ...(raw ? { vals: vals.map((v) => v.map((x) => Math.round(x * 1e4) / 1e4)) } : {}) };
     }
     appendFileSync(out, JSON.stringify({ id: d.id, n, res }) + '\n');
     process.stderr.write('.');
