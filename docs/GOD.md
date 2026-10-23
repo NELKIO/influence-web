@@ -33,7 +33,18 @@ Master, going from 32 to 128 iterations raised the paired score from 65.0% to 73
 
 ## Search
 
-**Duel** (two players alive):
+**Duel** (two players alive), anchored on Master: every duel decision starts from **Master's own
+choice**, found by a real Master search on the true position (attacks: 300 / 150 ms for the first /
+other attacks of an opening turn, 250 / 100 ms later; placements 300 ms in the opening, 200 ms later;
+all inside GOD's usual budgets). GOD plays something else only when its own analysis shows a clear gain:
+- *Re-scored decisions* (opening attacks, the first attack of later turns, placements): Master's
+  choice is candidate 0 of the emulated-rollout comparison and is never eliminated. At the end, GOD
+  deviates only when the paired gain over Master's choice on the same dice is positive and larger than
+  1.5 standard errors (`anchorZ`), over at least 6 rollouts.
+- *Other attacks*: the attack tree's value of its best move must exceed the value of Master's move by
+  1.5 × 0.15 · √(1/n₁ + 1/n₂).
+Below, the machinery GOD uses for its own analysis.
+
 - *Attacks*: UCT over GOD's own attack phase with chance edges (`AttackTree`). The leaf is
   `evalPhase`, which generalises Master's ratio `2·cells / enemy power`. There is incremental Zobrist
   hashing. The tree is reused across the turn's decisions and is pondered in the worker during
@@ -316,6 +327,55 @@ which is noise, so both options stay off.
 So the map and seat set a ceiling around 90%+, not 72%. The 72% target is not reached; the gap is
 GOD's play in specific positions, and nothing found in rounds 3–4 (fidelity, budgets, candidates,
 search shape) moved the held-out number beyond noise.
+
+## Round 5: GOD must never be weaker than Master
+
+**Root cause.** In round 4, 14 held-out slots (map and seat) were lost by GOD in five runs out of five
+but won by Master in GOD's seat four times out of four. Move traces (`scripts/god-trace.ts`) on the
+server show the same pattern in them:
+- GOD's opening expansion chain heads towards the enemy, often across the map's middle, and leaves a
+  line of 1–2-power cells (e.g. slot 1112: 4→14→13→27→37; Master went 4→3→2→1→0 and stacked its
+  start cell).
+- The enemy, moving second with 7 power, then chains through those cells (1077: the enemy took four
+  GOD cells in one turn, 18→17→16→26→34).
+- Master expands away from the contact and stacks; it meets the enemy later with a full stack.
+
+GOD's emulated rollouts did prefer its own move, and by a statistically clear margin (slot 1112, first
+decision: paired gain 0.004–0.008 over Master's move, z ≈ 3–4 over 85–213 rollouts). So this is a bias
+of GOD's own analysis (the rollout's model placement and short horizon), not noise. Such rare biased
+judgements are what lose these games.
+
+**Fix: Master-anchored duels** (`anchor`, on by default, described under Search). Master's choice is
+the default, and GOD has to prove a deviation; it deviates in about 13–18% of the decisions.
+
+**Results** (server, real time, 12 processes, current version vs anchored, same run windows):
+
+| set | games per version | current | anchored |
+|---|---|---|---|
+| tuning offsets 0–119, M/L/XL | 240 | 67.9% | **72.1%** (z 2.5 instead of 1.5: 64.2%) |
+| held-out 1000–1119, M/L/XL | 240 | 65.8% (M 61.3, L 65.0, XL 71.3) | **70.8%** (M 68.8, L 73.8, XL 70.0) |
+| weakness set: the 34 always-lost held-out slots, 4 runs each | 136 | 27.2% | **48.5%** |
+| of them the 14 slots Master won in GOD's seat | 56 | 50.0% | **75.0%** |
+| held-out 1000–1119 on S/M/L/XL/XXL, window 1 | 240 | 66.7% | 66.7% |
+| held-out 1000–1119 on S/M/L/XL/XXL, window 2 | 240 | 62.9% | 62.5% |
+
+Held-out 1000–1119 with sizes S/M/L/XL/XXL (the offset picks the size, so these are other maps than
+the M/L/XL runs), both windows together, 96 games per size and version:
+
+| | S | M | L | XL | XXL | symmetric | random | all |
+|---|---|---|---|---|---|---|---|---|
+| current | 59.4% | 59.4% | 61.5% | 74.0% | 69.8% | 68.8% | 60.8% | 64.8% |
+| anchored | 61.5% | 54.2% | 70.8% | 70.8% | 65.6% | 67.1% | 62.1% | 64.6% |
+
+GOD is above 50% in every size and in both map groups; no group is below Master. The general strength
+didn't move (all duel windows together: anchored 480/720 = 66.7%, current 469/720 = 65.1%), but the
+positions where GOD used to lose to its own misjudgements are fixed (weakness set 27% → 49%; on the
+14 slots Master won 50% → 75%). M stays the weakest size with both versions, at about 60% over all
+176 M games (current 60.2%, anchored 60.8%); a single window's ±10 points at 96 games swamps the
+per-size differences.
+
+Decision times of the anchored version (Mac, one match per size, speed 200): average 344–431 ms per
+size, rounds 0–3 at most 1420 ms, later rounds at most 928 ms.
 
 ## Known weaknesses
 

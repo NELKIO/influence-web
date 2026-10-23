@@ -1,6 +1,12 @@
 /**
  * GOD ("БОГ") — the strongest computer player.
  *
+ * Duels are anchored on Master: every duel decision starts from Master's own choice (a real Master search
+ * on the true position, inside GOD's time budget) and GOD plays something else only when its analysis
+ * below shows a clear gain (paired emulated rollouts, or the attack tree's values). Its own analysis has
+ * rare systematic misjudgements (e.g. over-extended opening chains towards the enemy) that the anchor
+ * filters out; see docs/GOD.md, round 5.
+ *
  * Search (all on GOD's own luck-exact simulator, src/ai/godSim.ts):
  *  - Duel (two players alive): every attack is chosen by UCT over GOD's own attack phase with chance
  *    edges (src/ai/godTree.ts). The dice include the engine's streak corrector, its counters sampled from
