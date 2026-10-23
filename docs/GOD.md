@@ -3,7 +3,9 @@
 Code: `src/ai/god.ts` (brain), `godSim.ts` (simulator and opponent models), `godTree.ts` (attack-phase
 UCT), `godGame.ts` (whole-turn search), `godBot.ts` + `god.worker.ts` + `godProtocol.ts` (Web Worker
 with synchronous fallback). Tests: `tests/unit/god.test.ts`, `godWorker.test.ts`, `godStrength.test.ts`.
-Scripts: `scripts/god-strength.ts`, `god-perf.ts`, `god-tune.py`, `god-learn.ts` + `god-fit.py`.
+Scripts: `scripts/god-strength.ts`, `god-perf.ts`, `god-tune.py`, `god-learn.ts` + `god-fit.py`, `god-paired.ts` +
+`god-paired-report.py`, `god-fidelity.ts`, `god-placefid.ts`, `god-oracle.ts` + `god-oracle-report.py`,
+`god-trace.ts`; the weakness set `god-weak-slots.txt`. In-rollout placement models: `src/ai/godPlace.ts`.
 
 ## Simulator
 
@@ -405,6 +407,186 @@ What the screens show:
 
 Held-out with the current version in this round (S/M/L/XL/XXL, 240 games): 63.3% (S 60.4, M 58.3,
 L 68.8, XL 75.0, XXL 54.2; symmetric 66.7%, random 60.0%). No default changed in round 6.
+
+## Round 7: is GOD's own placement inside the rollouts the bias?
+
+Round 5's diagnosis was that GOD's emulated rollouts over-rate opening chains towards the enemy because
+they model GOD's own placement crudely and look only one round ahead. Round 7 measured that model first,
+then measured the rollouts' judgements against the outcome of real continuations, and only then played
+matches. Tuning used offsets 0–239. Held-out used 1000–1119, both seat orders, sizes S/M/L/XL/XXL. All runs
+were real time (`gr=0 mp=0 speed=200`) on the server with 12 processes, and every variant was interleaved
+with the current version (main, from its own checkout) in the same window.
+
+New code (all options, defaults unchanged unless stated below):
+- `src/ai/godPlace.ts`:
+  - `MasterPlacer`, a real Master placement search with a fixed number of playouts on a light
+    `MatchState` view of the simulator board, its dice restarted from the rollout's generator;
+  - `masterExpertRest`, Master's rollout policy for placements.
+- `ownPlace` / `oppPlace` choose GOD's own and the opponents' placement inside emulated rollouts:
+  - `'model'`: threat minimums plus GOD's attack-stack key, as before;
+  - `'mstack'`: the same with Master's key;
+  - `'expert'`: Master's rollout policy;
+  - `'search:N'`: Master's search with N playouts per step;
+  - `'late:N'` / `'open:N'`: the search only after / only in the opening.
+  Past the decision's deadline the search falls back to the model.
+- `chainLeaf` is a leaf term of the rollouts. It counts the own cells that one sure enemy chain could
+  take next turn (`chainExposure` in godSim.ts), after GOD's modelled placement, with the enemy's income
+  on the chain's start.
+- `anchorConfirm` keeps a share of an anchored comparison's rollouts to judge the halving's winner
+  against Master's choice on fresh dice. The winner of several noisy means is biased upwards, and this
+  removes that bias.
+- Scripts:
+  - `god-placefid.ts`: placement fidelity;
+  - `god-oracle.ts` + `god-oracle-report.py`: rollout judgements against real continuations;
+  - `god-paired-report.py`: per-size, map-group and seat tables of `god-paired` output files;
+  - `god-weak-slots.txt`: the weakness set.
+
+### 1. Fidelity of the in-rollout placement models
+
+`scripts/god-placefid.ts`, 30 GOD-vs-Master games (offsets 0–29, S–XXL), 119 opening placements of GOD
+(rounds 0–3) and 100 later ones. The table gives the share of placed points that land on the same cells
+as GOD's real (Master-anchored, best-response) placement in the same position.
+
+| model | opening | later | cost per call |
+|---|---|---|---|
+| `model` (threat minimums + GOD's stack key, the current one) | **73.6%** | 79.7% | 0.2–0.4 ms |
+| Master's own placement (real-time Master, same position) | 71.7% | 92.1% | |
+| `expert` (Master's rollout policy) | 40.0% | 74.7% | 0.03 ms |
+| `search:16` / `64` / `256` / `1024` | 58.0 / 62.3 / 66.1 / 67.3% | 90.3 / 91.0 / 90.3 / 90.9% | 1–4 / 3–16 / 9–63 / 37–295 ms |
+
+The distribution agrees too. In the opening, GOD's real placement puts points on 2.76 cells on average,
+the model on 2.76 and Master on 2.92. The biggest single fill takes 70%, 71% and 66% of the points.
+
+**The current model is not crude.** In the opening, where the misjudged chains happen, it is the most
+faithful model of GOD's own placement, closer than Master's own placement. GOD deviates from Master in
+41% of its opening placements, and those deviations are what the model captures. After the opening, GOD's
+anchored placement is mostly Master's, and a small Master search matches it best (91% against 80%).
+
+The opponent's placement (the real Master opponent) is modelled worse:
+- `model`: 72.4% in the opening, 79.8% later;
+- `search:64`: 81.1% / 91.8%;
+- `search:1024`: 87.2% / 93.4%.
+
+### 2. Rollout judgements against real continuations (oracle)
+
+`scripts/god-oracle.ts`:
+- *Collection:* 120 real-time GOD-vs-Master games on offsets 0–119 gave 2286 re-scored opening attack
+  decisions. GOD deviated from Master's choice in 428 of them (19%). The same games gave 445 compared
+  opening placements, with 184 deviations (41%).
+- *Rollouts:* for every decision and every rollout variant, 100 emulated rollouts per candidate with
+  common random numbers, exactly as the re-scoring runs them.
+- *Oracle:* every candidate is played out to the end of the match K times with common engine dice. The
+  opponent is a Master with 200 playouts per decision.
+- *Report:* for each variant and anchor threshold z, the decisions where the variant would deviate from
+  Master's choice, and the oracle's win-rate gain of those deviations.
+
+The answer depends on who continues GOD's seat in the oracle.
+
+Attack decisions, oracle gain per deviation at z = 1.5 (± standard error):
+
+| rollout variant | Master continues GOD's seat (321 decisions, K = 16) | GOD continues it (200 rollouts, 264 decisions, K = 8) |
+|---|---|---|
+| current (`model` placements) | +0.048 ± 0.017 | +0.001 ± 0.013 |
+| `ownPlace: 'search:64'` | **+0.085 ± 0.020** | −0.012 ± 0.016 |
+| `ownPlace` + `oppPlace` `'search:64'` | +0.080 ± 0.019 | −0.002 ± 0.016 |
+| `oppPlace: 'search:64'` | +0.056 ± 0.018 | −0.002 ± 0.013 |
+| `emuTail: 'opening'` | +0.059 ± 0.017 | +0.014 ± 0.014 |
+| the same with Master-search placements in the tail | +0.085 ± 0.019 | +0.002 ± 0.015 |
+| `chainLeaf` 0.5 | +0.027 ± 0.017 | −0.002 ± 0.013 |
+| nominal emulator | +0.048 ± 0.017 | +0.011 ± 0.014 |
+| GOD's real deviations | +0.032 ± 0.015 | +0.002 ± 0.012 |
+
+With Master continuing GOD's seat, Master-like own placements in the rollouts look like a big
+improvement. On the same decisions with GOD continuing its own seat, the advantage disappears. A
+rollout's value is the value of the position *under the play that follows it*, so modelling GOD's own
+placement as Master's makes the rollouts predict Master's continuation, not GOD's. With GOD continuing,
+no variant makes opening attack deviations clearly profitable or harmful. GOD's real attack deviations are
+worth +0.002 ± 0.012 per deviation, so they are neutral. The "best candidate vs Master's choice" gap,
+an upper bound inflated by noise, is only 0.054.
+
+Placement decisions (GOD continues its seat, 200 rollouts, K = 12, 155 decisions; gain per deviation at
+z = 1.5):
+- current: +0.023 ± 0.023;
+- `oppPlace: 'search:64'`: +0.039 ± 0.020;
+- nominal emulator: +0.031 ± 0.020;
+- `anchorConfirm` (judged on 50 fresh rollouts): +0.065 ± 0.022, 42 instead of 54 deviations;
+- `emuTail: 'opening'`: **−0.031 ± 0.022**, and with Master-search placements in the tail +0.011;
+- `chainLeaf` 0.5: **−0.044 ± 0.018**.
+
+GOD's real placement deviations are worth +0.024 ± 0.020. The tail and the chain-exposure term make
+placement judgements worse.
+
+### 3. Strength (tuning offsets, real time, interleaved with main)
+
+| variant | offsets | games | main | variant | paired difference (± se) |
+|---|---|---|---|---|---|
+| `anchorConfirm` 0.4 | 0–119 | 240 | 68.8% | 64.2% | −4.6 ± 3.2 |
+| `anchorConfirm` 0.4 + nominal emulator | 0–119 | 240 | 68.8% | 66.7% | −2.1 ± 3.3 |
+| `anchorConfirm` 0.4 + `oppPlace: 'search:64'` | 0–119 | 240 | 68.8% | 60.4% | −8.3 ± 3.3 (maximum decision time 3217 ms) |
+| tail in the opening with Master-search own and opponent placements (`emuTail: 'opening'`, `open:64`) | 120–239 | 240 | 66.3% | 57.1% | **−9.2 ± 3.6** |
+| anchor threshold z 1.0 for everything | 120–239 | 240 | 66.3% | 65.0% | −1.2 ± 2.6 |
+| anchor threshold z 1.0 for placements only (`anchorZPow`) | 120–239 | 240 | 66.3% | 67.9% | +1.7 ± 2.7 |
+
+None of the oracle's leads survived real play:
+- *Confirmation:* it halves the rollouts that choose the candidate, so fewer placements deviate from
+  Master, and placements are GOD's edge.
+- *Master-search opponent placements:* they cost about 1.5× per rollout, so there are fewer rollouts per
+  decision. In big late positions one search overran the 2 s cap; the deadline fallback was added for
+  that.
+- *The deeper opening horizon:* with the faithful models it is again clearly worse, as in round 6.
+
+The only lead was the lower placement threshold. It was judged on held-out below.
+
+### 4. Held-out and the weakness set
+
+The held-out run covered offsets 1000–1119, both seat orders, S/M/L/XL/XXL, with two windows interleaved
+in one run: 480 games per version.
+
+| version | games | all | S | M | L | XL | XXL | symmetric | random | GOD seat 0 / 1 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| main (current) | 480 | 65.0% ± 2.2 | 62.5% | 55.2% | 66.7% | 76.0% | 64.6% | 69.2% | 60.8% | 68.3% / 61.7% |
+| placement threshold 1.0 (`anchorZPow: 1`) | 480 | 65.8% ± 2.2 | 64.6% | 58.3% | 64.6% | 76.0% | 65.6% | 67.5% | 64.2% | 70.8% / 60.8% |
+
+The paired difference is +0.8 ± 1.8 points (window 1: 67.9% vs 65.4%, window 2: 62.1% vs 66.3%). That
+is noise, so the option is **not adopted**.
+
+**The weakness set was rebuilt.** The 34 slots of round 4 were lost with the server's cleanup. The new
+set is `scripts/god-weak-slots.txt`: the 45 held-out slots (sizes M/L/XL as in round 4: M 15, L 15,
+XL 15) that main lost in all 4 of 4 real-time runs. Those runs had 960 games and averaged 65.5%
+(67.1 / 65.0 / 64.2 / 65.8%); 112 of the 240 slots were always won. Re-run 4 times each in the same
+window:
+- main: 20/180 = 11.1% (M 3.3%, L 3.3%, XL 26.7%);
+- `anchorZPow: 1`: 21/180 = 11.7% (M 8.3%, L 0%, XL 26.7%).
+
+The set does not get worse. The 11% is the regression from the 0% that selected the slots.
+
+**Decision times** (the defaults are unchanged):
+- `scripts/god-perf.ts`, server, one process, two matches per size against Master:
+  - all decisions: 240–460 ms on average per size (S 460, M 427, L 407, XL 404, XXL 240);
+  - rounds 0–3: 543–619 ms on average, at most 1421 ms;
+  - later rounds: 180–309 ms on average, at most 1055 ms;
+  - placements: 690–951 ms on average.
+- In the 12-process paired runs GOD averaged 314–329 ms per decision with a maximum of 1430 ms. The
+  hard cap of 2 s held in every default run.
+
+### Conclusions
+
+- **The in-rollout model of GOD's own placement was not the cause.** In the opening it is the most
+  faithful cheap model of GOD's real placement (74% point overlap, better than Master's own placement at
+  72%). Replacing it with a Master search makes the rollouts predict Master's continuation, not GOD's.
+  In matches, every variant with Master-search placements in the rollouts was worse (−8 and −9 points).
+- **Opening attack deviations are neutral.** Against real continuations in which GOD keeps playing its
+  seat, GOD's deviations from Master's opening attacks are worth +0.002 ± 0.012 per deviation. No
+  rollout variant (horizon, placement models, chain-exposure leaf, nominal dice, confirmation on fresh
+  rollouts) makes them clearly profitable.
+- **Placement deviations are mildly positive** (+0.024 ± 0.020). This is consistent with round 6
+  (placements are GOD's edge). Deviating more often there (threshold 1.0) was +1.7 on tuning and +0.8
+  on held-out: noise.
+- **The deeper horizon and the exposure term make judgements worse**, both in the oracle (placement
+  deviations −0.03 and −0.04) and in play (tail: −9.2 points).
+- **No default changed in round 7.** GOD stays at about 65% against Master on held-out S–XXL duels
+  (65.0% over 480 games here, 65.5% over 960 M/L/XL games). The 72% target was not reached, and none
+  of the levers of this round moves it beyond noise.
 
 ## Known weaknesses
 
