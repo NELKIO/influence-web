@@ -168,7 +168,7 @@ export const DEFAULT_GOD_OPTIONS = {
   /** three or more players: scale of the time budgets of the whole-turn search */
   multiScale: 1,
   /** Master-anchored duels (see GodOptions.anchor) */
-  anchor: false as boolean,
+  anchor: true as boolean,
   anchorZ: 1.5,
   /** minimum mean gain (evaluation units, 0..1) of a deviation from Master's choice */
   anchorMin: 0,
