@@ -54,6 +54,7 @@ import {
   type StackWeights,
 } from './godSim';
 import { AttackTree } from './godTree';
+import { MasterBrain } from './master';
 import type { AttackMove, BotContext } from './types';
 
 export interface GodOptions {
@@ -114,6 +115,8 @@ export interface GodOptions {
   phantoms?: boolean;
   duelLateScale?: number;
   multiScale?: number;
+  /** duel placement: also consider Master's own placement found by a Master search of this many ms (0 = off) */
+  masterCand?: number;
   /** GOD's own attack tree may switch to another source after a capture (Master's rule is to go on from it) */
   unforced?: boolean;
   /**
@@ -220,6 +223,8 @@ export class GodBrain {
   private ponderState: Ponder | null = null;
   /** the decision being made is in the opening (rounds 0 .. openingRounds−1) */
   private inOpening = false;
+  /** Master search for the masterCand placement candidate */
+  private masterBrain: MasterBrain | null = null;
   /** emulated rollouts past this time (ms, performance clock) search minimally */
   private emuDeadline = Infinity;
   lastInfo: GodDecisionInfo = { rollouts: 0, ms: 0, candidates: 0 };
@@ -780,6 +785,16 @@ export class GodBrain {
         smartyPlace(s, me, l);
         push(s);
       }
+    }
+    // Master's own placement (a short real Master search on the true position) as one more candidate:
+    // it often spreads points in ways the stack candidates never try; the rollouts judge it like the rest
+    const mc = this.opts.masterCand ?? 0;
+    if (mc > 0 && !(state.settings.darkness && this.opts.fairFog)) {
+      this.masterBrain ??= new MasterBrain(seed, this.opts.rollouts !== undefined ? { playouts: Math.max(40, this.opts.rollouts >> 2) } : { powerMaxMs: mc, powerMsPerSource: mc / 4, maxDecisionMs: mc * 2 });
+      const pl = this.masterBrain.decidePower(state, { speedMs: 0 });
+      const s = root.clone();
+      for (const [c, v] of pl) s.power[c] += v;
+      push(s);
     }
     if (cands.length === 1) {
       this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: cands.length };
