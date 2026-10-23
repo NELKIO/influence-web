@@ -1,0 +1,5 @@
+# GOD weakness set (round 7): held-out slots (offset:GOD's side, sizes M,L,XL as in god-strength's default)
+# lost by the round-6 version (main) in all 4 of 4 real-time runs on the server (12 processes,
+# gr=0 mp=0 speed=200, offsets 1000-1119 both seat orders; 112 slots were always won).
+# Use: npx vite-node scripts/god-paired.ts -- slots=$(grep -v '^#' scripts/god-weak-slots.txt) reps=4 ...
+1002:A,1017:A,1022:A,1023:B,1025:B,1032:B,1038:B,1039:B,1042:A,1043:A,1047:A,1048:B,1050:B,1051:B,1052:B,1054:A,1057:B,1063:A,1064:A,1064:B,1066:B,1067:A,1068:B,1072:A,1077:B,1078:B,1081:A,1086:B,1088:A,1094:A,1098:A,1104:A,1106:B,1108:A,1109:A,1109:B,1110:A,1111:A,1112:B,1114:B,1115:A,1116:A,1117:B,1118:A,1119:B
