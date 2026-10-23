@@ -335,9 +335,16 @@ export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans', 'h
 
 export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number];
 
-/** Every scenario, in the order of the setup gallery. The map of the day rotates through all of them. */
-export const SCENARIOS: ScenarioId[] = [...BATTLE_SCENARIOS, ...CLASSIC_SCENARIOS];
+/**
+ * Scenarios taken out of the game after a review (nothing new compared with the rest). Their builders
+ * stay so that past maps of the day keep opening exactly as they were played.
+ */
+export const RETIRED_SCENARIOS: ScenarioId[] = ['hill', 'ringmap'];
 
+/** The scenarios in play, in the order of the setup gallery. */
+export const SCENARIOS: ScenarioId[] = [...BATTLE_SCENARIOS, ...CLASSIC_SCENARIOS].filter((id) => !RETIRED_SCENARIOS.includes(id));
+
+/** A scenario that can be picked (retired ones are not). */
 export function isScenarioId(id: unknown): id is ScenarioId {
   return typeof id === 'string' && (SCENARIOS as string[]).includes(id);
 }
@@ -366,7 +373,7 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   spiral: { players: ['human', 'master'], level: 4, size: 'L' },
   twofronts: { players: ['human', 'god', 'master'], level: 4, size: 'L' },
   greysea: { players: ['human', 'master'], level: 3, size: 'L' },
-  checker: { players: ['human', 'master'], level: 2, size: 'M' },
+  checker: { players: ['human', 'master'], level: 4, size: 'M' },
   dam: { players: ['human', 'master'], level: 4, size: 'L' },
   ringmap: { players: ['human', 'god', 'master'], level: 3, size: 'L' },
   hill: { players: ['human', 'master', 'god'], level: 3, size: 'L' },
@@ -404,7 +411,7 @@ export const TUNING: Record<ScenarioId, number> = {
   spiral: 7,
   twofronts: 3,
   greysea: 1.5,
-  checker: 2.5,
+  checker: 2.2,
   dam: 5,
   ringmap: 6,
   hill: 8,

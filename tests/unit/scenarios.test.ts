@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BATTLE_SCENARIOS, buildScenario, SCENARIO_META, SCENARIOS, startMatch } from '../../src/core/scenarios';
+import { BATTLE_SCENARIOS, buildScenario, isScenarioId, RETIRED_SCENARIOS, SCENARIO_META, SCENARIOS, startMatch } from '../../src/core/scenarios';
 import { isConnected } from '../../src/core/field';
 import { articulationPoints, chokePoints } from '../../src/core/connectivity';
 import { createDailyMatch, dailyKind, dailyLevel, dailySeed, dayId, ROTATION } from '../../src/daily';
@@ -176,8 +176,9 @@ describe('scenarios as battle presets', () => {
       '2026-10-22': 'thermopylae',
       '2026-10-23': 'olympus',
       '2026-10-24': 'battle',
-      '2026-10-25': 'overload',
-      '2026-10-29': 'raid',
+      '2026-10-25': 'treasury',
+      '2026-10-29': 'landing',
+      '2026-10-31': 'raid',
     };
     for (const [day, id] of Object.entries(days)) {
       const k = dailyKind(day);
@@ -208,5 +209,26 @@ describe('scenarios as battle presets', () => {
     expect(a.settings.blind).toBe(true);
     expect(JSON.stringify(a.field)).toBe(JSON.stringify(b.field));
     expect(a.explored).toEqual(b.explored);
+  });
+});
+
+describe('retired scenarios', () => {
+  it('are gone from the gallery and the coming maps of the day, but past days still open as played', () => {
+    for (const id of RETIRED_SCENARIOS) {
+      expect(SCENARIOS).not.toContain(id);
+      expect(ROTATION).not.toContain(id);
+      expect(isScenarioId(id)).toBe(false);
+    }
+    // the next three years of the map of the day never bring them back
+    for (let d = 0; d < 3 * 365; d++) {
+      const k = dailyKind(dayId(new Date(2026, 9, 25 + d)));
+      if (k.kind === 'puzzle') expect(RETIRED_SCENARIOS).not.toContain(k.scenario);
+    }
+    // a past day that had one keeps it
+    for (const [day, id] of [['2026-10-02', 'hill'], ['2026-10-18', 'ringmap']] as const) {
+      const k = dailyKind(day);
+      expect(k.kind === 'puzzle' && k.scenario).toBe(id);
+      expect(createDailyMatch(day).settings.puzzle).toBe(id);
+    }
   });
 });

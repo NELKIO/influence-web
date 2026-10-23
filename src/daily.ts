@@ -1,5 +1,5 @@
 import { Rng, hashString } from './core/rng';
-import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, type ScenarioId } from './core/scenarios';
+import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, SCENARIOS, type ScenarioId } from './core/scenarios';
 import { createMatch } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -76,6 +76,8 @@ const ERAS: { from: string; salt: string; scenarios: ScenarioId[] }[] = [
   { from: '2026-10-23', salt: 'puzzle-cycle-all', scenarios: ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS] },
   // the raid joins (Hollow lands is a party map and stays out of the map of the day)
   { from: '2026-10-24', salt: 'puzzle-cycle-raid', scenarios: ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS, 'raid'] },
+  // after the review: only the scenarios still in play (retired ones keep their past days)
+  { from: '2026-10-25', salt: 'puzzle-cycle-curated', scenarios: SCENARIOS.filter((id) => id !== 'hollow') },
 ];
 
 /** the scenarios the map of the day currently rotates through */
