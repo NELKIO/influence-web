@@ -267,7 +267,7 @@ and this version interleaved in the same run window.
 | duel rules vs Master, 6 processes | 120 | 69.2% | 70.8% (nominal emulator: 74.2%) |
 | duel rules, offsets 1060–1119, second window | 120 | | 77.5% (nominal emulator: 70.0%) |
 | GOD + 3 Masters on L (fair share 25%) | 60 | 53.3% | 63.3% |
-| GOD + 5 Masters on XL (fair share 16.7%) | 30 | 46.7% | 53.3% |
+| GOD + 5 Masters on XL (fair share 16.7%) | 30 | 46.7% | 53.3% (51% over 90 games with round 4's extra 60) |
 
 For clear-board duels, duel rules and multi-player games the two versions differ only in the time
 discipline of the emulated re-scoring: the opening hard cap of 1.42 s and minimal searches once a
@@ -279,6 +279,43 @@ about ±6 points at 60 games, and part of the duel gain may be noise too.
 
 Decision times of this version on the server: duel 328 ms average (maximum 1431 ms), darkness 344 ms,
 duel rules 287 ms, four players 170 ms, six players 156 ms.
+
+## Round 4: size M, the opening, multi-player, the ceiling
+
+Same discipline: tuning on 0–119, judging on held-out 1000–1119 (both seat orders), interleaved with
+the current version in the same run windows on the server.
+
+**Tuning screens** (real time, 6 processes, offsets 0–119):
+
+| variant | games | current | variant |
+|---|---|---|---|
+| M only: re-score every attack (`rescoreAll`) | 125 | 62.4% | 64.0% |
+| M only: opening budgets for 6 rounds instead of 4 | 125 | 62.4% | 60.8% |
+| M only: nominal emulator | 120 | 62.4% | 60.0% |
+| M only: own attack tree without forced continuation (`unforced`) | 240 | 62.9% | 62.5% |
+| 4 players on L: whole-turn search budgets ×2 / ×3 (`multiScale`) | 64–68 | 64.7% | 60.9% / 57.8% |
+| all sizes: Master's own placement and attack choice as extra candidates (`masterCand` 250 ms, `masterAtk` 120 ms) | 240 | 66.3% | 68.8% |
+
+On M, GOD already spends 406 ms per decision on average (short games are mostly opening), so M can't
+get more time. The Master candidates were the only lead. **Held-out**, 12 processes, two windows:
+current 60.0% / 62.9%, with the Master candidates 62.9% / 62.1%. That is 61.5% vs 62.5% over 480 games,
+which is noise, so both options stay off.
+
+**Six players** (GOD + 5 Masters on XL, fair share 16.7%), held-out: 50.0% over 60 more games, 51% over
+90 games altogether.
+
+**How much is map and seat luck.** Across the held-out runs of the current version (69.6%, 64.6%,
+60.0%, 62.9%; 960 games), GOD averages about 64%; window-to-window spread is ±5 points at 240 games.
+- *Seat:* on M, GOD as seat 0 (moves first with 5 power against 7) wins about 50–58%, as seat 1
+  60–70%. L and XL show no consistent seat effect.
+- *Slots:* over five runs of the 240 held-out slots, 100 slots were always won and 34 always lost
+  (16 of them on M). Master was put in GOD's seat on those 34 slots (four real-time games each): it won
+  65/136, i.e. about half. 15 slots were lost by Master as well (0/4: structurally lost, about 6% of all
+  games). On 14 slots Master won 4/4, so GOD's losses there are its own play, not the map.
+
+So the map and seat set a ceiling around 90%+, not 72%. The 72% target is not reached; the gap is
+GOD's play in specific positions, and nothing found in rounds 3–4 (fidelity, budgets, candidates,
+search shape) moved the held-out number beyond noise.
 
 ## Known weaknesses
 
