@@ -377,6 +377,35 @@ per-size differences.
 Decision times of the anchored version (Mac, one match per size, speed 200): average 344–431 ms per
 size, rounds 0–3 at most 1420 ms, later rounds at most 928 ms.
 
+## Round 6: attempts to fix the misjudgement at its source
+
+Tuning on offsets 0–119 (real time, 12 processes on the server, current = Master-anchored round 5),
+all variants interleaved in the same windows:
+
+| variant | sizes | games | current | variant |
+|---|---|---|---|---|
+| playouts end after the enemy's next attacks (GOD's model placement, then the enemy's emulated attack phase), opening only / always (`emuTail`) | M/L/XL | 220 | 69.1% | 57.7% / 63.6% |
+| anchor threshold z 0.7 / 1.0 / 2.0 instead of 1.5 | S–XL | 160–165 | 62.4% | 58.8% / 61.2% / 59.4% |
+| Master's sure captures always stand, GOD re-judges only chance fights (`anchorMode: 'chance'`) | S–XL | 480 (2 windows) | 59.8% | 59.0% |
+| the same, and Master's placements always stand (`'chanceP'`) | S–XL | 240 | 60.4% | 51.7% |
+| `'chance'` + placement budgets 1400 / 900 ms (+ 16 placement candidates) | S–XL | 240 | 59.2% | 56.2% (58.3%) |
+| `'chance'` + Master's anchor searches as long as the real Master's | S–XL | 220 | 60.0% | 56.4% (placement threshold 1.0: 60.5%) |
+
+`'chance'` keeps the tuning strength with about half the thinking time (206 vs 376 ms per decision), but
+on held-out 1000–1119 with S/M/L/XL/XXL (240 games each) it scored 57.5% against 63.3%, so it stays off.
+
+What the screens show:
+- **Placements are GOD's edge.** When Master's placements always stand, GOD falls to Master's level
+  (51.7%); when Master's sure captures always stand, nothing is lost. GOD's strength over Master comes
+  from its best-response placements, where its emulated rollouts are reliable.
+- **A longer horizon made things worse.** Ending the playouts after the enemy's next attacks lets the
+  rollouts see chains through thin lines, but the extra modelled half-round (GOD's model placement, the
+  emulated enemy attacks) adds more bias and noise than it removes (58–64% against 69%).
+- **The anchor threshold is flat between 1.0 and 1.5;** lower and higher values are slightly worse.
+
+Held-out with the current version in this round (S/M/L/XL/XXL, 240 games): 63.3% (S 60.4, M 58.3,
+L 68.8, XL 75.0, XXL 54.2; symmetric 66.7%, random 60.0%). No default changed in round 6.
+
 ## Known weaknesses
 
 - **Duel compute.** GOD uses about 2.5× Master's time per decision. At an equal fixed iteration count

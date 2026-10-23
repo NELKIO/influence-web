@@ -130,6 +130,15 @@ export interface GodOptions {
   anchor?: boolean;
   anchorZ?: number;
   anchorMin?: number;
+  /** the anchor threshold of placements (default anchorZ) */
+  anchorZPow?: number;
+  /**
+   * 'all': GOD may deviate from any Master choice; 'chance': Master's sure captures always stand;
+   * 'chanceP': and Master's placements too
+   */
+  anchorMode?: 'all' | 'chance' | 'chanceP';
+  /** emulated rollouts end after the opponents' next attacks instead of GOD's next attack phase */
+  emuTail?: 'off' | 'opening' | 'all';
   /** Master's search time (ms) for: the first attack of an opening turn, other opening attacks, the first
    * attack of a later turn, other later attacks, opening placements, later placements */
   anchorMs?: [number, number, number, number, number, number];
@@ -556,18 +565,26 @@ export class GodBrain {
       const rescore = (firstOfTurn || this.opts.rescoreAll || (opening && this.opts.rescoreAllOpening)) && count > 1 && this.opts.attackEmu > 1;
       // Master's own choice: the default that GOD has to beat
       let anchorMove = -1;
+      let pinned = false;
       let treeBudget = budget;
       if (count > 1 && this.anchored(state)) {
         const am = this.opts.anchorMs;
         const ms = opening ? (firstOfTurn ? am[0] : am[1]) : firstOfTurn ? am[2] : am[3];
         const ta = now();
         anchorMove = this.masterAttackChoice(state, ms, seed);
+        if (anchorMove >= 0 && (this.opts.anchorMode === 'chance' || this.opts.anchorMode === 'chanceP')) {
+          // Master's sure captures (greys, or a margin of 2+) stand: GOD only re-judges chance fights
+          const c = state.field.cells;
+          const f = c[anchorMove >> 10];
+          const t = c[anchorMove & 1023];
+          if (engineChance(f.power, t.owner === NEUTRAL ? 0 : t.power) >= 1) pinned = true;
+        }
         const spent = now() - t0;
         // the tree gets what is left of its budget, at least half of it (Master's time counts)
         treeBudget = spent + Math.max(budget - spent, budget * 0.5);
         void ta;
       }
-      if (count > 1) {
+      if (count > 1 && !pinned) {
         const copy = root.clone();
         const rh = tree.rootHash(root);
         const fixed = this.opts.rollouts;
@@ -581,9 +598,9 @@ export class GodBrain {
           iters++;
         }
       }
-      move = count === 0 ? -1 : count === 1 ? moves[0] : tree.best(root, this.lastTo).move;
+      move = count === 0 ? -1 : count === 1 ? moves[0] : pinned ? anchorMove : tree.best(root, this.lastTo).move;
       treeMove = move;
-      if (anchorMove >= 0 && !rescore) {
+      if (anchorMove >= 0 && !rescore && !pinned) {
         // no rollouts for this decision: deviate from Master only when the tree's values say so clearly
         this.anchorStats.decisions++;
         const st = tree.rootStats(root, this.lastTo);
@@ -598,7 +615,7 @@ export class GodBrain {
         else this.anchorStats.deviations++;
       }
       // first attack of the turn: re-score the tree's favourites by emulated continuations and replies
-      if (rescore) {
+      if (rescore && !pinned) {
         let top = tree
           .rootStats(root, this.lastTo)
           .filter((x) => x.move >= 0 && x.n > 0)
@@ -909,6 +926,8 @@ export class GodBrain {
       if (at >= 0) cands.splice(at, 1);
       cands.unshift(s);
       anchorCand = 0;
+      // 'chanceP': Master's placement always stands
+      if (this.opts.anchorMode === 'chanceP') cands.length = 1;
     }
     if (cands.length === 1) {
       this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: cands.length };
@@ -925,7 +944,7 @@ export class GodBrain {
     };
     this.inOpening = this.opening(state);
     const ms = this.inOpening ? this.opts.openingPowerMs : this.opts.powerMs * this.opts.duelLateScale;
-    const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(ms, this.opts.maxDecisionMs), anchorCand);
+    const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(ms, this.opts.maxDecisionMs), anchorCand, this.opts.anchorZPow ?? this.opts.anchorZ);
     this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length, emu: best.spent, changed: best.best !== 0 };
     return this.toPlacement(state, root, cands[best.best], me);
   }
@@ -997,6 +1016,7 @@ export class GodBrain {
       smartyPlace(sim, slot, l);
     };
     const depth = this.opts.emuDepth;
+    const tail = this.opts.emuTail === 'all' || (this.opts.emuTail === 'opening' && this.inOpening);
     const slots = root.t.slots;
     /** after GOD's placement: every opponent's emulated turn, GOD's next attack phase (+ extra rounds) */
     const finish = (sim: Sim, rng: FastRng): number => {
@@ -1010,6 +1030,17 @@ export class GodBrain {
           placeModel(sim, q);
         }
         playEmu(sim, me, rng);
+      }
+      if (tail) {
+        // the enemy moves next: GOD's modelled placement, then every opponent's emulated attacks, so
+        // chains through GOD's weak lines are seen by the evaluation
+        placeModel(sim, me);
+        for (let k = 1; k < slots; k++) {
+          const q = (me + k) % slots;
+          if (sim.cnt[q] <= 0) continue;
+          playEmu(sim, q, rng);
+          if (sim.cnt[me] === 0) return 0;
+        }
       }
       return evalPhase(sim, me, P, hidden);
     };
@@ -1048,7 +1079,7 @@ export class GodBrain {
   }
 
   /** successive halving with common random numbers (rollout i uses the same dice for every candidate) */
-  private halving(count: number, run: (c: number, i: number) => number, fixed: number, t0: number, ms: number, anchor = -1): { best: number; spent: number } {
+  private halving(count: number, run: (c: number, i: number) => number, fixed: number, t0: number, ms: number, anchor = -1, z = this.opts.anchorZ): { best: number; spent: number } {
     const sums = new Float64Array(count);
     const vals: number[][] = Array.from({ length: count }, () => []);
     const exec = (c: number) => {
@@ -1108,7 +1139,7 @@ export class GodBrain {
         }
         const mean = n ? m / n : 0;
         const sd = n > 1 ? Math.sqrt(Math.max(0, q / n - mean * mean) * (n / (n - 1))) : Infinity;
-        const clear = n >= 6 && mean > this.opts.anchorMin && mean > (this.opts.anchorZ * sd) / Math.sqrt(n);
+        const clear = n >= 6 && mean > this.opts.anchorMin && mean > (z * sd) / Math.sqrt(n);
         this.anchorLast = { n, mean, sd, deviated: clear };
         if (clear) this.anchorStats.deviations++;
         else best = anchor;
