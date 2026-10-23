@@ -1351,6 +1351,69 @@ button {
   text-transform: uppercase;
 }
 
+/* a scenario medal earned by this match */
+.medal-won {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px 10px 12px;
+  border-radius: 14px;
+  background: var(--bg-2);
+  border: 1px solid rgba(205, 212, 222, 0.18);
+  animation: medalIn 0.5s 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.25) backwards;
+}
+
+.medal-won.gold {
+  border-color: color-mix(in srgb, var(--p2) 40%, transparent);
+  background: color-mix(in srgb, var(--p2) 8%, var(--bg-2));
+}
+
+.medal-won .medal {
+  flex: none;
+  animation: medalSwing 1.1s 0.35s ease-out backwards;
+  transform-origin: 50% 0;
+}
+
+.medal-won .title {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.medal-won.gold .title {
+  color: #ffd36b;
+}
+
+.medal-won .note {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+@keyframes medalIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+}
+
+@keyframes medalSwing {
+  0% {
+    transform: rotate(-14deg);
+  }
+  40% {
+    transform: rotate(8deg);
+  }
+  70% {
+    transform: rotate(-3deg);
+  }
+  100% {
+    transform: rotate(0);
+  }
+}
+
 .result-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2019,6 +2082,123 @@ button {
 
 .puzzle-card .meta svg + svg {
   margin-left: 4px;
+}
+
+/* scenario medals */
+.puzzle-card {
+  position: relative;
+}
+
+.medal-badge {
+  position: absolute;
+  /* the ribbon hangs from the top edge of the card */
+  top: -1px;
+  right: 7px;
+  pointer-events: none;
+}
+
+/* a halo of the card's own colour keeps the medal clear of the map under it */
+.medal-badge .medal {
+  display: block;
+  --halo: var(--surface);
+  filter: drop-shadow(0 1px 1px var(--halo)) drop-shadow(0 0 1.5px var(--halo)) drop-shadow(0 0 1.5px var(--halo));
+}
+
+@media (min-width: 520px) {
+  .medal-badge {
+    right: 9px;
+  }
+
+  .medal-badge .medal {
+    width: 26px;
+    height: 29.25px;
+  }
+}
+
+.puzzle-card:hover .medal-badge .medal {
+  --halo: var(--surface-2);
+}
+
+.puzzle-card.on .medal-badge .medal {
+  --halo: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+.medal.empty {
+  color: var(--muted);
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.puzzle-card:hover .medal.empty {
+  opacity: 0.8;
+}
+
+.section-title.with-aside {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.medal-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.medal-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--hair);
+}
+
+.medal-status .medal {
+  flex: none;
+}
+
+.medal-status.medal {
+  border-color: rgba(205, 212, 222, 0.16);
+}
+
+.medal-status.gold {
+  border-color: color-mix(in srgb, var(--p2) 30%, transparent);
+  background: color-mix(in srgb, var(--p2) 6%, var(--bg-2));
+}
+
+.medal-status .grow {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.medal-status .title {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.medal-status.gold .title {
+  color: #ffd36b;
+}
+
+.medal-status .note {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.medal-status .note.blocked {
+  color: color-mix(in srgb, var(--warn) 45%, var(--muted));
+}
+
+.medal-status .note.for-gold {
+  color: color-mix(in srgb, var(--p2) 60%, var(--muted));
 }
 
 /* the scenario chosen in the battle setup */

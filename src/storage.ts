@@ -1,6 +1,7 @@
 import type { Lang } from './i18n';
 import type { FieldSize, MatchKind, MatchSettings, MatchState, PlayerType } from './core/types';
 import { isScenarioId, SCENARIO_META, type ScenarioId } from './core/scenarios';
+import { betterMedal, isTier, type MedalTier } from './medals';
 
 const PREFIX = 'infweb.';
 
@@ -238,8 +239,48 @@ export function updateDaily(id: string, win: boolean, rounds: number) {
   write('daily2', all);
 }
 
+// ---------------------------------------------------------------- scenario medals
+
+export interface Medal {
+  tier: MedalTier;
+  /** when it was earned (or upgraded to gold) */
+  at: number;
+}
+
+interface MedalsFile {
+  v: 1;
+  medals: Record<string, Medal>;
+}
+
+/** Every well-formed entry, including scenarios that are not offered any more (kept in case they return). */
+function readMedals(): Record<string, Medal> {
+  const out: Record<string, Medal> = {};
+  const f = read<Partial<MedalsFile> | null>('medals', null);
+  if (!f || typeof f !== 'object' || f.v !== 1 || !f.medals || typeof f.medals !== 'object') return out;
+  for (const [id, m] of Object.entries(f.medals)) {
+    if (m && typeof m === 'object' && isTier(m.tier) && Number.isFinite(m.at)) out[id] = { tier: m.tier, at: m.at };
+  }
+  return out;
+}
+
+/** Medals of the scenarios there are. */
+export function loadMedals(): Partial<Record<ScenarioId, Medal>> {
+  const all = readMedals();
+  return Object.fromEntries(Object.entries(all).filter(([id]) => isScenarioId(id)));
+}
+
+/** Award a medal; returns the tier when it is new or an upgrade, null when nothing changed. */
+export function awardMedal(id: ScenarioId, tier: MedalTier, at = Date.now()): MedalTier | null {
+  const all = readMedals();
+  if (!betterMedal(all[id]?.tier, tier)) return null;
+  all[id] = { tier, at };
+  write('medals', { v: 1, medals: all } satisfies MedalsFile);
+  return tier;
+}
+
 export function resetAllData() {
   write('stats', null);
   write('daily', null);
   write('daily2', null);
+  write('medals', null);
 }

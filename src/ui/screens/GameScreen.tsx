@@ -9,7 +9,9 @@ import { playerColor } from '../theme';
 import { alivePlayers, anyAttackLeft, cellCount, scoreOf } from '../../core/engine';
 import type { MatchState } from '../../core/types';
 import { countGame } from '../../sitestats';
-import { addRecord, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
+import { addRecord, awardMedal, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
+import { matchMedal, type MedalTier } from '../../medals';
+import { Medal } from '../components/Medal';
 import { createMatch } from '../../core/engine';
 import { createDailyMatch } from '../../daily';
 import { startMatch } from '../../core/scenarios';
@@ -70,6 +72,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const [askConcede, setAskConcede] = useState(false);
   /** the result window is put aside to look at the final board (the fog has lifted by then) */
   const [viewingBoard, setViewingBoard] = useState(false);
+  /** a scenario medal this match has just earned (or turned to gold) */
+  const [newMedal, setNewMedal] = useState<MedalTier | null>(null);
   const online = launch.online as OnlineBinding | undefined;
 
   const ctrl = useMemo(() => {
@@ -87,7 +91,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
       },
       onEnd: (s) => {
         if (isSaveable(s)) saveGame(null);
-        recordResult(s);
+        setNewMedal(recordResult(s));
       },
     });
   }, [launch]);
@@ -455,6 +459,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
           onRestart={s.settings.kind !== 'duelOnline' ? restartSame : undefined}
           onNew={s.settings.kind !== 'duelOnline' ? quickRematch : undefined}
           onViewBoard={() => setViewingBoard(true)}
+          medal={newMedal}
           extra={online?.ResultActions ? <online.ResultActions ctrl={ctrl} /> : null}
         />
       )}
@@ -551,6 +556,7 @@ function ResultModal({
   onRestart,
   onNew,
   onViewBoard,
+  medal,
   extra,
 }: {
   ctrl: GameController;
@@ -558,6 +564,7 @@ function ResultModal({
   onRestart?: () => void;
   onNew?: () => void;
   onViewBoard: () => void;
+  medal: MedalTier | null;
   extra: preact.JSX.Element | null;
 }) {
   const s = ctrl.state;
@@ -593,6 +600,17 @@ function ResultModal({
           {t('round', { n: end.turn + 1 })} · {formatDuration((ctrl.endedAt || Date.now()) - s.startedAt)}
         </div>
       </div>
+      {medal && s.settings.puzzle && (
+        <div class={`medal-won ${medal}`} data-testid="medal-won" data-medal={medal}>
+          <Medal tier={medal} size={44} />
+          <div>
+            <div class="title">{t(medal === 'gold' ? 'medalNewGold' : 'medalNew')}</div>
+            <div class="note">
+              {t(medal === 'gold' ? 'medalNewGoldSub' : 'medalNewSub', { name: t(`puzzle_${s.settings.puzzle}` as 'puzzle_siege') })}
+            </div>
+          </div>
+        </div>
+      )}
       {end.reason === 'concede' && s.settings.kind === 'duelOnline' && end.humanWon && <p>{t('oppConceded')}</p>}
       {end.reason === 'timeout' && end.humanWon && <p>{t('timeoutWin')}</p>}
       <div class="result-stats">
@@ -660,7 +678,8 @@ function ResultEmblem({ color, win }: { color: string; win: boolean }) {
   );
 }
 
-function recordResult(s: MatchState) {
+/** Stats, the map of the day and scenario medals; returns a medal earned just now. */
+function recordResult(s: MatchState): MedalTier | null {
   countGame();
   const humans = s.settings.players.filter((p) => p === 'human').length;
   const me = s.settings.players.findIndex((p) => p === 'human');
@@ -677,4 +696,6 @@ function recordResult(s: MatchState) {
     ms: Date.now() - s.startedAt,
   });
   if (s.settings.kind === 'daily' && s.settings.dailyId) updateDaily(s.settings.dailyId, win, (s.ended?.turn ?? s.turn) + 1);
+  const medal = matchMedal(s);
+  return medal ? awardMedal(medal.id, medal.tier) : null;
 }

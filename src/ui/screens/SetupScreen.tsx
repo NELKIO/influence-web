@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
-import { loadSetup, saveGame, saveSetup, setupPlayers, setupToSettings, type SetupPrefs } from '../../storage';
+import { loadMedals, loadSetup, saveGame, saveSetup, setupPlayers, setupToSettings, type SetupPrefs } from '../../storage';
+import { seatsMedal, type MedalTier } from '../../medals';
 import { hashString, randomSeed } from '../../core/rng';
 import { buildScenario, SCENARIO_META, SCENARIOS, startMatch, type ScenarioId } from '../../core/scenarios';
 import { prepareHost } from '../battle';
@@ -9,6 +10,7 @@ import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../
 import { SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconMoon, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
 import { MiniMap, SecretMap } from '../components/MiniMap';
+import { Medal } from '../components/Medal';
 import { sfx } from '../../audio/sfx';
 
 const TYPES: PlayerType[] = ['dummy', 'hunter', 'master', 'god', 'human', 'online'];
@@ -22,11 +24,35 @@ function ScenarioMap({ id, field, maxHeight }: { id: ScenarioId; field: Field; m
   return <SecretMap field={field} darkness={m.darkness} blind={m.blind} maxHeight={maxHeight} />;
 }
 
+const medalLabel = (tier: MedalTier | null) => t(tier === 'gold' ? 'medalGoldTitle' : tier ? 'medalTitle' : 'medalNone');
+
+/** The medal of the chosen scenario: earned, or what it takes (and whether these seats can earn it). */
+function MedalStatus({ have, seats }: { have: MedalTier | null; seats: ReturnType<typeof seatsMedal> }) {
+  const blocked = seats === 'people' ? t('medalNoPeople') : seats === 'weaker' ? t('medalNoWeaker') : null;
+  // what these seats play for, when it is worth saying
+  const stake =
+    have === 'gold' ? null : blocked ? <div class="note blocked">{blocked}</div> : seats === 'gold' ? <div class="note for-gold">{t('medalGoldSeats')}</div> : null;
+  return (
+    <div class={`medal-status ${have ?? 'none'}`} data-testid="medal-status">
+      <Medal tier={have} size={30} label={medalLabel(have)} />
+      <div class="grow">
+        {have && <div class="title">{medalLabel(have)}</div>}
+        {have === 'gold' && <div class="note">{t('medalGoldDone')}</div>}
+        {have === 'medal' && (stake ?? <div class="note">{t('medalGoldNext')}</div>)}
+        {!have && <div class="note">{t('medalHint')}</div>}
+        {!have && stake}
+      </div>
+    </div>
+  );
+}
+
 export function SetupScreen() {
   const settings = useSettings();
   const [prefs, setPrefs] = useState<SetupPrefs>(loadSetup());
   const [step, setStep] = useState(0);
   const [mapSeed, setMapSeed] = useState(() => randomSeed());
+  const [medals] = useState(loadMedals);
+  const medalCount = SCENARIOS.filter((id) => medals[id]).length;
 
   const scenario = prefs.scenario;
   const meta = scenario ? SCENARIO_META[scenario] : null;
@@ -133,6 +159,7 @@ export function SetupScreen() {
                   )}
                   {meta.unions && <span class="chip">{t('unions')}</span>}
                 </div>
+                <MedalStatus have={medals[scenario]?.tier ?? null} seats={seatsMedal(scenario, players)} />
               </div>
             ) : (
               <>
@@ -183,7 +210,12 @@ export function SetupScreen() {
               </>
             )}
 
-            <div class="section-title">{t('puzzles')}</div>
+            <div class="section-title with-aside">
+              <span>{t('puzzles')}</span>
+              <span class="medal-count" data-testid="medal-count">
+                {t('medalCount', { n: medalCount, total: SCENARIOS.length })}
+              </span>
+            </div>
             <p class="lead" style={{ marginTop: -4 }}>
               {t('puzzlesDesc')}
             </p>
@@ -191,9 +223,13 @@ export function SetupScreen() {
               {SCENARIOS.map((id) => {
                 const m = SCENARIO_META[id];
                 const on = id === scenario;
+                const tier = medals[id]?.tier ?? null;
                 return (
                   <button key={id} class={`puzzle-card ${on ? 'on' : ''}`} aria-pressed={on} data-scenario={id} onClick={() => pickScenario(id)}>
                     <ScenarioMap id={id} field={samples[id].field} maxHeight={84} />
+                    <span class="medal-badge" data-medal={tier ?? 'none'} title={medalLabel(tier)}>
+                      <Medal tier={tier} size={22} label={medalLabel(tier)} />
+                    </span>
                     <span class="name">{t(`puzzle_${id}` as 'puzzle_siege')}</span>
                     <span class="meta">
                       <IconUsers width={12} height={12} />
