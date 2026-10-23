@@ -117,6 +117,8 @@ export interface GodOptions {
   multiScale?: number;
   /** duel placement: also consider Master's own placement found by a Master search of this many ms (0 = off) */
   masterCand?: number;
+  /** re-scored attacks: also consider Master's own choice found by a Master search of this many ms (0 = off) */
+  masterAtk?: number;
   /** GOD's own attack tree may switch to another source after a capture (Master's rule is to go on from it) */
   unforced?: boolean;
   /**
@@ -543,6 +545,16 @@ export class GodBrain {
           .filter((x) => x.move >= 0 && x.n > 0)
           .sort((x, y) => y.n - x.n)
           .slice(0, this.opts.attackEmu);
+        // Master's own choice (a short real Master search) as one more candidate
+        const ma = this.opts.masterAtk ?? 0;
+        if (ma > 0 && !(state.settings.darkness && this.opts.fairFog)) {
+          const mb = new MasterBrain(seed ^ 0x1234, this.opts.rollouts !== undefined ? { playouts: Math.max(40, this.opts.rollouts >> 2) } : { firstAttackMs: ma, firstAttackRuns: 60, maxDecisionMs: ma * 2 });
+          const m = mb.decideAttack(state, { speedMs: 0 });
+          if (m) {
+            const code = m.from * 1024 + m.to;
+            if (!top.some((x) => x.move === code)) top.push({ move: code, n: 0, mean: NaN });
+          }
+        }
         if (top.length > 1) {
           const { playEmu, placeModel, finish } = this.emulator(root, me, seed, hidden);
           const scratch = root.clone();
