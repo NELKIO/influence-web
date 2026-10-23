@@ -123,6 +123,7 @@ export interface GodOptions {
    */
   anchor?: boolean;
   anchorZ?: number;
+  anchorMin?: number;
   /** Master's search time (ms) for: the first attack of an opening turn, other opening attacks, the first
    * attack of a later turn, other later attacks, opening placements, later placements */
   anchorMs?: [number, number, number, number, number, number];
@@ -169,6 +170,8 @@ export const DEFAULT_GOD_OPTIONS = {
   /** Master-anchored duels (see GodOptions.anchor) */
   anchor: false as boolean,
   anchorZ: 1.5,
+  /** minimum mean gain (evaluation units, 0..1) of a deviation from Master's choice */
+  anchorMin: 0,
   anchorMs: [300, 150, 250, 100, 300, 200] as [number, number, number, number, number, number],
   maxDecisionMs: 2000,
   mode: 'auto' as 'auto' | 'duel' | 'multi',
@@ -248,6 +251,7 @@ export class GodBrain {
   private anchorAtk: MasterBrain | null = null;
   /** diagnostics: anchored decisions and deviations from Master */
   anchorStats = { decisions: 0, deviations: 0 };
+  anchorLast: { n: number; mean: number; sd: number; deviated: boolean } | null = null;
   /** emulated rollouts past this time (ms, performance clock) search minimally */
   private emuDeadline = Infinity;
   lastInfo: GodDecisionInfo = { rollouts: 0, ms: 0, candidates: 0 };
@@ -582,7 +586,7 @@ export class GodBrain {
         let keep = true;
         if (a && b && move !== anchorMove && a.n > 0 && b.n > 0) {
           const se = 0.15 * Math.sqrt(1 / a.n + 1 / b.n);
-          if (b.mean - a.mean > this.opts.anchorZ * se) keep = false;
+          if (b.mean - a.mean > Math.max(this.opts.anchorMin, this.opts.anchorZ * se)) keep = false;
         }
         if (keep) move = anchorMove;
         else this.anchorStats.deviations++;
@@ -1098,7 +1102,8 @@ export class GodBrain {
         }
         const mean = n ? m / n : 0;
         const sd = n > 1 ? Math.sqrt(Math.max(0, q / n - mean * mean) * (n / (n - 1))) : Infinity;
-        const clear = n >= 6 && mean > 0 && mean > (this.opts.anchorZ * sd) / Math.sqrt(n);
+        const clear = n >= 6 && mean > this.opts.anchorMin && mean > (this.opts.anchorZ * sd) / Math.sqrt(n);
+        this.anchorLast = { n, mean, sd, deviated: clear };
         if (clear) this.anchorStats.deviations++;
         else best = anchor;
       }
