@@ -126,3 +126,19 @@ test('a hot-seat win earns no medal', async ({ page }) => {
   await expect(page.locator(`[data-scenario="${id}"] .medal-badge`)).toHaveAttribute('data-medal', 'none');
   await expectNoErrors(errors);
 });
+
+test('the stats screen shows medal progress', async ({ page }) => {
+  const errors = await fresh(page);
+  await page.evaluate(() =>
+    localStorage.setItem('infweb.medals', JSON.stringify({ v: 1, medals: { siege: { tier: 'medal', at: 1 }, raid: { tier: 'gold', at: 2 }, hill: { tier: 'gold', at: 3 } } })),
+  );
+  await page.reload();
+  await page.getByText('Статистика').click();
+  const card = page.getByTestId('medal-progress');
+  // the retired King of the hill does not count
+  await expect(card).toContainText(/2 из \d+/);
+  await expect(card).toContainText('золотых: 1');
+  await expect(card.locator('svg.medal.gold')).toHaveCount(1);
+  await expect(card.locator('svg.medal:not(.gold):not(.empty)')).toHaveCount(1);
+  await expectNoErrors(errors);
+});

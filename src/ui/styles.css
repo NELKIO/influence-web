@@ -2406,3 +2406,14 @@ button {
   width: 22px;
   height: 22px;
 }
+
+/* every scenario medal (or its empty place) on the stats screen */
+.medal-wall {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+.medal-wall .medal.empty {
+  color: var(--dim);
+}
