@@ -148,7 +148,7 @@ export interface GodOptions {
    * GOD's own placement inside emulated rollouts: 'model' (threat minimums + GOD's attack-stack key, the
    * round-2 model), 'mstack' (the same with Master's key), 'expert' (Master's rollout policy) or
    * 'search:N' (a real Master placement search with N playouts per step: GOD's anchored placement is
-   * mostly Master's)
+   * mostly Master's), 'late:N' ('model' in the opening, 'search:N' later)
    */
   ownPlace?: string;
   /** the opponents' (Master seats') placement inside emulated rollouts, same choices */
@@ -1217,6 +1217,9 @@ export class GodBrain {
   /** an in-rollout placement model (see placeProbe) */
   private ownPlacer(state: MatchState, model: string, seed: number): (sim: Sim, slot: number, left: number) => void {
     const w = this.stackW();
+    // 'late:N': the attack-stack model in the opening (where it matches GOD's real placements best), a
+    // Master search with N playouts later (where GOD's anchored placements are mostly Master's)
+    if (model.startsWith('late:')) model = this.opening(state) ? 'model' : `search:${model.slice(5)}`;
     if (model.startsWith('search:')) {
       const mp = new MasterPlacer(state, seed ^ 0x5a, Number(model.slice(7)));
       return (sim, slot, left) => {
