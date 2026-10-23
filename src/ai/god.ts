@@ -114,6 +114,8 @@ export interface GodOptions {
   phantoms?: boolean;
   duelLateScale?: number;
   multiScale?: number;
+  /** GOD's own attack tree may switch to another source after a capture (Master's rule is to go on from it) */
+  unforced?: boolean;
   /**
    * Respect darkness (and exploration fog): read only own cells and their neighbours plus the public HUD
    * totals. Off by default: like every other bot, GOD sees the whole map. Experiments only.
@@ -597,7 +599,7 @@ export class GodBrain {
       this.tree = new AttackTree(
         root.t,
         me,
-        { stop: false, forced: true, c: this.opts.c, fast: this.fastLeaf(root.t, hidden) },
+        { stop: false, forced: !this.opts.unforced, c: this.opts.c, fast: this.fastLeaf(root.t, hidden) },
         (b) => evalPhase(b, me, P, hidden),
         (b, lastTo) => {
           memo.lastTo = lastTo;
