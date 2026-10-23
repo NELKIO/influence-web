@@ -20,6 +20,7 @@ const B = get('b', 'master') as BotType;
 const gr = Number(get('gr', '0'));
 const mp = Number(get('mp', '0'));
 const speed = Number(get('speed', '200'));
+const rounds = Number(get('rounds', '4'));
 const sizes = ['M', 'L', 'XL'] as FieldSize[];
 const size = sizes[g % 3];
 const symmetry = Math.floor(g / 3) % 2 === 1;
@@ -32,13 +33,24 @@ const bots: Bot[] = types.map((t, i) => {
   const bot = createBot(t, { seed: 1000 + g * 13 + i, master: { sync: true, playouts: mp > 0 ? mp : undefined }, god: { sync: true, rollouts: gr > 0 ? gr : undefined } });
   return {
     type: bot.type,
-    nextAttack: (s, c) => bot.nextAttack(s, c),
+    async nextAttack(s, c) {
+      const m = await bot.nextAttack(s, c);
+      if (m && s.turn < rounds) {
+        const a = s.field.cells[m.from].power;
+        const t = s.field.cells[m.to];
+        const d = t.owner < 0 ? 0 : t.power;
+        log.push(`   r${s.turn} s${s.current} ${t.owner < 0 ? 'grey' : 'ENEMY'} ${m.from}->${m.to} ${a}v${d}`);
+      }
+      return m;
+    },
     async placePower(s, c) {
       log.push(`r${s.turn} s${s.current}: ${cellCount(s, 0)}/${scoreOf(s, 0)} vs ${cellCount(s, 1)}/${scoreOf(s, 1)} +${s.powerLeft}`);
-      return bot.placePower(s, c);
+      const p = await bot.placePower(s, c);
+      if (s.turn < rounds) log.push(`   place ${[...p].map(([k, v]) => `${k}(${s.field.cells[k].power}/${s.field.cells[k].maxPower})+${v}`).join(' ')}`);
+      return p;
     },
   };
 });
 const r = await runMatch(settings, { seed: 5000 + g, bots, maxRounds: 200, ctx: { speedMs: speed } });
 console.log(`offset ${g} ${size}${symmetry ? 's' : ''} seats ${types.join(',')} (A=${A} at seat ${aSeat}) winner seat ${r.winner} (${types[r.winner]}) after ${r.rounds} rounds`);
-console.log(log.slice(0, 10).join('\n'));
+console.log(log.join('\n'));

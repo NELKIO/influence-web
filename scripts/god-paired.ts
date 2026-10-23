@@ -11,6 +11,7 @@
  *   variants    name → GodOptions of the GOD side (default {"base":{}}); "_dir" runs that variant from another
  *               checkout (e.g. the baseline version), so both are measured in the same run window
  *   extra       arguments passed to god-strength (sizes, budgets, speed, duelRules, darkness, mode=ffa ...)
+ *   slots       instead of lo..hi: only these games, e.g. slots=1002:B,1032:A (GOD as A or B), reps=4 repeats
  *   out         append one JSON line per game (variant, offset, size, seat order, GOD won) to this file
  * In ffa mode (extra contains mode=ffa) only the "GOD as A" order exists (GOD rotates through the seats).
  */
@@ -41,9 +42,20 @@ interface Job {
   games: number;
 }
 const jobs: Job[] = [];
-for (let o = lo; o < hi; o += chunk) {
-  for (const godIsA of ffa ? [true] : [true, false]) {
-    for (const v of Object.keys(variants)) jobs.push({ variant: v, godIsA, offset: o, games: Math.min(chunk, hi - o) });
+/** slots=1002:B,1032:A,... plays only these games (GOD as A or B), each `reps` times */
+const slots = args.get('slots');
+const reps = Number(get('reps', '1'));
+if (slots) {
+  for (let r = 0; r < reps; r++)
+    for (const sl of slots.split(',')) {
+      const [g, side] = sl.split(':');
+      for (const v of Object.keys(variants)) jobs.push({ variant: v, godIsA: side === 'A', offset: Number(g), games: 1 });
+    }
+} else {
+  for (let o = lo; o < hi; o += chunk) {
+    for (const godIsA of ffa ? [true] : [true, false]) {
+      for (const v of Object.keys(variants)) jobs.push({ variant: v, godIsA, offset: o, games: Math.min(chunk, hi - o) });
+    }
   }
 }
 
