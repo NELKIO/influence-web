@@ -130,6 +130,8 @@ export interface GodOptions {
   anchor?: boolean;
   anchorZ?: number;
   anchorMin?: number;
+  /** the anchor threshold of placements (default anchorZ) */
+  anchorZPow?: number;
   /**
    * 'all': GOD may deviate from any Master choice; 'chance': Master's sure captures always stand;
    * 'chanceP': and Master's placements too
@@ -942,7 +944,7 @@ export class GodBrain {
     };
     this.inOpening = this.opening(state);
     const ms = this.inOpening ? this.opts.openingPowerMs : this.opts.powerMs * this.opts.duelLateScale;
-    const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(ms, this.opts.maxDecisionMs), anchorCand);
+    const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(ms, this.opts.maxDecisionMs), anchorCand, this.opts.anchorZPow ?? this.opts.anchorZ);
     this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length, emu: best.spent, changed: best.best !== 0 };
     return this.toPlacement(state, root, cands[best.best], me);
   }
@@ -1077,7 +1079,7 @@ export class GodBrain {
   }
 
   /** successive halving with common random numbers (rollout i uses the same dice for every candidate) */
-  private halving(count: number, run: (c: number, i: number) => number, fixed: number, t0: number, ms: number, anchor = -1): { best: number; spent: number } {
+  private halving(count: number, run: (c: number, i: number) => number, fixed: number, t0: number, ms: number, anchor = -1, z = this.opts.anchorZ): { best: number; spent: number } {
     const sums = new Float64Array(count);
     const vals: number[][] = Array.from({ length: count }, () => []);
     const exec = (c: number) => {
@@ -1137,7 +1139,7 @@ export class GodBrain {
         }
         const mean = n ? m / n : 0;
         const sd = n > 1 ? Math.sqrt(Math.max(0, q / n - mean * mean) * (n / (n - 1))) : Infinity;
-        const clear = n >= 6 && mean > this.opts.anchorMin && mean > (this.opts.anchorZ * sd) / Math.sqrt(n);
+        const clear = n >= 6 && mean > this.opts.anchorMin && mean > (z * sd) / Math.sqrt(n);
         this.anchorLast = { n, mean, sd, deviated: clear };
         if (clear) this.anchorStats.deviations++;
         else best = anchor;
