@@ -3,7 +3,7 @@ import { createBot } from '../../src/ai';
 import { runMatch } from '../../src/ai/arena';
 import { GodBot } from '../../src/ai/godBot';
 import { GodBrain } from '../../src/ai/god';
-import { FastRng, Sim, Topo, playTurn, DEFAULT_PARAMS } from '../../src/ai/godSim';
+import { FastRng, Sim, Topo, chainExposure, playTurn, DEFAULT_PARAMS } from '../../src/ai/godSim';
 import { isValidPlacement } from '../../src/ai/masterBot';
 import { DummyBot } from '../../src/ai/dummy';
 import { HunterBot } from '../../src/ai/hunter';
@@ -184,6 +184,33 @@ describe('GOD: edge cases', () => {
       if (st.phase === 'attack') expect(await a.nextAttack(st, ctx)).toEqual(await b.nextAttack(st, ctx));
       else expect([...(await a.placePower(st, ctx))]).toEqual([...(await b.placePower(st, ctx))]);
     }
+  });
+
+  it('round-7 rollout options (in-rollout Master placement search, tail, chain leaf, confirmation) stay deterministic', async () => {
+    const opts = { oppPlace: 'search:16', ownPlace: 'late:16', emuTail: 'opening', chainLeaf: 0.5, anchorConfirm: 0.3 };
+    const states = sampleStates({ players: ['god', 'hunter'] }, [12]).slice(0, 6);
+    for (const st of states) {
+      const a = god(5, opts);
+      const b = god(5, opts);
+      if (st.phase === 'attack') expect(await a.nextAttack(st, ctx)).toEqual(await b.nextAttack(st, ctx));
+      else expect([...(await a.placePower(st, ctx))]).toEqual([...(await b.placePower(st, ctx))]);
+    }
+  });
+
+  it('chain exposure counts the own cells one sure enemy chain takes', () => {
+    // enemy 6 | own 1 | own 1 | own 1 | own 4: the 6 takes three cells (6→5→4→3), not the 4
+    const m = lineMatch([6, 1, 1, 1, 4], [1, 0, 0, 0, 0], {}, [12, 8, 8, 8, 8]);
+    const t = new Topo(m);
+    const sim = new Sim(t, new FastRng(1));
+    m.field.cells.forEach((c, i) => {
+      sim.owner[i] = c.owner;
+      sim.power[i] = c.power;
+    });
+    sim.recount();
+    expect(chainExposure(sim, 0, () => 0)).toBe(3);
+    // the enemy's income goes on the chain's start: +2 still stops at the 4 (5 − 4 < 2), +3 takes it too
+    expect(chainExposure(sim, 0, () => 2)).toBe(3);
+    expect(chainExposure(sim, 0, () => 3)).toBe(4);
   });
 
   it('a starved time budget (slow device) still plays a move whenever an attack exists', async () => {
