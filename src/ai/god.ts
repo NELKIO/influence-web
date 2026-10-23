@@ -130,6 +130,11 @@ export interface GodOptions {
   anchor?: boolean;
   anchorZ?: number;
   anchorMin?: number;
+  /**
+   * 'all': GOD may deviate from any Master choice; 'chance': Master's sure captures always stand;
+   * 'chanceP': and Master's placements too
+   */
+  anchorMode?: 'all' | 'chance' | 'chanceP';
   /** emulated rollouts end after the opponents' next attacks instead of GOD's next attack phase */
   emuTail?: 'off' | 'opening' | 'all';
   /** Master's search time (ms) for: the first attack of an opening turn, other opening attacks, the first
@@ -558,18 +563,26 @@ export class GodBrain {
       const rescore = (firstOfTurn || this.opts.rescoreAll || (opening && this.opts.rescoreAllOpening)) && count > 1 && this.opts.attackEmu > 1;
       // Master's own choice: the default that GOD has to beat
       let anchorMove = -1;
+      let pinned = false;
       let treeBudget = budget;
       if (count > 1 && this.anchored(state)) {
         const am = this.opts.anchorMs;
         const ms = opening ? (firstOfTurn ? am[0] : am[1]) : firstOfTurn ? am[2] : am[3];
         const ta = now();
         anchorMove = this.masterAttackChoice(state, ms, seed);
+        if (anchorMove >= 0 && (this.opts.anchorMode === 'chance' || this.opts.anchorMode === 'chanceP')) {
+          // Master's sure captures (greys, or a margin of 2+) stand: GOD only re-judges chance fights
+          const c = state.field.cells;
+          const f = c[anchorMove >> 10];
+          const t = c[anchorMove & 1023];
+          if (engineChance(f.power, t.owner === NEUTRAL ? 0 : t.power) >= 1) pinned = true;
+        }
         const spent = now() - t0;
         // the tree gets what is left of its budget, at least half of it (Master's time counts)
         treeBudget = spent + Math.max(budget - spent, budget * 0.5);
         void ta;
       }
-      if (count > 1) {
+      if (count > 1 && !pinned) {
         const copy = root.clone();
         const rh = tree.rootHash(root);
         const fixed = this.opts.rollouts;
@@ -583,9 +596,9 @@ export class GodBrain {
           iters++;
         }
       }
-      move = count === 0 ? -1 : count === 1 ? moves[0] : tree.best(root, this.lastTo).move;
+      move = count === 0 ? -1 : count === 1 ? moves[0] : pinned ? anchorMove : tree.best(root, this.lastTo).move;
       treeMove = move;
-      if (anchorMove >= 0 && !rescore) {
+      if (anchorMove >= 0 && !rescore && !pinned) {
         // no rollouts for this decision: deviate from Master only when the tree's values say so clearly
         this.anchorStats.decisions++;
         const st = tree.rootStats(root, this.lastTo);
@@ -600,7 +613,7 @@ export class GodBrain {
         else this.anchorStats.deviations++;
       }
       // first attack of the turn: re-score the tree's favourites by emulated continuations and replies
-      if (rescore) {
+      if (rescore && !pinned) {
         let top = tree
           .rootStats(root, this.lastTo)
           .filter((x) => x.move >= 0 && x.n > 0)
@@ -911,6 +924,8 @@ export class GodBrain {
       if (at >= 0) cands.splice(at, 1);
       cands.unshift(s);
       anchorCand = 0;
+      // 'chanceP': Master's placement always stands
+      if (this.opts.anchorMode === 'chanceP') cands.length = 1;
     }
     if (cands.length === 1) {
       this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: cands.length };
