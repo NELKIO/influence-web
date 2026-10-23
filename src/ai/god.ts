@@ -22,10 +22,11 @@
  *    whom, being left alone while others fight, and the leader being attacked are simulated rather than
  *    assumed; the horizon is the end of GOD's next attack phase.
  *
- * Fog of war (darkness): GOD only reads its own cells and their neighbours, remembers what it saw before
- * (enemy cells keep their last seen owner and grow by one per round up to capacity), treats never-seen
- * cells as neutral, and uses the public HUD totals (cells and power per player) for the hidden enemy
- * power in the evaluation. It never reads the streak-corrector counters: it keeps a belief over them
+ * Darkness: like every other bot, GOD sees the whole map (also under exploration fog). The fair-fog brain
+ * (`fairFog`, experiments only) reads only its own cells and their neighbours, remembers what it saw
+ * before (enemy cells keep their last seen owner and grow by one per round up to capacity), and puts the
+ * enemy cells the public HUD counts but it cannot see on the most likely unseen cells (phantoms).
+ * GOD never reads the streak-corrector counters: it keeps a belief over them
  * (stationary prior for the line-up, updated from the outcomes of its own fights within the turn).
  *
  * Budgets: `rollouts` = fixed iterations per decision (deterministic per seed, for tests and
@@ -53,6 +54,7 @@ import {
   type StackWeights,
 } from './godSim';
 import { AttackTree } from './godTree';
+import { MasterBrain } from './master';
 import type { AttackMove, BotContext } from './types';
 
 export interface GodOptions {
@@ -112,9 +114,21 @@ export interface GodOptions {
   /** darkness: place the enemy cells counted by the HUD but not seen on the most likely unseen cells */
   phantoms?: boolean;
   duelLateScale?: number;
+  multiScale?: number;
+  /** duel placement: also consider Master's own placement found by a Master search of this many ms (0 = off) */
+  masterCand?: number;
+  /** re-scored attacks: also consider Master's own choice found by a Master search of this many ms (0 = off) */
+  masterAtk?: number;
+  /** GOD's own attack tree may switch to another source after a capture (Master's rule is to go on from it) */
+  unforced?: boolean;
   /**
-   * ignore the fog (experiments only; the game never sets this): always, only in rounds 0..3 ('open'), only
-   * for attack ('attack') or placement ('power') decisions. Partial cheats never enter GOD's memory.
+   * Respect darkness (and exploration fog): read only own cells and their neighbours plus the public HUD
+   * totals. Off by default: like every other bot, GOD sees the whole map. Experiments only.
+   */
+  fairFog?: boolean;
+  /**
+   * with fairFog: ignore the fog anyway, only in rounds 0..3 ('open'), only for attack ('attack') or
+   * placement ('power') decisions (experiments). Partial cheats never enter GOD's memory.
    */
   cheat?: boolean | 'open' | 'attack' | 'power';
 }
@@ -137,6 +151,8 @@ export const DEFAULT_GOD_OPTIONS = {
   attackSpeedFactor: 0.8,
   /** duels after the opening: scale of the time budgets */
   duelLateScale: 1,
+  /** three or more players: scale of the time budgets of the whole-turn search */
+  multiScale: 1,
   maxDecisionMs: 2000,
   mode: 'auto' as 'auto' | 'duel' | 'multi',
   c: 0.25,
@@ -209,6 +225,8 @@ export class GodBrain {
   private ponderState: Ponder | null = null;
   /** the decision being made is in the opening (rounds 0 .. openingRounds−1) */
   private inOpening = false;
+  /** Master search for the masterCand placement candidate */
+  private masterBrain: MasterBrain | null = null;
   /** emulated rollouts past this time (ms, performance clock) search minimally */
   private emuDeadline = Infinity;
   lastInfo: GodDecisionInfo = { rollouts: 0, ms: 0, candidates: 0 };
@@ -245,13 +263,17 @@ export class GodBrain {
     return { ...GOD_STACK, ...this.opts.stack };
   }
 
-  /** Cells GOD may look at: own cells and their neighbours under darkness, everything otherwise. */
+  /**
+   * Cells GOD looks at: everything (the default, like the other bots, also under darkness and exploration
+   * fog); with `fairFog` only its own cells and their neighbours under darkness.
+   */
   visible(state: MatchState, me: number, fair = false): Uint8Array {
     const { cells, adj } = state.field;
     const vis = new Uint8Array(cells.length);
     const ch = fair ? false : this.opts.cheat;
     if (
       !state.settings.darkness ||
+      (!this.opts.fairFog && !fair) ||
       ch === true ||
       (ch === 'open' && state.turn < this.opts.openingRounds) ||
       (ch === 'attack' && state.phase === 'attack') ||
@@ -454,7 +476,8 @@ export class GodBrain {
     const later = Math.max(opening ? o.openingAttackMs : o.attackMs, o.attackSpeedFactor * ctx.speedMs);
     const ms = firstOfTurn ? (opening ? o.openingFirstMs : o.firstAttackMs) : later;
     // duels are decided in the opening: later rounds think less so the opening can think more
-    return Math.min(o.maxDecisionMs, !opening && duel ? ms * o.duelLateScale : ms);
+    const scaled = duel ? (opening ? ms : ms * o.duelLateScale) : ms * o.multiScale;
+    return Math.min(o.maxDecisionMs, opening ? Math.min(scaled, o.openingMaxMs) : scaled);
   }
 
   // -------------------------------------------------------------- attack
@@ -522,6 +545,16 @@ export class GodBrain {
           .filter((x) => x.move >= 0 && x.n > 0)
           .sort((x, y) => y.n - x.n)
           .slice(0, this.opts.attackEmu);
+        // Master's own choice (a short real Master search) as one more candidate
+        const ma = this.opts.masterAtk ?? 0;
+        if (ma > 0 && !(state.settings.darkness && this.opts.fairFog)) {
+          const mb = new MasterBrain(seed ^ 0x1234, this.opts.rollouts !== undefined ? { playouts: Math.max(40, this.opts.rollouts >> 2) } : { firstAttackMs: ma, firstAttackRuns: 60, maxDecisionMs: ma * 2 });
+          const m = mb.decideAttack(state, { speedMs: 0 });
+          if (m) {
+            const code = m.from * 1024 + m.to;
+            if (!top.some((x) => x.move === code)) top.push({ move: code, n: 0, mean: NaN });
+          }
+        }
         if (top.length > 1) {
           const { playEmu, placeModel, finish } = this.emulator(root, me, seed, hidden);
           const scratch = root.clone();
@@ -583,7 +616,7 @@ export class GodBrain {
       this.tree = new AttackTree(
         root.t,
         me,
-        { stop: false, forced: true, c: this.opts.c, fast: this.fastLeaf(root.t, hidden) },
+        { stop: false, forced: !this.opts.unforced, c: this.opts.c, fast: this.fastLeaf(root.t, hidden) },
         (b) => evalPhase(b, me, P, hidden),
         (b, lastTo) => {
           memo.lastTo = lastTo;
@@ -764,6 +797,16 @@ export class GodBrain {
         smartyPlace(s, me, l);
         push(s);
       }
+    }
+    // Master's own placement (a short real Master search on the true position) as one more candidate:
+    // it often spreads points in ways the stack candidates never try; the rollouts judge it like the rest
+    const mc = this.opts.masterCand ?? 0;
+    if (mc > 0 && !(state.settings.darkness && this.opts.fairFog)) {
+      this.masterBrain ??= new MasterBrain(seed, this.opts.rollouts !== undefined ? { playouts: Math.max(40, this.opts.rollouts >> 2) } : { powerMaxMs: mc, powerMsPerSource: mc / 4, maxDecisionMs: mc * 2 });
+      const pl = this.masterBrain.decidePower(state, { speedMs: 0 });
+      const s = root.clone();
+      for (const [c, v] of pl) s.power[c] += v;
+      push(s);
     }
     if (cands.length === 1) {
       this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: cands.length };
@@ -956,7 +999,7 @@ export class GodBrain {
     g.cursor = 0;
     const rng = new FastRng(seed ^ 0x77);
     const o = this.opts;
-    const budget = Math.min(o.powerMs, o.maxDecisionMs);
+    const budget = Math.min(o.powerMs * o.multiScale, o.maxDecisionMs, this.opening(state) ? o.openingMaxMs : Infinity);
     let total = 0;
     let decisions = 0;
     let guard = 0;

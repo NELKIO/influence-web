@@ -232,7 +232,25 @@ describe('GOD: edge cases', () => {
   });
 });
 
-describe('GOD: fair play (no hidden information)', () => {
+describe('GOD: darkness', () => {
+  it('sees the whole map by default, like the other bots (darkness changes nothing)', async () => {
+    const states = sampleStates({ darkness: true, size: 'L', players: ['god', 'hunter', 'hunter'] }, [21], 6);
+    let compared = 0;
+    for (const st of states) {
+      const clear = structuredClone(st);
+      clear.settings.darkness = false;
+      if (st.phase === 'attack') expect(await god(3).nextAttack(st, ctx)).toEqual(await god(3).nextAttack(clear, ctx));
+      else expect([...(await god(3).placePower(st, ctx))]).toEqual([...(await god(3).placePower(clear, ctx))]);
+      compared++;
+    }
+    expect(compared).toBeGreaterThan(4);
+  });
+});
+
+/** the fair-fog brain (an explicit option for experiments): reads only what a person would see */
+const FOG = { fairFog: true } as const;
+
+describe('GOD with fairFog: fair play (no hidden information)', () => {
   /** Swap (owner, power) between cells GOD cannot see (same capacity, so the position stays valid). */
   function scrambleHidden(st: MatchState, me: number, seed: number): MatchState {
     const s = structuredClone(st);
@@ -271,9 +289,9 @@ describe('GOD: fair play (no hidden information)', () => {
         expect(scoreOf(other, p)).toBe(scoreOf(st, p));
       }
       if (st.phase === 'attack') {
-        expect(await god(3).nextAttack(other, ctx)).toEqual(await god(3).nextAttack(st, ctx));
+        expect(await god(3, FOG).nextAttack(other, ctx)).toEqual(await god(3, FOG).nextAttack(st, ctx));
       } else {
-        expect([...(await god(3).placePower(other, ctx))]).toEqual([...(await god(3).placePower(st, ctx))]);
+        expect([...(await god(3, FOG).placePower(other, ctx))]).toEqual([...(await god(3, FOG).placePower(st, ctx))]);
       }
       compared++;
     }
@@ -284,8 +302,8 @@ describe('GOD: fair play (no hidden information)', () => {
   it('a whole darkness match: a brain fed scrambled invisible cells decides exactly the same (memory, phantoms)', () => {
     for (const seed of [31, 32]) {
       const s = createMatch({ ...base, size: 'L', darkness: true, players: ['god', 'hunter'] }, { seed });
-      const a = new GodBrain(9, { rollouts: 30 });
-      const b = new GodBrain(9, { rollouts: 30 });
+      const a = new GodBrain(9, { rollouts: 30, fairFog: true });
+      const b = new GodBrain(9, { rollouts: 30, fairFog: true });
       const hunter = new HunterBot(seed);
       let decisions = 0;
       let steps = 0;
