@@ -148,7 +148,7 @@ export interface GodOptions {
    * GOD's own placement inside emulated rollouts: 'model' (threat minimums + GOD's attack-stack key, the
    * round-2 model), 'mstack' (the same with Master's key), 'expert' (Master's rollout policy) or
    * 'search:N' (a real Master placement search with N playouts per step: GOD's anchored placement is
-   * mostly Master's), 'late:N' ('model' in the opening, 'search:N' later)
+   * mostly Master's), 'late:N' ('model' in the opening, 'search:N' later), 'open:N' (the other way round)
    */
   ownPlace?: string;
   /** the opponents' (Master seats') placement inside emulated rollouts, same choices */
@@ -1220,9 +1220,14 @@ export class GodBrain {
     // 'late:N': the attack-stack model in the opening (where it matches GOD's real placements best), a
     // Master search with N playouts later (where GOD's anchored placements are mostly Master's)
     if (model.startsWith('late:')) model = this.opening(state) ? 'model' : `search:${model.slice(5)}`;
+    // 'open:N': a Master search with N playouts in the opening, the attack-stack model later
+    if (model.startsWith('open:')) model = this.opening(state) ? `search:${model.slice(5)}` : 'model';
     if (model.startsWith('search:')) {
       const mp = new MasterPlacer(state, seed ^ 0x5a, Number(model.slice(7)));
+      const fallback = this.ownPlacer(state, 'model', seed);
       return (sim, slot, left) => {
+        // past the decision's hard deadline (big boards, slow devices): the cheap model
+        if (this.emuDeadline < Infinity && now() > this.emuDeadline) return fallback(sim, slot, left);
         // Master's dice restart from the rollout's own generator (deterministic, independent of call order)
         const l = mp.place(sim, slot, left, sim.rng.u32());
         if (l > 0) smartyPlace(sim, slot, l);
