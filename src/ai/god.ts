@@ -130,6 +130,8 @@ export interface GodOptions {
   anchor?: boolean;
   anchorZ?: number;
   anchorMin?: number;
+  /** emulated rollouts end after the opponents' next attacks instead of GOD's next attack phase */
+  emuTail?: 'off' | 'opening' | 'all';
   /** Master's search time (ms) for: the first attack of an opening turn, other opening attacks, the first
    * attack of a later turn, other later attacks, opening placements, later placements */
   anchorMs?: [number, number, number, number, number, number];
@@ -997,6 +999,7 @@ export class GodBrain {
       smartyPlace(sim, slot, l);
     };
     const depth = this.opts.emuDepth;
+    const tail = this.opts.emuTail === 'all' || (this.opts.emuTail === 'opening' && this.inOpening);
     const slots = root.t.slots;
     /** after GOD's placement: every opponent's emulated turn, GOD's next attack phase (+ extra rounds) */
     const finish = (sim: Sim, rng: FastRng): number => {
@@ -1010,6 +1013,17 @@ export class GodBrain {
           placeModel(sim, q);
         }
         playEmu(sim, me, rng);
+      }
+      if (tail) {
+        // the enemy moves next: GOD's modelled placement, then every opponent's emulated attacks, so
+        // chains through GOD's weak lines are seen by the evaluation
+        placeModel(sim, me);
+        for (let k = 1; k < slots; k++) {
+          const q = (me + k) % slots;
+          if (sim.cnt[q] <= 0) continue;
+          playEmu(sim, q, rng);
+          if (sim.cnt[me] === 0) return 0;
+        }
       }
       return evalPhase(sim, me, P, hidden);
     };
