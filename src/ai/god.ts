@@ -50,6 +50,7 @@ import {
   PK_MASTER,
   Sim,
   Topo,
+  chainExposure,
   evalPhase,
   masterAttack,
   smartyPlace,
@@ -59,6 +60,7 @@ import {
   type GodParams,
   type StackWeights,
 } from './godSim';
+import { MasterPlacer, masterExpertRest } from './godPlace';
 import { AttackTree } from './godTree';
 import { MasterBrain } from './master';
 import type { AttackMove, BotContext } from './types';
@@ -137,6 +139,20 @@ export interface GodOptions {
    * 'chanceP': and Master's placements too
    */
   anchorMode?: 'all' | 'chance' | 'chanceP';
+  /**
+   * GOD's own placement inside emulated rollouts: 'model' (threat minimums + GOD's attack-stack key, the
+   * round-2 model), 'mstack' (the same with Master's key), 'expert' (Master's rollout policy) or
+   * 'search:N' (a real Master placement search with N playouts per step: GOD's anchored placement is
+   * mostly Master's)
+   */
+  ownPlace?: string;
+  /** the opponents' (Master seats') placement inside emulated rollouts, same choices */
+  oppPlace?: string;
+  /**
+   * leaf term of emulated rollouts: own cells a single sure enemy chain could take next turn (after GOD's
+   * modelled placement, the enemy's income on the chain's start) count this much against GOD (0 = off)
+   */
+  chainLeaf?: number;
   /** emulated rollouts end after the opponents' next attacks instead of GOD's next attack phase */
   emuTail?: 'off' | 'opening' | 'all';
   /** Master's search time (ms) for: the first attack of an opening turn, other opening attacks, the first
@@ -267,6 +283,8 @@ export class GodBrain {
   /** diagnostics: anchored decisions and deviations from Master */
   anchorStats = { decisions: 0, deviations: 0 };
   anchorLast: { n: number; mean: number; sd: number; deviated: boolean } | null = null;
+  /** diagnostics: the candidates of the last re-scored attack (Master's choice first when anchored) */
+  lastRescore: { cands: number[]; anchor: number; lastTo: number } | null = null;
   /** emulated rollouts past this time (ms, performance clock) search minimally */
   private emuDeadline = Infinity;
   lastInfo: GodDecisionInfo = { rollouts: 0, ms: 0, candidates: 0 };
@@ -632,9 +650,10 @@ export class GodBrain {
             if (!top.some((x) => x.move === code)) top.push({ move: code, n: 0, mean: NaN });
           }
         }
+        this.lastRescore = { cands: top.map((x) => x.move), anchor: anchorMove, lastTo: this.lastTo };
         if (top.length === 1) move = top[0].move;
         if (top.length > 1) {
-          const { playEmu, placeModel, finish } = this.emulator(root, me, seed, hidden);
+          const { playEmu, placeModel, finish } = this.emulator(root, me, seed, hidden, state);
           const scratch = root.clone();
           const run = (c: number, i: number): number => {
             scratch.copyFrom(root);
@@ -933,7 +952,7 @@ export class GodBrain {
       this.lastInfo = { rollouts: 0, ms: now() - t0, candidates: cands.length };
       return this.toPlacement(state, root, cands[0], me);
     }
-    const { finish } = this.emulator(root, me, seed, hidden);
+    const { finish } = this.emulator(root, me, seed, hidden, state);
     const scratch = root.clone();
     const run = (c: number, i: number): number => {
       scratch.copyFrom(cands[c]);
@@ -954,7 +973,7 @@ export class GodBrain {
    * (evalPhase from the mover's point of view, expert rollouts), placements by threat minimums + the
    * attack-stack key.
    */
-  private emulator(root: Sim, me: number, seed: number, hidden: number) {
+  private emulator(root: Sim, me: number, seed: number, hidden: number, state: MatchState) {
     const emu = new Map<number, AttackTree>();
     const P = this.P;
     const w = this.stackW();
@@ -1010,7 +1029,12 @@ export class GodBrain {
       }
       return first;
     };
+    // GOD's own placement inside a rollout (ownPlace) and the opponents' (oppPlace), see ownPlacer
+    const own = this.ownPlacer(state, this.opts.ownPlace ?? 'model', seed ^ 0x6f);
+    const opp = (this.opts.oppPlace ?? 'model') === 'model' ? null : this.ownPlacer(state, this.opts.oppPlace!, seed ^ 0x70);
     const placeModel = (sim: Sim, slot: number, left = sim.income(slot)) => {
+      if (slot === me) return own(sim, slot, left);
+      if (opp && root.t.kind[slot] === PK_MASTER) return opp(sim, slot, left);
       let l = threatMinimums(sim, slot, left, 0);
       l = stackPlace(sim, slot, l, l, 0, w);
       smartyPlace(sim, slot, l);
@@ -1018,6 +1042,8 @@ export class GodBrain {
     const depth = this.opts.emuDepth;
     const tail = this.opts.emuTail === 'all' || (this.opts.emuTail === 'opening' && this.inOpening);
     const slots = root.t.slots;
+    const chainLeaf = this.opts.chainLeaf ?? 0;
+    const scratch2 = root.clone();
     /** after GOD's placement: every opponent's emulated turn, GOD's next attack phase (+ extra rounds) */
     const finish = (sim: Sim, rng: FastRng): number => {
       for (let d = 0; d <= depth; d++) {
@@ -1042,6 +1068,14 @@ export class GodBrain {
           if (sim.cnt[me] === 0) return 0;
         }
       }
+      if (chainLeaf > 0 && !tail) {
+        // exposure to sure enemy chains after GOD's (modelled) placement, the enemy's income on the chain's start
+        scratch2.copyFrom(sim);
+        scratch2.rng = sim.rng;
+        placeModel(scratch2, me);
+        const lost = chainExposure(scratch2, me, (x) => scratch2.income(x));
+        return evalPhase(sim, me, P, hidden, chainLeaf * P.pCell * lost);
+      }
       return evalPhase(sim, me, P, hidden);
     };
     return { playEmu, placeModel, finish };
@@ -1063,7 +1097,7 @@ export class GodBrain {
     });
     root.recount();
     const seed = this.rng.u32();
-    const { playEmu, placeModel } = this.emulator(root, me, seed, 0);
+    const { playEmu, placeModel } = this.emulator(root, me, seed, 0, state);
     const sim = root.clone();
     const rng = new FastRng(seed ^ 0x33);
     sim.rng = rng;
@@ -1076,6 +1110,92 @@ export class GodBrain {
     const out = new Map<number, number>();
     for (let i = 0; i < topo.n; i++) if (sim.power[i] > root.power[i]) out.set(i, sim.power[i] - root.power[i]);
     return out;
+  }
+
+  /**
+   * Diagnostics (scripts/god-oracle.ts): the emulated-rollout values of attack candidates `cands` (codes
+   * from·1024 + to) in the attack position `state` (GOD to move, `lastTo` = its previous target this turn),
+   * `n` rollouts each with common random numbers, exactly as the re-scoring of decideAttack runs them.
+   * Returns vals[c][i].
+   */
+  rescoreProbe(state: MatchState, lastTo: number, cands: number[], n: number, seed: number): number[][] {
+    const me = state.current;
+    const topo = this.topoFor(state);
+    this.luckBelief = this.luckPrior.map((d) => d.slice());
+    const { sim: root, hidden } = this.belief(state, me, topo);
+    this.inOpening = this.opening(state);
+    const { playEmu, placeModel, finish } = this.emulator(root, me, seed, hidden, state);
+    const scratch = root.clone();
+    const vals = cands.map(() => [] as number[]);
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < cands.length; c++) {
+        scratch.copyFrom(root);
+        const r = new FastRng((Math.imul(seed ^ (i * 0x9e3779b9), 0x85ebca6b) ^ (i + 7)) >>> 0);
+        scratch.rng = r;
+        this.sampleLuck(scratch, r);
+        const mv = cands[c];
+        scratch.fight(mv >> 10, mv & 1023);
+        playEmu(scratch, me, r, mv & 1023);
+        placeModel(scratch, me);
+        vals[c].push(finish(scratch, r));
+      }
+    }
+    void lastTo;
+    return vals;
+  }
+
+  /**
+   * Diagnostics (scripts/god-placefid.ts): the placement of the player to move in `state` by one of the
+   * in-rollout placement models ('model' = the emulator's threat minimums + attack stacks, 'expert' =
+   * Master's rollout policy, 'search:N' = a Master search with N playouts per step).
+   */
+  placeProbe(state: MatchState, model: string): Map<number, number> {
+    const slot = state.current;
+    const topo = this.topoFor(state);
+    const root = new Sim(topo, new FastRng(1));
+    state.field.cells.forEach((c, i) => {
+      root.owner[i] = c.owner === NEUTRAL || c.power <= 0 ? -1 : c.owner;
+      root.power[i] = c.power;
+    });
+    root.recount();
+    const seed = this.rng.u32();
+    const sim = root.clone();
+    sim.rng = new FastRng(seed ^ 0x33);
+    const place = this.ownPlacer(state, model, seed);
+    place(sim, slot, state.powerLeft);
+    const out = new Map<number, number>();
+    for (let i = 0; i < topo.n; i++) if (sim.power[i] > root.power[i]) out.set(i, sim.power[i] - root.power[i]);
+    return out;
+  }
+
+  /** an in-rollout placement model (see placeProbe) */
+  private ownPlacer(state: MatchState, model: string, seed: number): (sim: Sim, slot: number, left: number) => void {
+    const w = this.stackW();
+    if (model.startsWith('search:')) {
+      const mp = new MasterPlacer(state, seed ^ 0x5a, Number(model.slice(7)));
+      return (sim, slot, left) => {
+        // Master's dice restart from the rollout's own generator (deterministic, independent of call order)
+        const l = mp.place(sim, slot, left, sim.rng.u32());
+        if (l > 0) smartyPlace(sim, slot, l);
+      };
+    }
+    if (model === 'expert')
+      return (sim, slot, left) => {
+        let l = threatMinimums(sim, slot, left, 0);
+        l = masterExpertRest(sim, slot, l);
+        smartyPlace(sim, slot, l);
+      };
+    if (model === 'mstack')
+      return (sim, slot, left) => {
+        let l = threatMinimums(sim, slot, left, 0);
+        l = stackPlace(sim, slot, l, l, 0);
+        smartyPlace(sim, slot, l);
+      };
+    return (sim, slot, left) => {
+      let l = threatMinimums(sim, slot, left, 0);
+      l = stackPlace(sim, slot, l, l, 0, w);
+      smartyPlace(sim, slot, l);
+    };
   }
 
   /** successive halving with common random numbers (rollout i uses the same dice for every candidate) */

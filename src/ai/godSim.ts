@@ -1082,7 +1082,8 @@ export function playTurn(sim: Sim, slot: number, P: GodParams): void {
  * Master's (2·cells / enemy units): (pCell·cells + pPow·border power + pInt·interior power − exposure)
  * / (qCell·enemy cells + qPow·enemy power), mapped to [0, 1] by x / (1 + x).
  */
-export function evalPhase(sim: Sim, me: number, P: GodParams, hidden = 0): number {
+/** `penalty`: subtracted from the own side of the ratio (own-cell units × pCell, e.g. chain exposure) */
+export function evalPhase(sim: Sim, me: number, P: GodParams, hidden = 0, penalty = 0): number {
   const T = sim.t;
   const { n, adjStart, adj } = T;
   const owner = sim.owner;
@@ -1129,6 +1130,7 @@ export function evalPhase(sim: Sim, me: number, P: GodParams, hidden = 0): numbe
     num -= P.pCell * (1 - P.evalDuelStray) * (sim.cnt[me] - g);
   }
   num -= P.pExposed * P.pCell * exposed;
+  num -= penalty;
   den += P.qPow * hidden;
   if (sim.cnt[me] === 0) return 0;
   if (den <= 0) return 1;
@@ -1138,6 +1140,68 @@ export function evalPhase(sim: Sim, me: number, P: GodParams, hidden = 0): numbe
     return v < 0 ? 0 : v > 1 ? 1 : v;
   }
   return x / (1 + x);
+}
+
+/**
+ * Exposure of `me` to sure enemy chains (round 7): the most own cells one enemy turn can take by sure
+ * captures (attacker ≥ defender + 2) chained from a single stack, the stack first raised by the enemy's
+ * income (`boost`, up to capacity). Greys on the way cost one unit, own cells their power; the chain
+ * moves on with what is left. Every enemy cell is tried as the boosted start (the others count with their
+ * current power). Duel boards only need one enemy, but every opponent is checked (maximum).
+ */
+export function chainExposure(sim: Sim, me: number, boost: (slot: number) => number): number {
+  const T = sim.t;
+  const { n, adjStart, adj, cap, stamp } = T;
+  const owner = sim.owner;
+  const power = sim.power;
+  let worst = 0;
+  for (let x = 0; x < T.slots; x++) {
+    if (x === me || sim.cnt[x] <= 0) continue;
+    const b = boost(x);
+    for (let s = 0; s < n; s++) {
+      if (owner[s] !== x) continue;
+      // only cells touching a non-own cell can start a chain
+      let border = false;
+      for (let k = adjStart[s]; k < adjStart[s + 1]; k++) if (owner[adj[k]] !== x) border = true;
+      if (!border) continue;
+      const u0 = Math.min(cap[s], power[s] + b);
+      if (u0 < 3) continue;
+      const g = T.nextStamp();
+      stamp[s] = g;
+      let lost = 0;
+      // greedy best-first walk: at each step capture the neighbour that keeps the biggest stack
+      let cur = s;
+      let u = u0;
+      for (let step = 0; step < n; step++) {
+        let best = -1;
+        let bestRem = 0;
+        let bestOwn = false;
+        for (let k = adjStart[cur]; k < adjStart[cur + 1]; k++) {
+          const y = adj[k];
+          if (stamp[y] === g || owner[y] === x) continue;
+          const d = owner[y] < 0 ? 0 : power[y];
+          if (owner[y] >= 0 && owner[y] !== me) continue;
+          if (d > 0 && u - d < 2) continue;
+          const rem = d === 0 ? u - 1 : u - d;
+          const isOwn = owner[y] === me;
+          // prefer taking own cells (the loss we measure), then the bigger remaining stack
+          if (rem >= 1 && (best < 0 || (isOwn && !bestOwn) || (isOwn === bestOwn && rem > bestRem))) {
+            best = y;
+            bestRem = Math.min(rem, cap[y]);
+            bestOwn = isOwn;
+          }
+        }
+        if (best < 0) break;
+        stamp[best] = g;
+        if (bestOwn) lost++;
+        cur = best;
+        u = bestRem;
+        if (u < 2) break;
+      }
+      if (lost > worst) worst = lost;
+    }
+  }
+  return worst;
 }
 
 // ------------------------------------------------------------------ learned evaluation
