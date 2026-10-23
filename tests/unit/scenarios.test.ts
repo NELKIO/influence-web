@@ -83,9 +83,9 @@ describe('scenarios as battle presets', () => {
     expect(all.filter((b) => b === 'master' || b === 'god').length).toBeGreaterThan(all.length * 0.6);
   });
 
-  it('battle scenarios have three to six seats', () => {
+  it('the later scenarios are battles for three to six seats, and the raid duel', () => {
     for (const id of BATTLE_SCENARIOS) {
-      expect(SCENARIO_META[id].players.length).toBeGreaterThanOrEqual(3);
+      expect(SCENARIO_META[id].players.length).toBeGreaterThanOrEqual(id === 'raid' ? 2 : 3);
       expect(SCENARIO_META[id].players[0]).toBe('human');
     }
   });
@@ -152,10 +152,12 @@ describe('scenarios as battle presets', () => {
   });
 
   it('the map of the day rotates through every scenario, played as the setup recommends it', () => {
-    // from the switch to all scenarios on, one stretch of puzzle days covers each scenario
+    // from the latest switch on (Oct 24, a battle day), one stretch of puzzle days covers each scenario
+    expect(ROTATION).toContain('raid');
+    expect(ROTATION).not.toContain('hollow');
     const seen: string[] = [];
     for (let i = 0; seen.length < ROTATION.length; i++) {
-      const id = dayId(new Date(2026, 9, 23 + i));
+      const id = dayId(new Date(2026, 9, 24 + i));
       const k = dailyKind(id);
       if (k.kind !== 'puzzle') continue;
       seen.push(k.scenario);
@@ -174,7 +176,8 @@ describe('scenarios as battle presets', () => {
       '2026-10-22': 'thermopylae',
       '2026-10-23': 'olympus',
       '2026-10-24': 'battle',
-      '2026-11-15': 'hill',
+      '2026-10-25': 'overload',
+      '2026-10-29': 'raid',
     };
     for (const [day, id] of Object.entries(days)) {
       const k = dailyKind(day);
@@ -182,7 +185,7 @@ describe('scenarios as battle presets', () => {
     }
   });
 
-  it('a scenario of the day does not come back within eight puzzle days, also across the switch and cycles', () => {
+  it('a scenario of the day does not come back within eight puzzle days, also across both switches and cycles', () => {
     const recent: string[] = [];
     for (let d = 0; d < 3 * 365; d++) {
       const id = dayId(new Date(2026, 9, 10 + d));

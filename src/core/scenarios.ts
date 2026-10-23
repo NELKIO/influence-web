@@ -330,7 +330,7 @@ export const CLASSIC_SCENARIOS = [
   'spear',
 ] as const;
 
-/** Battles for three to six players. */
+/** Later scenarios: battles for three to six players, and the raid (a duel). */
 export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans', 'hollow', 'raid'] as const;
 
 export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number];
@@ -386,8 +386,8 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   laststand: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 4, size: 'L' },
   titans: { players: ['human', 'master', 'master'], level: 3, size: 'L', unions: true },
   olympus: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 3, size: 'L' },
-  hollow: { players: ['human', 'master', 'god', 'master'], level: 3, size: 'L' },
-  raid: { players: ['human', 'master'], level: 3, size: 'L' },
+  hollow: { players: ['human', 'master', 'god', 'master'], level: 2, size: 'L' },
+  raid: { players: ['human', 'master'], level: 4, size: 'L' },
 };
 
 /**
@@ -425,7 +425,7 @@ export const TUNING: Record<ScenarioId, number> = {
   olympus: 4.5,
   titans: 6,
   hollow: 0,
-  raid: 6,
+  raid: 3.45,
 };
 
 const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board> = {
@@ -1022,7 +1022,10 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
   /**
    * Hollow lands: the whole map is split into four equal realms, mirror images of each other. Each is
    * almost all power 0, with a front row of 1s along the borders: huge income, nothing to fight with
-   * yet. Knob: more than 0 turns that many of your empty cells into 1s, less than 0 empties your front.
+   * yet. A quick race of greed rather than a skill test (calibration: the greedy Hunter does as well
+   * as Master or GOD, and every one of them wins far more than a fair quarter from the first seat), so
+   * it stays out of the map of the day. Knob: more than 0 turns that many of your empty cells into 1s,
+   * less than 0 empties your front.
    */
   hollow(rng, k) {
     const b = new Board();
@@ -1062,24 +1065,6 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
         return !!n && n.owner >= 0 && n.owner !== c.owner;
       }))
         c.power = 1;
-    // inside every realm two short walls (the same in all four, mirrored): blind chains of captures
-    // stall against them, a planned route goes around
-    const inner = (x2: number, r: number) => (x2 <= -3 && x2 >= -8 && r === -3) || (x2 === -5 && r <= -4);
-    for (const c of b.all()) {
-      const x2 = 2 * c.q + c.r;
-      for (const [sx, sr] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
-        if (!inner(x2 * sx, c.r * sr)) continue;
-        // the wall runs along the far side of the pattern cells (towards the realm's inside)
-        for (const [dq, dr] of DIRS) {
-          const n = b.get(c.q + dq, c.r + dr);
-          if (!n || n.owner !== c.owner) continue;
-          const nx2 = (2 * n.q + n.r) * sx;
-          const nr = n.r * sr;
-          const towards = x2 * sx === -5 && c.r * sr <= -4 ? nx2 > -5 : nr > -3;
-          if (towards && !inner(nx2, nr)) b.wall([c.q, c.r], [n.q, n.r]);
-        }
-      }
-    }
     const mine = b.all().filter((c) => c.owner === 0);
     if (k > 0) for (const c of rng.shuffle(mine.filter((c) => c.power === 0)).slice(0, Math.round(k))) c.power = 1;
     if (k < 0) for (const c of rng.shuffle(mine.filter((c) => c.power === 1)).slice(0, Math.round(-k))) c.power = 0;

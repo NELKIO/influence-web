@@ -50,12 +50,7 @@ const BATTLES: BattlePlan[] = [
 
 export type DailyKind = { kind: 'battle'; plan: BattlePlan } | { kind: 'puzzle'; scenario: ScenarioId };
 
-/**
- * The rotation grew from the 24 classic scenarios to all of them on this day. Earlier days keep the
- * scenario they had (people played them); from this day on every scenario takes part.
- */
-export const ROTATION_SWITCH = '2026-10-23';
-/** a scenario does not come back within this many puzzle days (also across the switch and between cycles) */
+/** a scenario does not come back within this many puzzle days (also across switches and between cycles) */
 const NO_REPEAT = 8;
 
 /** Index among puzzle days counted from the anchor (battle days are skipped, so there are no gaps). */
@@ -63,7 +58,7 @@ function puzzleIndex(n: number): number {
   return n - Math.floor((n + 1) / 4);
 }
 
-/** The classic rotation: each cycle is the 24 scenarios in a shuffled order. */
+/** The classic rotation (before the first switch): each cycle is the 24 scenarios in a shuffled order. */
 function classicPuzzle(i: number): ScenarioId {
   const len = CLASSIC_SCENARIOS.length;
   const cycle = Math.floor(i / len);
@@ -72,27 +67,47 @@ function classicPuzzle(i: number): ScenarioId {
 }
 
 /**
- * The scenarios of the rotation from the switch on. A fixed list: a scenario added later must not
- * reshuffle days that are already out (it joins with a later switch).
+ * Rotations after the classic one. Each starts on a day nobody has seen yet and keeps a fixed list,
+ * so adding a scenario never changes a day that is already out: it joins with a new switch. Every
+ * cycle shuffles the list; whatever was played in the last few puzzle days goes to its back.
  */
-export const ROTATION: ScenarioId[] = ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS];
+const ERAS: { from: string; salt: string; scenarios: ScenarioId[] }[] = [
+  // the four battles for three to six players join
+  { from: '2026-10-23', salt: 'puzzle-cycle-all', scenarios: ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS] },
+  // the raid joins (Hollow lands is a party map and stays out of the map of the day)
+  { from: '2026-10-24', salt: 'puzzle-cycle-raid', scenarios: ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS, 'raid'] },
+];
 
-const switchIndex = puzzleIndex(dayNumber(ROTATION_SWITCH) - dayNumber(PUZZLE_ANCHOR));
-/** puzzle scenarios from the switch on, generated cycle by cycle on demand */
-const sequence: ScenarioId[] = [];
+/** the scenarios the map of the day currently rotates through */
+export const ROTATION: ScenarioId[] = ERAS[ERAS.length - 1].scenarios;
 
-function currentPuzzle(j: number): ScenarioId {
-  for (let cycle = sequence.length / ROTATION.length; sequence.length <= j; cycle++) {
-    const order = new Rng(hashString(`puzzle-cycle-all:${cycle}`)).shuffle([...ROTATION]);
-    // whatever was played in the last few puzzle days goes to the back of this cycle
+/** first puzzle index on or after a day */
+function startIndex(day: string): number {
+  const n = dayNumber(day) - dayNumber(PUZZLE_ANCHOR);
+  return puzzleIndex(((n % 4) + 4) % 4 === 3 ? n + 1 : n);
+}
+
+const eraStart = ERAS.map((e) => startIndex(e.from));
+/** puzzle scenarios of each era, generated cycle by cycle on demand */
+const sequences: ScenarioId[][] = ERAS.map(() => []);
+
+function puzzleAt(i: number): ScenarioId {
+  let e = ERAS.length - 1;
+  while (e >= 0 && i < eraStart[e]) e--;
+  if (e < 0) return classicPuzzle(i);
+  const { salt, scenarios } = ERAS[e];
+  const seq = sequences[e];
+  const j = i - eraStart[e];
+  for (let cycle = seq.length / scenarios.length; seq.length <= j; cycle++) {
+    const order = new Rng(hashString(`${salt}:${cycle}`)).shuffle([...scenarios]);
     const recent = new Set<ScenarioId>();
     for (let k = 1; k <= NO_REPEAT; k++) {
-      const at = sequence.length - k;
-      recent.add(at >= 0 ? sequence[at] : classicPuzzle(switchIndex + at));
+      const at = seq.length - k;
+      recent.add(at >= 0 ? seq[at] : puzzleAt(eraStart[e] + at));
     }
-    sequence.push(...order.filter((id) => !recent.has(id)), ...order.filter((id) => recent.has(id)));
+    seq.push(...order.filter((id) => !recent.has(id)), ...order.filter((id) => recent.has(id)));
   }
-  return sequence[j];
+  return seq[j];
 }
 
 /** What the map of a given day is. */
@@ -101,7 +116,7 @@ export function dailyKind(id: string): DailyKind {
   // three puzzle days, then a battle: battles fall on n ≡ 3 (mod 4)
   if (((n % 4) + 4) % 4 !== 3) {
     const i = puzzleIndex(n);
-    return { kind: 'puzzle', scenario: i < switchIndex ? classicPuzzle(i) : currentPuzzle(i - switchIndex) };
+    return { kind: 'puzzle', scenario: puzzleAt(i) };
   }
   return { kind: 'battle', plan: BATTLES[(parseDay(id).getDay() + 6) % 7] };
 }
