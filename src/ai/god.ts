@@ -22,10 +22,11 @@
  *    whom, being left alone while others fight, and the leader being attacked are simulated rather than
  *    assumed; the horizon is the end of GOD's next attack phase.
  *
- * Fog of war (darkness): GOD only reads its own cells and their neighbours, remembers what it saw before
- * (enemy cells keep their last seen owner and grow by one per round up to capacity), treats never-seen
- * cells as neutral, and uses the public HUD totals (cells and power per player) for the hidden enemy
- * power in the evaluation. It never reads the streak-corrector counters: it keeps a belief over them
+ * Darkness: like every other bot, GOD sees the whole map (also under exploration fog). The fair-fog brain
+ * (`fairFog`, experiments only) reads only its own cells and their neighbours, remembers what it saw
+ * before (enemy cells keep their last seen owner and grow by one per round up to capacity), and puts the
+ * enemy cells the public HUD counts but it cannot see on the most likely unseen cells (phantoms).
+ * GOD never reads the streak-corrector counters: it keeps a belief over them
  * (stationary prior for the line-up, updated from the outcomes of its own fights within the turn).
  *
  * Budgets: `rollouts` = fixed iterations per decision (deterministic per seed, for tests and
@@ -113,8 +114,13 @@ export interface GodOptions {
   phantoms?: boolean;
   duelLateScale?: number;
   /**
-   * ignore the fog (experiments only; the game never sets this): always, only in rounds 0..3 ('open'), only
-   * for attack ('attack') or placement ('power') decisions. Partial cheats never enter GOD's memory.
+   * Respect darkness (and exploration fog): read only own cells and their neighbours plus the public HUD
+   * totals. Off by default: like every other bot, GOD sees the whole map. Experiments only.
+   */
+  fairFog?: boolean;
+  /**
+   * with fairFog: ignore the fog anyway, only in rounds 0..3 ('open'), only for attack ('attack') or
+   * placement ('power') decisions (experiments). Partial cheats never enter GOD's memory.
    */
   cheat?: boolean | 'open' | 'attack' | 'power';
 }
@@ -245,13 +251,17 @@ export class GodBrain {
     return { ...GOD_STACK, ...this.opts.stack };
   }
 
-  /** Cells GOD may look at: own cells and their neighbours under darkness, everything otherwise. */
+  /**
+   * Cells GOD looks at: everything (the default, like the other bots, also under darkness and exploration
+   * fog); with `fairFog` only its own cells and their neighbours under darkness.
+   */
   visible(state: MatchState, me: number, fair = false): Uint8Array {
     const { cells, adj } = state.field;
     const vis = new Uint8Array(cells.length);
     const ch = fair ? false : this.opts.cheat;
     if (
       !state.settings.darkness ||
+      (!this.opts.fairFog && !fair) ||
       ch === true ||
       (ch === 'open' && state.turn < this.opts.openingRounds) ||
       (ch === 'attack' && state.phase === 'attack') ||
