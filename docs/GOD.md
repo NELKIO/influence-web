@@ -242,12 +242,45 @@ instead of the expert policy: 60% / 65%. Dropped.
 The whole darkness handicap is in the opening, and the enemy's location explains only a small part of
 it. Phantom details (power on the phantom border, no growth of remembered cells) changed nothing.
 
+### Held-out results on the server
+
+The target of 72% on the held-out duels was not reached: 67.1% over 480 games, with M the weakest size
+(about 60%). Measured on a 12-core Xeon (about 1.7× slower per core than the Mac, so not comparable with the Mac
+tables above), offsets 1000–1119, real time (`gr=0 mp=0 speed=200`), round 2 (`_dir` = its checkout)
+and this version interleaved in the same run window.
+
+| match | games per version | round 2 | this version |
+|---|---|---|---|
+| duel vs Master, 12 processes (all cores busy) | 240 | 62.1% (M 58.8, L 67.5, XL 60.0) | **69.6%** (M 61.3, L 72.5, XL 75.0) |
+| the same, `attackEmu` 6 instead of 4 | 240 | | 69.2% |
+| duel vs Master, 6 processes | 240 | 62.5% (M 53.8, L 66.3, XL 67.5) | **64.6%** (M 60.0, L 66.3, XL 67.5) |
+| both duel windows together | 480 | 62.3% | **67.1%** |
+| darkness duel vs Master (Master sees everything), 6 processes | 120 | 12.5% | **26.7%** |
+| duel rules vs Master, 6 processes | 120 | 69.2% | 70.8% (nominal emulator: 74.2%) |
+| duel rules, offsets 1060–1119, second window | 120 | | 77.5% (nominal emulator: 70.0%) |
+| GOD + 3 Masters on L (fair share 25%) | 60 | 53.3% | 63.3% |
+| GOD + 5 Masters on XL (fair share 16.7%) | 30 | 46.7% | 53.3% |
+
+For clear-board duels, duel rules and multi-player games the two versions differ only in the time
+discipline of the emulated re-scoring: the opening hard cap of 1.42 s and minimal searches once a
+rollout runs past the deadline. The nominal emulator under duel rules was +3.4 points in one window and
+−7.5 in the other, so it stays off. Round 2 overran on the slower machine (maximum 1714 ms under duel
+rules, 1467 ms in clear duels), the new version stays at 1425–1431 ms. In multi-player games the code
+path is identical, so the 53.3% vs 63.3% and 46.7% vs 53.3% differences are pure noise. That noise is
+about ±6 points at 60 games, and part of the duel gain may be noise too.
+
+Decision times of this version on the server: duel 328 ms average (maximum 1431 ms), darkness 344 ms,
+duel rules 287 ms, four players 170 ms, six players 156 ms.
+
 ## Known weaknesses
 
 - **Duel compute.** GOD uses about 2.5× Master's time per decision. At an equal fixed iteration count
   its placement emulation costs much more than Master's search.
 - **Humans in duels.** They are modelled as Master-like players (pessimistic but sensible).
 - **Six-player stalemates.** Saturated six-player boards can stall. Bots never accept early finishes.
-- **Darkness.** GOD plays fair while Master sees everything, so GOD is handicapped there.
+- **Darkness.** GOD plays fair while Master sees everything. Phantom cells doubled GOD's score, but it
+  still wins only about a quarter of the duels; with a full view in rounds 0–3 alone it would win
+  about 68% (fixed budget), so the handicap is the opening information.
 - **No pondering on the opponent's turn.** The worker is idle then; only the next position after
-  GOD's own attack is pondered.
+  GOD's own attack is pondered. The position after the opponent's turn (dice and placements) is not
+  known in advance, and more thinking time did not help in the measurements above, so it was not added.
