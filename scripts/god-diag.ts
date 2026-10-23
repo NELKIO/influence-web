@@ -86,6 +86,7 @@ for (let gi = 0; gi < games; gi++) {
   const won = r.winner === godSeat;
   if (won) wins++;
   console.log(`game ${g} ${size}${settings.symmetry ? 's' : ''} god seat ${godSeat}: ${won ? 'WIN' : 'loss'} (${r.rounds} rounds) ${traj.slice(0, 6).join('  ')}`);
+  console.log(`  anchored decisions ${brain.anchorStats.decisions}, deviations from Master ${brain.anchorStats.deviations}`);
 }
 console.log(`GOD ${wins}/${games}`);
 for (const [k, a] of [...agg].sort()) {
