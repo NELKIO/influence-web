@@ -504,7 +504,8 @@ export class BoardRenderer {
         ctx.fillStyle = '#1a1d23';
         ctx.fill();
       } else {
-        ctx.fillStyle = mix(col, '#17191f', 0.8);
+        // cells that can't attack now sink into the background, so the ones that can stand out
+        ctx.fillStyle = mix(col, '#17191f', inactive ? 0.9 : 0.8);
         ctx.fill();
       }
 
@@ -515,7 +516,7 @@ export class BoardRenderer {
         ctx.clip();
         const frac = Math.min(1, c.power / c.maxPower);
         const top = y + r - frac * 2 * r;
-        ctx.fillStyle = owner < 0 ? '#3a3f49' : inactive ? mix(col, '#0b0c0f', 0.35) : col;
+        ctx.fillStyle = owner < 0 ? '#3a3f49' : inactive ? mix(col, '#0b0c0f', 0.6) : col;
         ctx.fillRect(x - r * 1.3, top, r * 2.6, y + r - top + 1);
         // light rim on the surface of the level
         if (frac < 1) {
@@ -534,7 +535,7 @@ export class BoardRenderer {
       // outline
       shapePath(ctx, owner, v.colorblind, x, y, r);
       ctx.lineWidth = Math.max(1, s * (owner < 0 ? 0.05 : 0.08));
-      ctx.strokeStyle = owner < 0 ? '#2c3038' : inactive ? mix(col, '#0b0c0f', 0.3) : shade(col, 0.22);
+      ctx.strokeStyle = owner < 0 ? '#2c3038' : inactive ? mix(col, '#0b0c0f', 0.6) : shade(col, 0.22);
       ctx.stroke();
 
       // number
@@ -545,7 +546,7 @@ export class BoardRenderer {
         const ty = y + fs * 0.06;
         ctx.fillStyle = 'rgba(0,0,0,0.35)';
         ctx.fillText(String(c.power), x, ty + Math.max(1, fs * 0.06));
-        ctx.fillStyle = owner < 0 ? '#aab0bb' : inactive ? 'rgba(255,255,255,0.6)' : '#ffffff';
+        ctx.fillStyle = owner < 0 ? '#aab0bb' : inactive ? 'rgba(255,255,255,0.42)' : '#ffffff';
         ctx.fillText(String(c.power), x, ty);
       }
     }
