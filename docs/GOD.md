@@ -92,9 +92,16 @@ Two other measurements:
   at round 2 and 0.98 at round 3, so matches are decided in the opening.
 - **Compute.** Master with 10× playouts beats itself only 58–64%.
 
-## Fog of war
+## Darkness and fog of war
 
-With darkness on, GOD reads only its own cells and their neighbours. Everything else comes from:
+**Default: GOD sees the whole map**, under darkness and under the exploration fog of the `blind`
+scenarios, like every other bot (Master, Hunter… ignore darkness). Held-out on the server (offsets
+1000–1119, both seat orders, real time, 6 processes, 240 games each): GOD vs Master in darkness
+**64.6%** with the full view against 26.7% with the fair fog (M 62.5 / 28.8, L 61.3 / 25.0, XL 70.0 /
+26.3), decision times 340 ms average and 1430 ms maximum.
+
+The fair-fog brain stays available as an explicit option for experiments (`fairFog: true`). It reads
+only its own cells and their neighbours. Everything else comes from:
 - **Memory:** an enemy cell keeps its last-seen owner and its power grows by 1 per round up to
   capacity. A never-seen cell counts as neutral.
 - **Phantoms (public HUD totals):** the HUD shows every player's cell count and power. The enemy cells
@@ -104,7 +111,8 @@ With darkness on, GOD reads only its own cells and their neighbours. Everything 
   emulated reply the enemy had a fraction of its real income and GOD under-rated its counterattacks.
   Whatever power still can't be placed goes into the denominator as before.
 
-Tests check that decisions are identical when invisible cells are permuted (the HUD totals stay the
+The fairness tests run this option. A test checks that the default brain decides exactly as without
+darkness. For `fairFog`, tests check that decisions are identical when invisible cells are permuted (the HUD totals stay the
 same), also over a whole match with the brain's memory (a second brain fed scrambled invisible cells at
 every decision decides exactly the same), and when `state.luck` is changed.
 
@@ -255,7 +263,7 @@ and this version interleaved in the same run window.
 | the same, `attackEmu` 6 instead of 4 | 240 | | 69.2% |
 | duel vs Master, 6 processes | 240 | 62.5% (M 53.8, L 66.3, XL 67.5) | **64.6%** (M 60.0, L 66.3, XL 67.5) |
 | both duel windows together | 480 | 62.3% | **67.1%** |
-| darkness duel vs Master (Master sees everything), 6 processes | 120 | 12.5% | **26.7%** |
+| darkness duel vs Master (Master sees everything), fair fog, 6 processes | 120 | 12.5% | **26.7%** |
 | duel rules vs Master, 6 processes | 120 | 69.2% | 70.8% (nominal emulator: 74.2%) |
 | duel rules, offsets 1060–1119, second window | 120 | | 77.5% (nominal emulator: 70.0%) |
 | GOD + 3 Masters on L (fair share 25%) | 60 | 53.3% | 63.3% |
@@ -278,9 +286,9 @@ duel rules 287 ms, four players 170 ms, six players 156 ms.
   its placement emulation costs much more than Master's search.
 - **Humans in duels.** They are modelled as Master-like players (pessimistic but sensible).
 - **Six-player stalemates.** Saturated six-player boards can stall. Bots never accept early finishes.
-- **Darkness.** GOD plays fair while Master sees everything. Phantom cells doubled GOD's score, but it
-  still wins only about a quarter of the duels; with a full view in rounds 0–3 alone it would win
-  about 68% (fixed budget), so the handicap is the opening information.
+- **Fair fog** (`fairFog`, not the default). Phantom cells doubled the fair brain's score, but it still
+  wins only about a quarter of the duels against a Master that sees everything; with a full view in
+  rounds 0–3 alone it would win about 68% (fixed budget), so the handicap is the opening information.
 - **No pondering on the opponent's turn.** The worker is idle then; only the next position after
   GOD's own attack is pondered. The position after the opponent's turn (dice and placements) is not
   known in advance, and more thinking time did not help in the measurements above, so it was not added.
