@@ -111,6 +111,8 @@ export const en: typeof ru = {
   puzzleDesc_olympus: 'Six players at the foot of a mountain. Its slopes are rich: roomy cells (up to 12) that nobody holds yet. The mountain is walled in; six paths lead up.',
   puzzle_titans: 'Between titans',
   puzzleDesc_titans: 'Colossi on feet of clay: two vast empires are strong only along their mutual front; behind it their cells are empty (power 0). Your realm is small but full. Unions are on: a failing titan may join you.',
+  puzzle_raid: 'Raid',
+  puzzleDesc_raid: 'A vast, empty empire: two provinces joined by a narrow waist, almost every cell at power 0 with a rim of 1s. Your small army is at full strength, right by the waist. Cut the empire in two before its income fortifies it.',
   puzzle_hollow: 'Hollow lands',
   puzzleDesc_hollow: 'The whole map is split into four equal realms. Almost every cell is empty (power 0), with a row of 1s along the borders. Huge income, nothing to fight with yet: where do you invest?',
   dailyPuzzle: 'Scenario',

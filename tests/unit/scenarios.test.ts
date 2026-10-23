@@ -109,6 +109,48 @@ describe('scenarios as battle presets', () => {
     expect(spots.size).toBeGreaterThan(8);
   });
 
+  it('hollow lands: four equal realms of empty cells, 1s only along the borders, nothing neutral but the centre', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      const st = buildScenario('hollow', seed * 31, 0);
+      const { cells, adj } = st.field;
+      expect(st.settings.players).toHaveLength(4);
+      const sizes = [0, 1, 2, 3].map((p) => cells.filter((c) => c.owner === p).length);
+      expect(new Set(sizes).size).toBe(1);
+      expect(cells.filter((c) => c.owner < 0)).toHaveLength(1);
+      cells.forEach((c, i) => {
+        if (c.owner < 0) return;
+        const border = adj[i].some((j) => cells[j].owner >= 0 && cells[j].owner !== c.owner);
+        expect(c.power).toBe(border ? 1 : 0);
+      });
+      for (const p of [0, 1, 2, 3]) {
+        const own = cells.filter((c) => c.owner === p);
+        expect(own.filter((c) => c.power === 0).length).toBeGreaterThan(own.length / 2);
+      }
+    }
+    // the knob adds 1s to your empty land (or empties your front when below 0)
+    const more = buildScenario('hollow', 31, 10).field.cells.filter((c) => c.owner === 0);
+    const less = buildScenario('hollow', 31, -4).field.cells.filter((c) => c.owner === 0);
+    const base = buildScenario('hollow', 31, 0).field.cells.filter((c) => c.owner === 0);
+    const sum = (l: { power: number }[]) => l.reduce((n, c) => n + c.power, 0);
+    expect(sum(more)).toBe(sum(base) + 10);
+    expect(sum(less)).toBe(sum(base) - 4);
+  });
+
+  it('between titans: vast empires, empty behind a strong front; your realm is full', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      const { cells } = buildScenario('titans', seed * 17).field;
+      for (const p of [1, 2]) {
+        const own = cells.filter((c) => c.owner === p);
+        expect(own.length).toBeGreaterThan(35);
+        expect(own.filter((c) => c.power === 0).length).toBeGreaterThan(own.length / 2);
+        expect(own.some((c) => c.power >= 4)).toBe(true);
+      }
+      const mine = cells.filter((c) => c.owner === 0);
+      expect(mine.length).toBeLessThan(10);
+      for (const c of mine) expect(c.power).toBeGreaterThanOrEqual(Math.min(c.maxPower, 6));
+    }
+  });
+
   it('the map of the day rotates through every scenario, played as the setup recommends it', () => {
     // from the switch to all scenarios on, one stretch of puzzle days covers each scenario
     const seen: string[] = [];

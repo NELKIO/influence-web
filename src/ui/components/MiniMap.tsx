@@ -1,7 +1,7 @@
 import { cellCenter, cellRadius } from '../board/renderer';
 import type { Field } from '../../core/types';
 
-/** Static SVG thumbnail of a field: owned cells in player colours, the rest as empty hexes. */
+/** Static SVG thumbnail of a field: owned cells in player colours (faint when empty), the rest as empty hexes. */
 export function MiniMap({ field, starts: startCells = [], maxHeight = 200 }: { field: Field; starts?: number[]; maxHeight?: number }) {
   const pts = field.cells.map((c) => cellCenter(c.x, c.y));
   const xs = pts.map((p) => p[0]);
@@ -27,6 +27,8 @@ export function MiniMap({ field, starts: startCells = [], maxHeight = 200 }: { f
             key={i}
             points={hex(pts[i][0], pts[i][1], cellRadius(c.maxPower))}
             fill={col ?? (c.power > 0 ? '#3f4450' : '#1b1e24')}
+            // an owned cell with no power yet (hollow lands, sleeping armies) is drawn as an outline
+            fill-opacity={col && si < 0 && c.power === 0 ? 0.28 : undefined}
             stroke={col ?? '#2c3038'}
             stroke-width="0.08"
           />

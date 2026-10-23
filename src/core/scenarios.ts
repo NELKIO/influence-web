@@ -331,7 +331,7 @@ export const CLASSIC_SCENARIOS = [
 ] as const;
 
 /** Battles for three to six players. */
-export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans', 'hollow'] as const;
+export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans', 'hollow', 'raid'] as const;
 
 export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number];
 
@@ -387,6 +387,7 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   titans: { players: ['human', 'master', 'master'], level: 3, size: 'L', unions: true },
   olympus: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 3, size: 'L' },
   hollow: { players: ['human', 'master', 'god', 'master'], level: 3, size: 'L' },
+  raid: { players: ['human', 'master'], level: 3, size: 'L' },
 };
 
 /**
@@ -424,6 +425,7 @@ export const TUNING: Record<ScenarioId, number> = {
   olympus: 4.5,
   titans: 8,
   hollow: 0,
+  raid: 6,
 };
 
 const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board> = {
@@ -1064,6 +1066,29 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
     if (k > 0) for (const c of rng.shuffle(mine.filter((c) => c.power === 0)).slice(0, Math.round(k))) c.power = 1;
     if (k < 0) for (const c of rng.shuffle(mine.filter((c) => c.power === 1)).slice(0, Math.round(-k))) c.power = 0;
     b.rotate(rng.int(2) * 3);
+    return b;
+  },
+
+  /**
+   * A raid: a wide empire of two provinces joined by a narrow waist, all of it empty (power 0) but
+   * for a rim of 1s. Your small army stands just below the waist, every cell full. Cut the empire in
+   * two before its income fortifies it.
+   */
+  raid(rng, k) {
+    const b = new Board();
+    for (let r = -5; r <= 5; r++) for (let x = -6; x <= 6; x++) b.add(x - Math.floor(r / 2), r, { max: rollMax(rng, 0.25) });
+    const px = (c: Slot) => c.q + c.r / 2;
+    const py = (c: Slot) => (c.r * Math.sqrt(3)) / 2;
+    const yc = -1.7;
+    const lobe = (c: Slot, x: number) => Math.hypot(px(c) - x, py(c) - yc) <= 2.4;
+    for (const c of b.all()) {
+      if (lobe(c, -4) || lobe(c, 4) || (Math.abs(py(c) - yc) <= 0.9 && Math.abs(px(c)) <= 4)) Object.assign(c, { owner: 1, power: 0 });
+      else if (Math.hypot(px(c), py(c) - 2.6) <= 1.6) Object.assign(c, { owner: 0, power: Math.min(c.max, kp(rng, k)) });
+    }
+    // a rim of 1s where the empire meets anything else
+    for (const c of b.all())
+      if (c.owner === 1 && DIRS.some(([dq, dr]) => (b.get(c.q + dq, c.r + dr)?.owner ?? 1) !== 1)) c.power = 1;
+    b.rotate(rng.bool() ? 0 : 3);
     return b;
   },
 };
