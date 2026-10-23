@@ -40,6 +40,7 @@ import {
   DEFAULT_PARAMS,
   FastRng,
   GOD_STACK,
+  PK_MASTER,
   Sim,
   Topo,
   evalPhase,
@@ -73,6 +74,8 @@ export interface GodOptions {
   openingAttackMs?: number;
   openingPowerMs?: number;
   openingRescoreOtherMs?: number;
+  /** hard cap of an opening decision (ms) */
+  openingMaxMs?: number;
   /** hard cap per decision (ms) */
   maxDecisionMs?: number;
   /** evaluation weights */
@@ -101,9 +104,19 @@ export interface GodOptions {
   /** re-score every attack decision of the match */
   rescoreAll?: boolean;
   emuExtra?: boolean;
+  /**
+   * emulated Master opponents search like Master: nominal dice (Master does not know the streak
+   * corrector) and its clamped ratio
+   */
+  emuNominal?: boolean;
+  /** darkness: place the enemy cells counted by the HUD but not seen on the most likely unseen cells */
+  phantoms?: boolean;
   duelLateScale?: number;
-  /** ignore the fog (experiments only; the game never sets this) */
-  cheat?: boolean;
+  /**
+   * ignore the fog (experiments only; the game never sets this): always, only in rounds 0..3 ('open'), only
+   * for attack ('attack') or placement ('power') decisions. Partial cheats never enter GOD's memory.
+   */
+  cheat?: boolean | 'open' | 'attack' | 'power';
 }
 
 export const DEFAULT_GOD_OPTIONS = {
@@ -118,6 +131,8 @@ export const DEFAULT_GOD_OPTIONS = {
   /** total budget of a later attack of an opening turn including its re-scoring */
   openingRescoreOtherMs: 500,
   openingPowerMs: 1200,
+  /** hard cap of an opening decision (ms) */
+  openingMaxMs: 1420,
   attackMs: 150,
   attackSpeedFactor: 0.8,
   /** duels after the opening: scale of the time budgets */
@@ -137,6 +152,8 @@ export const DEFAULT_GOD_OPTIONS = {
   rescoreAllOpening: true,
   /** more placement candidates (all-in without minimums, safer margin, split stacks) */
   emuExtra: false as boolean,
+  /** darkness: the enemy cells the HUD counts but GOD cannot see are put on the most likely unseen cells */
+  phantoms: true as boolean,
 };
 
 const now = (): number => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -147,6 +164,10 @@ export interface GodDecisionInfo {
   ms: number;
   /** root moves considered */
   candidates: number;
+  /** emulated rollouts of the re-scoring / placement comparison (diagnostics) */
+  emu?: number;
+  /** the re-scoring changed the tree's choice (diagnostics) */
+  changed?: boolean;
 }
 
 interface Memory {
@@ -186,6 +207,10 @@ export class GodBrain {
   private game: GameTree | null = null;
   private gameKey = '';
   private ponderState: Ponder | null = null;
+  /** the decision being made is in the opening (rounds 0 .. openingRounds−1) */
+  private inOpening = false;
+  /** emulated rollouts past this time (ms, performance clock) search minimally */
+  private emuDeadline = Infinity;
   lastInfo: GodDecisionInfo = { rollouts: 0, ms: 0, candidates: 0 };
 
   constructor(seed?: number, opts: GodOptions = {}) {
@@ -221,10 +246,17 @@ export class GodBrain {
   }
 
   /** Cells GOD may look at: own cells and their neighbours under darkness, everything otherwise. */
-  visible(state: MatchState, me: number): Uint8Array {
+  visible(state: MatchState, me: number, fair = false): Uint8Array {
     const { cells, adj } = state.field;
     const vis = new Uint8Array(cells.length);
-    if (!state.settings.darkness || this.opts.cheat) {
+    const ch = fair ? false : this.opts.cheat;
+    if (
+      !state.settings.darkness ||
+      ch === true ||
+      (ch === 'open' && state.turn < this.opts.openingRounds) ||
+      (ch === 'attack' && state.phase === 'attack') ||
+      (ch === 'power' && state.phase === 'power')
+    ) {
       vis.fill(1);
       return vis;
     }
@@ -247,6 +279,8 @@ export class GodBrain {
     const { cells } = state.field;
     const n = cells.length;
     const vis = this.visible(state, me);
+    // experiments with partial cheating: the memory only learns what GOD really sees
+    const real = typeof this.opts.cheat === 'string' ? this.visible(state, me, true) : vis;
     const memKey = `${state.seed}|${n}|${me}`;
     if (!this.mem || this.mem.key !== memKey) {
       this.mem = { key: memKey, owner: new Int8Array(n).fill(-1), power: new Int8Array(n), seenTurn: new Int32Array(n).fill(-1) };
@@ -260,9 +294,11 @@ export class GodBrain {
         sim.owner[i] = o;
         // neutral cells normally have no power; puzzle positions may have armed grey cells
         sim.power[i] = c.power;
-        mem.owner[i] = o;
-        mem.power[i] = sim.power[i];
-        mem.seenTurn[i] = state.turn;
+        if (real[i]) {
+          mem.owner[i] = o;
+          mem.power[i] = sim.power[i];
+          mem.seenTurn[i] = state.turn;
+        }
       } else {
         anyHidden = true;
         const o = mem.owner[i];
@@ -277,6 +313,7 @@ export class GodBrain {
       }
     }
     sim.recount();
+    if (anyHidden && this.opts.phantoms) this.addPhantoms(state, me, topo, sim, vis);
     let hidden = 0;
     if (anyHidden) {
       for (let p = 0; p < topo.slots; p++) {
@@ -287,6 +324,71 @@ export class GodBrain {
       }
     }
     return { sim, hidden };
+  }
+
+  /**
+   * Darkness: the HUD tells how many cells and how much power every player has. Enemy cells GOD cannot
+   * place on the board are put where they most likely are: the unseen believed-neutral cells closest to
+   * that enemy's known cells (or, with none known, the unseen cells farthest from GOD), with the unplaced
+   * power spread over them. Uses only GOD's own view and the public totals.
+   */
+  private addPhantoms(state: MatchState, me: number, topo: Topo, sim: Sim, vis: Uint8Array) {
+    const n = topo.n;
+    const { adjStart, adj } = topo;
+    const free = (i: number) => !vis[i] && sim.owner[i] < 0;
+    // distance from GOD's cells (for enemies never seen)
+    const dist = new Int32Array(n).fill(-1);
+    const q = new Int32Array(n);
+    let h = 0;
+    let t = 0;
+    for (let i = 0; i < n; i++) if (sim.owner[i] === me) (dist[i] = 0), (q[t++] = i);
+    while (h < t) {
+      const x = q[h++];
+      for (let k = adjStart[x]; k < adjStart[x + 1]; k++) {
+        const y = adj[k];
+        if (dist[y] < 0) (dist[y] = dist[x] + 1), (q[t++] = y);
+      }
+    }
+    for (let p = 0; p < topo.slots; p++) {
+      if (p === me || (state.outAt[p] ?? -1) >= 0) continue;
+      let known = 0;
+      let knownPow = 0;
+      for (let i = 0; i < n; i++) if (sim.owner[i] === p) (known++, (knownPow += sim.power[i]));
+      let missing = cellCount(state, p) - known;
+      if (missing <= 0) continue;
+      const seen = new Uint8Array(n);
+      h = 0;
+      t = 0;
+      for (let i = 0; i < n; i++) if (sim.owner[i] === p) (seen[i] = 1), (q[t++] = i);
+      if (t === 0) {
+        let far = -1;
+        for (let i = 0; i < n; i++) if (free(i) && (far < 0 || dist[i] > dist[far])) far = i;
+        if (far < 0) continue;
+        seen[far] = 1;
+        q[t++] = far;
+      }
+      const picked: number[] = [];
+      // the first queue entries are known cells (not free) unless the anchor is a free cell
+      while (h < t && picked.length < missing) {
+        const x = q[h++];
+        if (free(x)) picked.push(x);
+        for (let k = adjStart[x]; k < adjStart[x + 1]; k++) {
+          const y = adj[k];
+          if (!seen[y] && free(y)) (seen[y] = 1), (q[t++] = y);
+        }
+      }
+      if (!picked.length) continue;
+      missing = picked.length;
+      let pow = Math.max(missing, scoreOf(state, p) - knownPow);
+      for (let j = 0; j < picked.length; j++) {
+        const c = picked[j];
+        const share = Math.max(1, Math.min(topo.cap[c], Math.round(pow / (picked.length - j))));
+        sim.owner[c] = p;
+        sim.power[c] = share;
+        pow -= share;
+      }
+    }
+    sim.recount();
   }
 
   /** opponents still in the match (public: the HUD shows every player's cell count) */
@@ -374,12 +476,15 @@ export class GodBrain {
     const seed = this.rng.u32();
     const { sim: root, hidden } = this.belief(state, me, topo);
     const opening = this.opening(state);
+    this.inOpening = opening;
     const budget = this.budgetMs(firstOfTurn, ctx, opening, !this.multi(state, me));
     const rng = new FastRng(seed ^ 0x51);
 
     let move: number;
     let iters = 0;
     let count: number;
+    let treeMove = -1;
+    let emu = 0;
     if (this.multi(state, me)) {
       const tree = this.gameTree(root, me, `A:${key}`, seed, hidden, false);
       tree.horizon = 2;
@@ -409,6 +514,7 @@ export class GodBrain {
         }
       }
       move = count === 0 ? -1 : count === 1 ? moves[0] : tree.best(root, this.lastTo).move;
+      treeMove = move;
       // first attack of the turn: re-score the tree's favourites by emulated continuations and replies
       if ((firstOfTurn || this.opts.rescoreAll || (opening && this.opts.rescoreAllOpening)) && count > 1 && this.opts.attackEmu > 1) {
         const top = tree
@@ -433,10 +539,11 @@ export class GodBrain {
           const res = this.halving(top.length, run, this.opts.emuAttackRollouts ?? Math.round(0.16 * (this.opts.rollouts ?? 1000)), t0, Math.min(this.opts.maxDecisionMs, firstOfTurn ? (opening ? this.opts.openingRescoreMs : this.opts.rescoreMs * this.opts.duelLateScale) : opening ? this.opts.openingRescoreOtherMs : this.opts.rescoreMs * this.opts.duelLateScale));
           move = top[res.best].move;
           iters += res.spent;
+          emu = res.spent;
         }
       }
     }
-    this.lastInfo = { rollouts: iters, ms: now() - t0, candidates: count };
+    this.lastInfo = { rollouts: iters, ms: now() - t0, candidates: count, emu, changed: emu > 0 && move !== treeMove };
     // never end the phase only because the search had no answer (starved budget): expert fallback
     if (move < 0 && count > 0) move = this.fallbackMove(root, me, move);
     if (move < 0) return null;
@@ -464,10 +571,9 @@ export class GodBrain {
   }
 
   /** closed-form leaves are possible with the default evaluation weights outside duel rules */
-  private fastLeaf(t: Topo, hidden: number): { pCell: number; qPow: number; hidden: number } | undefined {
-    const P = this.P;
-    if (t.duel || P.clampMap || P.pPow || P.pInt || P.pExposed || P.qCell || P.qInt !== P.qPow) return undefined;
-    return { pCell: P.pCell, qPow: P.qPow, hidden };
+  private fastLeaf(t: Topo, hidden: number, P = this.P): { pCell: number; qPow: number; hidden: number; clamp?: boolean } | undefined {
+    if (t.duel || P.pPow || P.pInt || P.pExposed || P.qCell || P.qInt !== P.qPow) return undefined;
+    return { pCell: P.pCell, qPow: P.qPow, hidden, clamp: !!P.clampMap };
   }
 
   private attackTree(root: Sim, me: number, key: string, seed: number, hidden: number): AttackTree {
@@ -672,9 +778,10 @@ export class GodBrain {
       this.sampleLuck(scratch, r);
       return finish(scratch, r);
     };
-    const ms = this.opening(state) ? this.opts.openingPowerMs : this.opts.powerMs * this.opts.duelLateScale;
+    this.inOpening = this.opening(state);
+    const ms = this.inOpening ? this.opts.openingPowerMs : this.opts.powerMs * this.opts.duelLateScale;
     const best = this.halving(cands.length, run, this.opts.emuRollouts ?? Math.round(0.4 * (this.opts.rollouts ?? 1000)), t0, Math.min(ms, this.opts.maxDecisionMs));
-    this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length };
+    this.lastInfo = { rollouts: best.spent, ms: now() - t0, candidates: cands.length, emu: best.spent, changed: best.best !== 0 };
     return this.toPlacement(state, root, cands[best.best], me);
   }
 
@@ -691,11 +798,14 @@ export class GodBrain {
       let t = emu.get(slot);
       if (!t) {
         const memo = { lastTo: -1 };
+        const asMaster = slot !== me && this.opts.emuNominal && root.t.kind[slot] === PK_MASTER;
+        // Master's objective: clamp((reinforcement + cells) / enemy units − 0.3) / 2.7)
+        const PE: GodParams = asMaster ? { ...P, clampMap: true, evalDuelStray: 0.5 } : P;
         t = new AttackTree(
           root.t,
           slot,
-          { stop: false, forced: true, c: 0.25, fast: this.fastLeaf(root.t, slot === me ? hidden : 0) },
-          (b) => evalPhase(b, slot, P, slot === me ? hidden : 0),
+          { stop: false, forced: true, c: 0.25, fast: this.fastLeaf(root.t, slot === me ? hidden : 0, PE), nominal: asMaster },
+          (b) => evalPhase(b, slot, PE, slot === me ? hidden : 0),
           (b, lastTo) => {
             memo.lastTo = lastTo;
             return masterAttack(b, slot, memo);
@@ -710,16 +820,19 @@ export class GodBrain {
     // so real-time GOD emulates with 128 iterations per move (fixed-budget mode: 32, fast and deterministic)
     const iters = this.opts.emuIters ?? (this.opts.rollouts === undefined ? 128 : 32);
     const tmp = root.clone();
-    const playEmu = (sim: Sim, slot: number, rng: FastRng, lastTo = -1) => {
+    const playEmu = (sim: Sim, slot: number, rng: FastRng, lastTo = -1, maxMoves = 200): number => {
       const t = treeFor(slot);
-      for (let k = 0; k < 200; k++) {
+      let first = -1;
+      for (let k = 0; k < maxMoves; k++) {
         const moves = t.moves(sim, lastTo);
         if (!moves.length || sim.aliveCount() <= 1) break;
         let mv = moves[0];
         if (moves.length > 1) {
+          // past the decision's hard deadline (a slow device): finish the rollout with minimal searches
+          const todo = this.emuDeadline < Infinity && now() > this.emuDeadline ? Math.min(iters, 8) : iters;
           t.reset();
           const rh = t.rootHash(sim);
-          for (let i = 0; i < iters; i++) {
+          for (let i = 0; i < todo; i++) {
             tmp.copyFrom(sim);
             tmp.rng = rng;
             t.iterate(tmp, lastTo, rng, rh);
@@ -727,12 +840,14 @@ export class GodBrain {
           mv = t.best(sim, lastTo).move;
         }
         if (mv < 0) break;
+        if (first < 0) first = mv;
         sim.fight(mv >> 10, mv & 1023);
         lastTo = mv & 1023;
       }
+      return first;
     };
-    const placeModel = (sim: Sim, slot: number) => {
-      let l = threatMinimums(sim, slot, sim.income(slot), 0);
+    const placeModel = (sim: Sim, slot: number, left = sim.income(slot)) => {
+      let l = threatMinimums(sim, slot, left, 0);
       l = stackPlace(sim, slot, l, l, 0, w);
       smartyPlace(sim, slot, l);
     };
@@ -756,6 +871,37 @@ export class GodBrain {
     return { playEmu, placeModel, finish };
   }
 
+  /**
+   * Diagnostics (scripts/god-fidelity.ts): the emulator's choice for the player to move in `state`, as if
+   * that player were GOD's opponent: its next attack (from → to, given its previous attack of the turn)
+   * or its whole placement.
+   */
+  emuProbe(state: MatchState, lastTo = -1, policy: 'emu' | 'expert' = 'emu'): AttackMove | Map<number, number> | null {
+    const slot = state.current;
+    const me = (slot + 1) % state.settings.players.length;
+    const topo = this.topoFor(state);
+    const root = new Sim(topo, new FastRng(1));
+    state.field.cells.forEach((c, i) => {
+      root.owner[i] = c.owner === NEUTRAL || c.power <= 0 ? -1 : c.owner;
+      root.power[i] = c.power;
+    });
+    root.recount();
+    const seed = this.rng.u32();
+    const { playEmu, placeModel } = this.emulator(root, me, seed, 0);
+    const sim = root.clone();
+    const rng = new FastRng(seed ^ 0x33);
+    sim.rng = rng;
+    this.sampleLuck(sim, rng);
+    if (state.phase === 'attack') {
+      const mv = policy === 'expert' ? masterAttack(sim, slot, { lastTo }) : playEmu(sim, slot, rng, lastTo, 1);
+      return mv < 0 ? null : { from: mv >> 10, to: mv & 1023 };
+    }
+    placeModel(sim, slot, state.powerLeft);
+    const out = new Map<number, number>();
+    for (let i = 0; i < topo.n; i++) if (sim.power[i] > root.power[i]) out.set(i, sim.power[i] - root.power[i]);
+    return out;
+  }
+
   /** successive halving with common random numbers (rollout i uses the same dice for every candidate) */
   private halving(count: number, run: (c: number, i: number) => number, fixed: number, t0: number, ms: number): { best: number; spent: number } {
     const sums = new Float64Array(count);
@@ -763,7 +909,9 @@ export class GodBrain {
     let alive = Array.from({ length: count }, (_, i) => i);
     let spent = 0;
     const timed = this.opts.rollouts === undefined;
-    const hard = Math.min(this.opts.maxDecisionMs, ms * 1.1 + 20);
+    let hard = Math.min(this.opts.maxDecisionMs, ms * 1.1 + 20);
+    if (this.inOpening) hard = Math.min(hard, this.opts.openingMaxMs);
+    if (this.opts.rollouts === undefined) this.emuDeadline = t0 + hard;
     const tStart = now();
     for (const c of alive) {
       sums[c] += run(c, done[c]++);
@@ -792,6 +940,7 @@ export class GodBrain {
       if (timed && now() - t0 > hard) break;
     }
     alive.sort((a, b) => sums[b] / done[b] - sums[a] / done[a] || a - b);
+    this.emuDeadline = Infinity;
     return { best: alive[0], spent };
   }
 

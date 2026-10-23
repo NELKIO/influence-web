@@ -236,6 +236,8 @@ export class Sim {
   /** Dummy's remembered scan index per slot */
   readonly dummyIdx: Int16Array;
   rng: FastRng;
+  /** nominal dice without the streak corrector (how Master believes fights work); not copied */
+  nominal = false;
 
   constructor(t: Topo, rng: FastRng) {
     this.t = t;
@@ -314,6 +316,7 @@ export class Sim {
     if (forced !== undefined) win = forced;
     else if (p >= 1) win = true;
     else if (p <= 0) win = false;
+    else if (this.nominal) win = this.rng.next() < p;
     else {
       win = this.rng.next() < p;
       const k = p < 0.4 ? 0 : p < 0.6 ? 1 : 2;

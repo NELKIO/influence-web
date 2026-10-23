@@ -93,6 +93,8 @@ let draws = 0;
 let rounds = 0;
 const t0 = performance.now();
 const perSize = new Map<string, [number, number]>();
+/** per game: offset, size, winner side ('A' | 'B' | '-'), rounds */
+const perGame: [number, string, string, number][] = [];
 for (let gi = 0; gi < games; gi++) {
   const g = gi + offset;
   const size = sizes[g % sizes.length];
@@ -129,12 +131,13 @@ for (let gi = 0; gi < games; gi++) {
     ps[0]++;
   } else bw++;
   perSize.set(size, ps);
+  perGame.push([g, size, r.winner < 0 ? '-' : r.winner === aSeat ? 'A' : 'B', r.rounds]);
   if (!json) console.log(`game ${g} ${size}${symmetry ? 's' : ''} seat ${aSeat}: winner ${r.winner < 0 ? '-' : r.winner === aSeat ? A : B} (${r.rounds} rounds)`);
 }
 const ms = Math.round(performance.now() - t0);
 const tim = Object.fromEntries([...timing].map(([k, t]) => [k, { avg: +(t.sum / t.n).toFixed(1), max: +t.max.toFixed(0), n: t.n }]));
 if (json) {
-  console.log(JSON.stringify({ aw, bw, draws, games, rounds, ms, timing: tim, perSize: Object.fromEntries(perSize) }));
+  console.log(JSON.stringify({ aw, bw, draws, games, rounds, ms, timing: tim, perSize: Object.fromEntries(perSize), perGame }));
 } else {
   console.log(`${mode} ${A} vs ${B}: ${aw}-${bw} (draws ${draws}) => ${A} ${((100 * aw) / games).toFixed(1)}%  [${ms} ms, avg ${(rounds / games).toFixed(1)} rounds]`);
   console.log('per size:', Object.fromEntries([...perSize].map(([k, [w, n]]) => [k, `${w}/${n}`])));
