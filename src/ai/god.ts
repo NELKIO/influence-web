@@ -113,6 +113,7 @@ export interface GodOptions {
   /** darkness: place the enemy cells counted by the HUD but not seen on the most likely unseen cells */
   phantoms?: boolean;
   duelLateScale?: number;
+  multiScale?: number;
   /**
    * Respect darkness (and exploration fog): read only own cells and their neighbours plus the public HUD
    * totals. Off by default: like every other bot, GOD sees the whole map. Experiments only.
@@ -143,6 +144,8 @@ export const DEFAULT_GOD_OPTIONS = {
   attackSpeedFactor: 0.8,
   /** duels after the opening: scale of the time budgets */
   duelLateScale: 1,
+  /** three or more players: scale of the time budgets of the whole-turn search */
+  multiScale: 1,
   maxDecisionMs: 2000,
   mode: 'auto' as 'auto' | 'duel' | 'multi',
   c: 0.25,
@@ -464,7 +467,8 @@ export class GodBrain {
     const later = Math.max(opening ? o.openingAttackMs : o.attackMs, o.attackSpeedFactor * ctx.speedMs);
     const ms = firstOfTurn ? (opening ? o.openingFirstMs : o.firstAttackMs) : later;
     // duels are decided in the opening: later rounds think less so the opening can think more
-    return Math.min(o.maxDecisionMs, !opening && duel ? ms * o.duelLateScale : ms);
+    const scaled = duel ? (opening ? ms : ms * o.duelLateScale) : ms * o.multiScale;
+    return Math.min(o.maxDecisionMs, opening ? Math.min(scaled, o.openingMaxMs) : scaled);
   }
 
   // -------------------------------------------------------------- attack
@@ -966,7 +970,7 @@ export class GodBrain {
     g.cursor = 0;
     const rng = new FastRng(seed ^ 0x77);
     const o = this.opts;
-    const budget = Math.min(o.powerMs, o.maxDecisionMs);
+    const budget = Math.min(o.powerMs * o.multiScale, o.maxDecisionMs, this.opening(state) ? o.openingMaxMs : Infinity);
     let total = 0;
     let decisions = 0;
     let guard = 0;
