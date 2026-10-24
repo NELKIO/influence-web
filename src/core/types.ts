@@ -95,6 +95,11 @@ export interface MatchSettings {
   puzzle?: string;
   /** exploration fog (with darkness): cells a person has never seen are not shown at all */
   blind?: boolean;
+  /**
+   * The people are out and the bots fight on to show who would have won: the match goes on without
+   * people and ends at the latest when this round starts (reason 'cap', nobody won).
+   */
+  spectate?: number;
 }
 
 export type Phase = 'attack' | 'power';
@@ -144,7 +149,7 @@ export interface MatchEnd {
   winner: number;
   /** true if a human won */
   humanWon: boolean;
-  reason: 'elimination' | 'early' | 'concede' | 'timeout';
+  reason: 'elimination' | 'early' | 'concede' | 'timeout' | 'cap';
   turn: number;
 }
 

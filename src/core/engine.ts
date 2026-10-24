@@ -392,6 +392,28 @@ export function finishTurn(state: MatchState): void {
   if (next <= state.current) state.turn++;
   state.current = next;
   if (isHuman(state, next)) state.viewer = next;
+  const cap = state.settings.spectate;
+  if (cap && state.turn >= cap) state.ended = { winner: -1, humanWon: false, reason: 'cap', turn: state.turn };
+}
+
+/** Whether the bots left on the board can fight on without people (at least two, no person). */
+export function canSpectate(state: MatchState): boolean {
+  const alive = alivePlayers(state);
+  return alive.length >= 2 && !alive.some((p) => isPersonType(state.settings.players[p]));
+}
+
+/**
+ * A copy of a match the people have lost, in which the remaining bots fight on (see
+ * MatchSettings.spectate). Null if fewer than two bots are left or a person is still on the board.
+ */
+export function spectateCopy(state: MatchState, rounds = 80): MatchState | null {
+  if (!canSpectate(state)) return null;
+  const s = structuredClone(state);
+  s.ended = null;
+  s.selected = -1;
+  s.settings = { ...s.settings, spectate: s.turn + rounds };
+  if (!isAlive(s, s.current)) finishTurn(s);
+  return s;
 }
 
 // ---------------------------------------------------------------- unions
@@ -433,7 +455,7 @@ export function checkEnd(state: MatchState): void {
   if (alive.length <= 1) {
     const w = alive[0] ?? -1;
     state.ended = { winner: w, humanWon: w >= 0 && isHuman(state, w), reason: 'elimination', turn: state.turn };
-  } else if (humans.length === 0) {
+  } else if (humans.length === 0 && !state.settings.spectate) {
     state.ended = { winner: -1, humanWon: false, reason: 'elimination', turn: state.turn };
   }
 }

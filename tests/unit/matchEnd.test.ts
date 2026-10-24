@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alivePlayers, cellCount, checkEnd, checkStuck, concede, visibleCells, createMatch, finishEarly, isAlive } from '../../src/core/engine';
+import { alivePlayers, cellCount, checkEnd, checkStuck, concede, finishTurn, spectateCopy, visibleCells, createMatch, finishEarly, isAlive } from '../../src/core/engine';
 import type { MatchSettings, MatchState, PlayerType } from '../../src/core/types';
 
 function match(players: PlayerType[], seed = 3): MatchState {
@@ -132,5 +132,42 @@ describe('darkness at the end of a match', () => {
     expect(s.ended).not.toBeNull();
     // the person is still alive, yet sees the whole map
     expect(visibleCells(s, 0).every((v) => v === 1)).toBe(true);
+  });
+});
+
+describe('watching the bots fight on after the people lost', () => {
+  it('the copy goes on without people and ends when one bot is left', () => {
+    const s = match(['human', 'hunter', 'master']);
+    concede(s, 0);
+    expect(s.ended).toMatchObject({ winner: -1, humanWon: false });
+    const w = spectateCopy(s)!;
+    expect(w).not.toBeNull();
+    expect(w.ended).toBeNull();
+    // the original is untouched
+    expect(s.ended).not.toBeNull();
+    // the dead person's turn is skipped
+    expect(isAlive(w, w.current)).toBe(true);
+    // the whole map is visible
+    expect(visibleCells(w, 0).every((v) => v === 1)).toBe(true);
+    // a bot takes the other's last cell: the match ends with that bot as the winner
+    for (const c of w.field.cells) if (c.owner === 2) c.owner = 1;
+    checkEnd(w);
+    expect(w.ended).toMatchObject({ winner: 1, humanWon: false, reason: 'elimination' });
+  });
+
+  it('stops after the round limit with nobody winning', () => {
+    const s = match(['human', 'hunter', 'master']);
+    concede(s, 0);
+    const w = spectateCopy(s, 2)!;
+    for (let k = 0; k < 10 && !w.ended; k++) finishTurn(w);
+    expect(w.ended).toMatchObject({ winner: -1, reason: 'cap' });
+  });
+
+  it('is not offered with a person still on the board or a single bot left', () => {
+    const s = match(['human', 'hunter', 'master']);
+    expect(spectateCopy(s)).toBeNull();
+    const d = match(['human', 'master']);
+    concede(d, 0);
+    expect(spectateCopy(d)).toBeNull();
   });
 });

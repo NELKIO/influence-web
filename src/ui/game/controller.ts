@@ -543,7 +543,7 @@ export class GameController {
         const won = s.ended.humanWon;
         window.setTimeout(() => {
           if (this.disposed) return;
-          if (won || (this.humansCount > 1 && s.ended && s.ended.winner >= 0 && isHuman(s, s.ended.winner))) sfx.win();
+          if (won || s.settings.spectate || (this.humansCount > 1 && s.ended && s.ended.winner >= 0 && isHuman(s, s.ended.winner))) sfx.win();
           else sfx.lose();
           if (!this.paused) this.overlay = { kind: 'result' };
           this.emit();
@@ -679,8 +679,11 @@ export class GameController {
   private botSpeed(): number {
     const base = SPEED_MS[this.settings.speed];
     const bots = alivePlayers(this.state).filter((p) => this.bots.has(p)).length;
-    return Math.round(base * Math.min(1, 2 / Math.max(1, bots)));
+    return Math.round((base * Math.min(1, 2 / Math.max(1, bots))) / this.spectateSpeedup);
   }
+
+  /** how much faster the bots move while the people watch them fight on (MatchSettings.spectate) */
+  spectateSpeedup = 1;
 
   private botEndAttack() {
     const seat = this.state.current;

@@ -2417,3 +2417,12 @@ button {
 .medal-wall .medal.empty {
   color: var(--dim);
 }
+
+/* speed of the bots while the people watch them fight on */
+.status .speed-btn {
+  width: auto;
+  min-height: 30px;
+  margin: 6px auto 0;
+  padding: 0 14px;
+  font-size: 13px;
+}

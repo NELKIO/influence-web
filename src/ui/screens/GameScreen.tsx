@@ -6,7 +6,7 @@ import { t } from '../../i18n';
 import { getSettings, navigate, updateSettings, useSettings, type Launch, type Route } from '../store';
 import { playerName } from '../names';
 import { playerColor } from '../theme';
-import { alivePlayers, anyAttackLeft, cellCount, scoreOf } from '../../core/engine';
+import { alivePlayers, anyAttackLeft, canSpectate, cellCount, scoreOf, spectateCopy } from '../../core/engine';
 import type { MatchState } from '../../core/types';
 import { countGame } from '../../sitestats';
 import { addRecord, awardMedal, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
@@ -49,7 +49,7 @@ export interface OnlineBinding {
 }
 
 function isSaveable(state: MatchState) {
-  return state.settings.kind !== 'duelOnline' && state.settings.kind !== 'battleOnline';
+  return state.settings.kind !== 'duelOnline' && state.settings.kind !== 'battleOnline' && !state.settings.spectate;
 }
 
 function formatDuration(ms: number) {
@@ -91,7 +91,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
       },
       onEnd: (s) => {
         if (isSaveable(s)) saveGame(null);
-        setNewMedal(recordResult(s));
+        // watching the bots fight on changes nothing: the real result was recorded when the people lost
+        if (!s.settings.spectate) setNewMedal(recordResult(s));
       },
     });
   }, [launch]);
@@ -203,6 +204,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   // ---- status line
   let phaseLabel = s.phase === 'attack' ? t('phaseAttack') : t('phasePower');
   let statusText: string;
+  if (s.settings.spectate && !s.ended) phaseLabel = t('spectating');
   if (s.ended) {
     phaseLabel = '';
     statusText = t('statusGameOver');
@@ -237,6 +239,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const exitToMenu = () => {
     if (ctrl.state.ended) online?.onLeaveEnded?.();
     navigate(online?.exitTo ?? { name: 'menu' });
+  };
+
+  /** the people are out: let the bots left on the board fight on, to see who would have won */
+  const watchBots = () => {
+    const w = spectateCopy(ctrl.state);
+    if (w) navigate({ name: 'game', launch: { state: w, initial: launch.initial } });
   };
 
   const restartSame = () => {
@@ -326,6 +334,17 @@ export function GameScreen({ launch }: { launch: Launch }) {
                 </div>
               )}
               <div class="text">{statusText}</div>
+              {s.settings.spectate && !s.ended && (
+                <button
+                  class="btn ghost small speed-btn"
+                  onClick={() => {
+                    ctrl.spectateSpeedup = ctrl.spectateSpeedup >= 4 ? 1 : ctrl.spectateSpeedup * 2;
+                    setTick((n) => n + 1);
+                  }}
+                >
+                  {t('spectateSpeed', { n: ctrl.spectateSpeedup })}
+                </button>
+              )}
             </div>
           )}
           <EndButton
@@ -438,7 +457,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
               <IconRestart width={18} height={18} /> {t('restartSame')}
             </button>
           )}
-          {!s.ended && (s.settings.kind === 'duelOnline' || s.settings.kind === 'battleOnline' || s.settings.kind === 'daily' || s.settings.kind === 'duelTraining') && (
+          {!s.ended && !s.settings.spectate && (s.settings.kind === 'duelOnline' || s.settings.kind === 'battleOnline' || s.settings.kind === 'daily' || s.settings.kind === 'duelTraining') && (
             <button
               class="btn red"
               onClick={() => setAskConcede(true)}
@@ -459,6 +478,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
           onRestart={s.settings.kind !== 'duelOnline' ? restartSame : undefined}
           onNew={s.settings.kind !== 'duelOnline' ? quickRematch : undefined}
           onViewBoard={() => setViewingBoard(true)}
+          onWatch={!online && canSpectate(s) ? watchBots : undefined}
           medal={newMedal}
           extra={online?.ResultActions ? <online.ResultActions ctrl={ctrl} /> : null}
         />
@@ -556,6 +576,7 @@ function ResultModal({
   onRestart,
   onNew,
   onViewBoard,
+  onWatch,
   medal,
   extra,
 }: {
@@ -564,6 +585,7 @@ function ResultModal({
   onRestart?: () => void;
   onNew?: () => void;
   onViewBoard: () => void;
+  onWatch?: () => void;
   medal: MedalTier | null;
   extra: preact.JSX.Element | null;
 }) {
@@ -572,7 +594,11 @@ function ResultModal({
   const humans = s.settings.players.filter((p) => p === 'human').length;
   let title: string;
   let color: string;
-  if (humans > 1) {
+  const spectate = !!s.settings.spectate;
+  if (spectate) {
+    title = end.winner >= 0 ? t('winnerIs', { name: playerName(s.settings, end.winner) }) : t('spectateDraw', { n: end.turn + 1 });
+    color = end.winner >= 0 ? playerColor(end.winner) : 'var(--muted)';
+  } else if (humans > 1) {
     if (end.winner >= 0) {
       title = t('winnerIs', { name: playerName(s.settings, end.winner) });
       color = playerColor(end.winner);
@@ -592,8 +618,8 @@ function ResultModal({
   return (
     <Modal>
       <div class="result-banner">
-        <ResultEmblem color={color} win={humans > 1 ? end.winner >= 0 : end.humanWon} />
-        <div class="result-title" style={{ color, fontSize: humans > 1 ? 24 : undefined }}>
+        <ResultEmblem color={color} win={spectate || humans > 1 ? end.winner >= 0 : end.humanWon} plain={spectate} />
+        <div class="result-title" style={{ color, fontSize: spectate || humans > 1 ? 24 : undefined }}>
           {title}
         </div>
         <div class="result-sub">
@@ -613,8 +639,9 @@ function ResultModal({
       )}
       {end.reason === 'concede' && s.settings.kind === 'duelOnline' && end.humanWon && <p>{t('oppConceded')}</p>}
       {end.reason === 'timeout' && end.humanWon && <p>{t('timeoutWin')}</p>}
+      {spectate && <p class="muted" style={{ textAlign: 'center', margin: 0 }}>{t('spectateNote')}</p>}
       <div class="result-stats">
-        {humans === 1 && (
+        {humans === 1 && !spectate && (
           <>
             <div>
               <b>{ch.conquered}</b>
@@ -642,6 +669,11 @@ function ResultModal({
           {s.settings.kind === 'daily' ? t('dailyRetry') : t('newGame')}
         </button>
       )}
+      {onWatch && (
+        <button class="btn small" onClick={onWatch} data-testid="watch-bots">
+          {t('watchBots')}
+        </button>
+      )}
       <button class="btn ghost small" onClick={onViewBoard}>
         {s.settings.darkness ? t('viewWholeMap') : t('viewBoard')}
       </button>
@@ -659,7 +691,8 @@ function ResultModal({
   );
 }
 
-function ResultEmblem({ color, win }: { color: string; win: boolean }) {
+/** `plain`: just the winner's colour, no tick or cross (the bots' fight was only watched) */
+function ResultEmblem({ color, win, plain }: { color: string; win: boolean; plain?: boolean }) {
   const hex = (r: number) =>
     Array.from({ length: 6 }, (_, i) => {
       const a = (Math.PI / 3) * i - Math.PI / 2;
@@ -669,7 +702,7 @@ function ResultEmblem({ color, win }: { color: string; win: boolean }) {
     <svg viewBox="0 0 80 80" width="72" height="72" style={{ color }}>
       <polygon points={hex(34)} fill="currentColor" opacity="0.14" />
       <polygon points={hex(26)} fill="currentColor" opacity={win ? 1 : 0.35} />
-      {win ? (
+      {plain ? null : win ? (
         <path d="M28 41l8 8 16-17" stroke="#0b0c0f" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
       ) : (
         <path d="M31 31l18 18M49 31L31 49" stroke="currentColor" stroke-width="5" stroke-linecap="round" />
