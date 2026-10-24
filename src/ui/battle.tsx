@@ -2,6 +2,14 @@
  * Online battles in the UI: one active room at a time (host or guest), its binding to the game
  * controller, and resume after leaving to the menu or reloading the page.
  *
+ * Leaving the board of a running match (menu, another game) never closes the room and never pulls the
+ * person back: the menu offers "return to the online battle" while the room is alive. The room lives on
+ * the host's page: while the host is elsewhere in the app a screenless controller keeps the bots moving
+ * (a host who has not conceded is waited for on their own turn, like a guest who stepped away). The
+ * room closes when the host opens another room, closes it from the lobby, leaves a finished match, or
+ * closes the page. Someone whose seat is out (conceded / eliminated) is not offered a saved session
+ * after a reload: they were only watching.
+ *
  * Host: the controller plays on host.state (same object). Every move it applies (its own and the
  * bots') is published to the guests; guests' moves are applied by BattleHost and only animated here.
  * Guest: nothing is applied locally — moves are requests, the board follows what the host sends.
@@ -9,10 +17,10 @@
 import { BattleGuest, BattleHost, inviteBattleUrl, type KVStorage, type RosterEntry } from '../net';
 import { useBroadcastTransport } from '../net/broadcast';
 import type { MatchSettings, MatchState } from '../core/types';
-import type { GameController } from './game/controller';
+import { GameController } from './game/controller';
 import type { OnlineBinding } from './screens/GameScreen';
-import { navigate } from './store';
-import { setOnlineNames } from './names';
+import { getSettings, navigate } from './store';
+import { playerName, setOnlineNames } from './names';
 import { t } from '../i18n';
 import { buzz, sfx } from '../audio/sfx';
 import { playerColor } from './theme';
@@ -23,6 +31,10 @@ export const battleStorage: KVStorage | undefined = BC ? sessionStorage : undefi
 
 let active: { host?: BattleHost; guest?: BattleGuest } = {};
 let pendingHost: { settings: MatchSettings; seed: number } | null = null;
+/** the host's room running without its board (see the module doc) */
+let background: { host: BattleHost; ctrl: GameController; off: () => void } | null = null;
+/** game screens currently bound to the host's room */
+let hostScreens = 0;
 
 export function getBattle() {
   return active;
@@ -31,6 +43,11 @@ export function getBattle() {
 /** Remember the setup of a room to open on the lobby screen. */
 export function prepareHost(settings: MatchSettings, seed: number) {
   pendingHost = { settings: { ...settings, kind: 'battleOnline' }, seed };
+}
+
+/** A new room is about to be opened (the lobby must not show the room that is already running). */
+export function hasPendingHost(): boolean {
+  return !!pendingHost;
 }
 
 export function takePendingHost() {
@@ -54,14 +71,21 @@ export function startGuest(code: string): BattleGuest {
   return guest;
 }
 
-/** A battle that can be continued (running in memory or saved before a reload). */
+/**
+ * A battle that can be continued: running on this page, or saved before a reload. A saved session
+ * whose own seat is out (the person conceded or was knocked out) is dropped, not offered.
+ */
 export function resumableBattle(): { role: 'host' | 'guest'; code: string } | null {
   if (active.host?.code && active.host.status !== 'ended' && active.host.status !== 'error') return { role: 'host', code: active.host.code };
   if (active.guest && active.guest.status !== 'ended' && active.guest.status !== 'error') return { role: 'guest', code: active.guest.code ?? '' };
-  const h = BattleHost.saved(battleStorage ?? undefined);
-  if (h && !h.ended) return { role: 'host', code: h.code };
-  const g = BattleGuest.saved(battleStorage ?? undefined);
-  if (g && !g.ended) return { role: 'guest', code: g.code };
+  if (active.host || active.guest) return null;
+  const store = battleStorage ?? undefined;
+  const h = BattleHost.saved(store);
+  if (h?.out) BattleHost.clearSaved(store);
+  else if (h && !h.ended) return { role: 'host', code: h.code };
+  const g = BattleGuest.saved(store);
+  if (g?.out) BattleGuest.clearSaved(store);
+  else if (g && !g.ended) return { role: 'guest', code: g.code };
   return null;
 }
 
@@ -77,11 +101,12 @@ export function resumeBattle(): void {
   }
   const s = active.host ?? active.guest;
   if (!s) return;
-  if (s.state && s.status === 'playing') launchBattle();
+  if (s.state && (s.status === 'playing' || s.status === 'ended')) launchBattle();
   else navigate({ name: 'battleRoom', join: active.guest?.code ?? undefined });
 }
 
 export function closeBattle() {
+  stopBackground();
   if (active.host) active.host.close();
   if (active.guest) active.guest.leave();
   active = {};
@@ -110,6 +135,41 @@ export function launchBattle() {
   }
 }
 
+function stopBackground() {
+  if (!background) return;
+  background.off();
+  background.ctrl.dispose();
+  background = null;
+}
+
+/** Keep the host's room going without its board: bots move, guests' moves are applied as usual. */
+function startBackground(host: BattleHost) {
+  if (background || hostScreens > 0 || active.host !== host || !host.state || host.status !== 'playing') return;
+  const binding = hostBinding(host);
+  const ctrl: GameController = new GameController({
+    state: host.state,
+    settings: getSettings(),
+    nameOf: (slot) => playerName(ctrl.state.settings, slot),
+    t: t as (k: string, p?: Record<string, string | number>) => string,
+    driver: binding.driver,
+    onAction: binding.onAction,
+    background: true,
+  });
+  const offs = [
+    host.onApplied((a) => {
+      if (a.a.t === 'settings') ctrl.refreshBots();
+    }),
+    host.onState(() => {
+      if (host.state) ctrl.replaceState(host.state);
+    }),
+    host.onStatus((st) => {
+      if (st !== 'playing') stopBackground();
+    }),
+  ];
+  background = { host, ctrl, off: () => offs.forEach((f) => f()) };
+  ctrl.start();
+}
+
 function hostBinding(host: BattleHost): OnlineBinding {
   return {
     onAction: (seat, a) => {
@@ -121,6 +181,8 @@ function hostBinding(host: BattleHost): OnlineBinding {
       },
     },
     bind(ctrl: GameController) {
+      hostScreens++;
+      stopBackground();
       const offs = [
         host.onApplied((a, fight) => {
           if (fight) ctrl.remoteFight(fight);
@@ -135,7 +197,13 @@ function hostBinding(host: BattleHost): OnlineBinding {
           ctrl.replaceState(ctrl.state);
         }),
       ];
-      return () => offs.forEach((f) => f());
+      return () => {
+        offs.forEach((f) => f());
+        hostScreens--;
+        // the board is gone (menu, another game): the room plays on without it. Deferred so that a
+        // board replacing this one (back to the room) binds first.
+        setTimeout(() => startBackground(host), 0);
+      };
     },
     Extra: ({ ctrl }) => <RoomHud roster={host.roster} ctrl={ctrl} />,
     exitTo: { name: 'menu' },
@@ -202,19 +270,30 @@ function guestBinding(guest: BattleGuest): OnlineBinding {
           ctrl.replaceState(ctrl.state);
         }),
         guest.on('connection', () => ctrl.replaceState(ctrl.state)),
+        guest.onStatus(() => ctrl.replaceState(ctrl.state)),
       ];
       if (guest.state && guest.state !== ctrl.state) ctrl.replaceState(guest.state);
       return () => offs.forEach((f) => f());
     },
-    Extra: ({ ctrl }) => <RoomHud roster={guest.roster} ctrl={ctrl} offline={!guest.connected} />,
+    Extra: ({ ctrl }) => (
+      <RoomHud roster={guest.roster} ctrl={ctrl} offline={!guest.connected} closed={guest.status === 'error' ? guest.lastError?.code ?? 'error' : null} />
+    ),
     exitTo: { name: 'menu' },
     onLeaveEnded: () => closeBattle(),
   };
 }
 
 /** Connection notes in the game HUD: who is offline, our own link. */
-function RoomHud({ roster, ctrl, offline }: { roster: RosterEntry[]; ctrl: GameController; offline?: boolean }) {
+function RoomHud({ roster, ctrl, offline, closed }: { roster: RosterEntry[]; ctrl: GameController; offline?: boolean; closed?: string | null }) {
   if (ctrl.state.ended) return null;
+  // the room is gone for good (the host closed it, our seat was given away...)
+  if (closed) {
+    return (
+      <div class="hint" data-testid="room-gone" style={{ color: 'var(--bad)' }}>
+        {closed === 'closed' ? t('battleRoomClosed') : t('duelError')}
+      </div>
+    );
+  }
   if (offline) return <div class="hint" style={{ color: 'var(--warn)' }}>{t('duelReconnecting')}</div>;
   const away = roster.filter((r) => r.taken && !r.connected && !r.you);
   // guest: its own link; host: 'relay' as soon as any guest is relayed

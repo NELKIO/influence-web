@@ -198,7 +198,14 @@ export interface SavedBattleInfo {
   code: string;
   inMatch: boolean;
   ended: boolean;
+  /** in a running match the saved person's own seat is out (conceded or knocked out): only watching */
+  out: boolean;
   savedAt: number;
+}
+
+/** the seat has no cells left in a match that is still running */
+function seatOut(state: MatchState | null | undefined, seat: number): boolean {
+  return !!state && !state.ended && seat >= 0 && !E.isAlive(state, seat);
 }
 
 export class BattleHost {
@@ -268,7 +275,8 @@ export class BattleHost {
   static saved(storage: KVStorage | null = defaultStorage()): SavedBattleInfo | null {
     const s = readJson<SavedHost>(storage, BATTLE_HOST_KEY);
     if (!s || s.v !== 1) return null;
-    return { role: 'host', code: s.code, inMatch: !!s.state, ended: !!s.state?.ended, savedAt: s.savedAt };
+    const seat = s.state ? s.state.settings.players.indexOf('human') : -1;
+    return { role: 'host', code: s.code, inMatch: !!s.state, ended: !!s.state?.ended, out: seatOut(s.state, seat), savedAt: s.savedAt };
   }
 
   static clearSaved(storage: KVStorage | null = defaultStorage()): void {
@@ -1019,7 +1027,7 @@ export class BattleGuest {
   static saved(storage: KVStorage | null = defaultStorage()): SavedBattleInfo | null {
     const s = readJson<SavedGuest>(storage, BATTLE_GUEST_KEY);
     if (!s || s.v !== 1) return null;
-    return { role: 'guest', code: s.code, inMatch: !!s.state, ended: !!s.state?.ended, savedAt: s.savedAt };
+    return { role: 'guest', code: s.code, inMatch: !!s.state, ended: !!s.state?.ended, out: seatOut(s.state, s.seat), savedAt: s.savedAt };
   }
 
   static clearSaved(storage: KVStorage | null = defaultStorage()): void {

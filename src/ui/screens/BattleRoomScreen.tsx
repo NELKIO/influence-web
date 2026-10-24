@@ -5,7 +5,7 @@ import { Modal, TopBar } from '../components/controls';
 import { IconShare, PlayerToken } from '../components/icons';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import type { BattleGuest, BattleHost, RosterEntry } from '../../net';
-import { battleInvite, closeBattle, getBattle, launchBattle, startGuest, startHost, takePendingHost } from '../battle';
+import { battleInvite, closeBattle, getBattle, hasPendingHost, launchBattle, startGuest, startHost, takePendingHost } from '../battle';
 import { playerColor } from '../theme';
 import { isScenarioId } from '../../core/scenarios';
 
@@ -21,7 +21,8 @@ export function BattleRoomScreen({ join }: { join?: string }) {
   const [room, setRoom] = useState<BattleHost | BattleGuest | null>(() => {
     const a = getBattle();
     if (join) return a.guest?.code === join ? a.guest : null;
-    return a.host ?? null;
+    // a new room was asked for: open it (the running one must not take its place and pull us back in)
+    return hasPendingHost() ? null : (a.host ?? null);
   });
 
   // open the room on first show

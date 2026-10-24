@@ -266,7 +266,11 @@ export function GameScreen({ launch }: { launch: Launch }) {
   };
 
   const quickRematch = () => {
-    if (s.settings.kind === 'single') {
+    if (s.settings.kind === 'battleOnline') {
+      // a new online battle starts from the setup (this room is finished: close it)
+      online?.onLeaveEnded?.();
+      navigate({ name: 'setup' });
+    } else if (s.settings.kind === 'single') {
       const st = startMatch(setupToSettings(loadSetup()));
       navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
     } else newGame();
@@ -452,7 +456,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
           <button class="btn primary" onClick={() => ctrl.resume()}>
             <IconPlay width={18} height={18} /> {t('resume')}
           </button>
-          {s.settings.kind !== 'duelOnline' && !s.ended && (
+          {!online && !s.ended && (
             <button class="btn ghost" onClick={restartSame}>
               <IconRestart width={18} height={18} /> {t('restartSame')}
             </button>
@@ -475,7 +479,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
         <ResultModal
           ctrl={ctrl}
           onMenu={exitToMenu}
-          onRestart={s.settings.kind !== 'duelOnline' ? restartSame : undefined}
+          onRestart={!online ? restartSame : undefined}
           onNew={s.settings.kind !== 'duelOnline' ? quickRematch : undefined}
           onViewBoard={() => setViewingBoard(true)}
           onWatch={!online && canSpectate(s) ? watchBots : undefined}

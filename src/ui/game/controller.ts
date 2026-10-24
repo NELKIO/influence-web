@@ -26,6 +26,8 @@ import type { Bot } from '../../ai/types';
 import { createBot } from '../../ai';
 import { sfx, buzz } from '../../audio/sfx';
 import { playerColor } from '../theme';
+
+const SILENT_SFX = Object.fromEntries(Object.keys(sfx).map((k) => [k, () => {}])) as unknown as typeof sfx;
 import type { BoardRenderer, BoardView } from '../board/renderer';
 import { SPEED_MS, type Settings } from '../../storage';
 
@@ -80,6 +82,11 @@ export interface ControllerOptions {
   onEnd?: (state: MatchState) => void;
   /** online battle guest: every move comes from the host, bots are not run locally */
   remoteDriven?: boolean;
+  /**
+   * No screen: an online battle host's room running on while the host is elsewhere in the app. Bots
+   * move as usual; no sounds, no vibration, no overlays (the host's own turn simply waits).
+   */
+  background?: boolean;
   t: (k: string, p?: Record<string, string | number>) => string;
 }
 
@@ -107,12 +114,16 @@ export class GameController {
   private resultShown = false;
   private driver: MatchDriver;
   private opts: ControllerOptions;
+  private fx: typeof sfx;
+  private vibrate: typeof buzz;
 
   constructor(opts: ControllerOptions) {
     this.opts = opts;
     this.state = opts.state;
     this.settings = opts.settings;
     this.driver = { ...this.localDriver(), ...(opts.driver ?? {}) };
+    this.fx = opts.background ? SILENT_SFX : sfx;
+    this.vibrate = opts.background ? () => {} : buzz;
     // a guest of an online battle only replays what the host sends: no bots run here
     if (!opts.remoteDriven) {
       opts.state.settings.players.forEach((p, slot) => {
@@ -296,7 +307,7 @@ export class GameController {
     if (s.phase === 'attack') {
       if (c.owner === s.current) {
         s.selected = s.selected === cell && !canAttackFrom(s, cell) ? -1 : cell;
-        if (canAttackFrom(s, cell)) sfx.select();
+        if (canAttackFrom(s, cell)) this.fx.select();
         this.emit();
         return;
       }
@@ -307,7 +318,7 @@ export class GameController {
       const refusal = checkAttack(s, s.selected, cell);
       if (refusal === 'greysFirst') {
         this.showHint(this.opts.t('greysFirst'));
-        buzz(30);
+        this.vibrate(30);
         return;
       }
       if (refusal) {
@@ -324,11 +335,11 @@ export class GameController {
       if (c.owner !== s.current) return;
       const added = this.driver.addPower(cell, 1);
       if (added) {
-        sfx.power();
+        this.fx.power();
         this.renderer?.floatText(cell, `+${added}`, playerColor(s.current));
         this.afterPowerAdded();
       } else {
-        if (!this.opts.remoteDriven) buzz(8);
+        if (!this.opts.remoteDriven) this.vibrate(8);
       }
     }
   }
@@ -342,8 +353,8 @@ export class GameController {
       if (c.owner !== s.current) return;
       const added = this.driver.addPower(cell, c.maxPower - c.power);
       if (added) {
-        sfx.fill();
-        buzz(15);
+        this.fx.fill();
+        this.vibrate(15);
         this.renderer?.floatText(cell, `+${added}`, playerColor(s.current));
         this.afterPowerAdded();
       }
@@ -404,7 +415,7 @@ export class GameController {
       this.overlay = { kind: 'none' };
       const u = this.driver.endAttack();
       if (u) this.onUnion(u);
-      sfx.phase();
+      this.fx.phase();
       if (this.state.powerLeft === 0) this.driver.finishTurn();
       this.saveAndEmit();
       this.afterChange();
@@ -417,7 +428,7 @@ export class GameController {
       this.overlay = { kind: 'none' };
       const added = this.driver.autoPower();
       for (const [cell, n] of added) this.renderer?.floatText(cell, `+${n}`, playerColor(s.current));
-      sfx.fill();
+      this.fx.fill();
       this.driver.finishTurn();
       this.saveAndEmit();
       this.afterChange();
@@ -433,7 +444,7 @@ export class GameController {
     if (this.overlay.kind !== 'handover') return;
     this.handoverDone = this.overlay.next;
     this.overlay = { kind: 'none' };
-    sfx.turn();
+    this.fx.turn();
     this.emit();
     this.afterChange();
   }
@@ -492,13 +503,13 @@ export class GameController {
     const seen = vis[ev.from] || vis[ev.to];
     if (seen) {
       this.renderer?.fight(ev.from, ev.to, ev.win, playerColor(winnerSlot), playerColor(ev.player));
-      if (ev.win) sfx.capture();
-      else sfx.fail();
+      if (ev.win) this.fx.capture();
+      else this.fx.fail();
       this.renderer?.ensureVisible(ev.to);
     }
-    if (local || isHuman(this.state, ev.defOwnerBefore)) buzz(ev.win ? 10 : [10, 40, 10]);
+    if (local || isHuman(this.state, ev.defOwnerBefore)) this.vibrate(ev.win ? 10 : [10, 40, 10]);
     if (ev.eliminated !== null) {
-      sfx.eliminated();
+      this.fx.eliminated();
       if (seen) this.renderer?.ring(ev.to, playerColor(ev.eliminated), true);
       const text = this.isYou(ev.eliminated) ? this.opts.t('youEliminated') : this.opts.t('eliminated', { name: this.name(ev.eliminated) });
       this.showHint(text, playerColor(ev.eliminated), 3000);
@@ -517,7 +528,7 @@ export class GameController {
   }
 
   private onUnion(u: UnionEvent) {
-    sfx.eliminated();
+    this.fx.eliminated();
     const text = this.isYou(u.absorber)
       ? this.opts.t('unitedYou', { a: this.name(u.absorbed) })
       : this.opts.t('united', { a: this.name(u.absorbed), b: this.name(u.absorber) });
@@ -541,10 +552,11 @@ export class GameController {
         this.endedAt = Date.now();
         this.opts.onEnd?.(s);
         const won = s.ended.humanWon;
+        if (this.opts.background) return;
         window.setTimeout(() => {
           if (this.disposed) return;
-          if (won || s.settings.spectate || (this.humansCount > 1 && s.ended && s.ended.winner >= 0 && isHuman(s, s.ended.winner))) sfx.win();
-          else sfx.lose();
+          if (won || s.settings.spectate || (this.humansCount > 1 && s.ended && s.ended.winner >= 0 && isHuman(s, s.ended.winner))) this.fx.win();
+          else this.fx.lose();
           if (!this.paused) this.overlay = { kind: 'result' };
           this.emit();
         }, 650);
@@ -558,6 +570,7 @@ export class GameController {
     if (this.paused || this.overlay.kind !== 'none') return;
     const cur = s.current;
     if (isHuman(s, cur)) {
+      if (this.opts.background) return;
       // hot-seat: a new human takes over the device
       if (humansAlive(s).length > 1 && this.handoverDone !== cur && s.phase === 'attack' && s.powerLeft === 0) {
         if (s.settings.darkness) {
@@ -567,7 +580,7 @@ export class GameController {
           return;
         }
         this.handoverDone = cur;
-        sfx.turn();
+        this.fx.turn();
         this.showHint(this.opts.t('handoverNext', { name: this.name(cur) }), playerColor(cur), 1800);
       }
       if (s.phase === 'attack' && this.stuckChecked !== s.turn * 10 + cur) {
@@ -668,7 +681,7 @@ export class GameController {
       this.thinking = false;
     }
     this.emit();
-    if (isHuman(this.state, this.state.current) && !this.state.ended) sfx.turn();
+    if (isHuman(this.state, this.state.current) && !this.state.ended) this.fx.turn();
     this.afterChange();
   }
 
