@@ -9,7 +9,7 @@ import { Rng, randomSeed } from './rng';
 import { buildAdjacency, geometricPairs } from './field';
 import { createMatch } from './engine';
 import { articulationPoints, chokePoints } from './connectivity';
-import { NEUTRAL, type Cell, type Field, type FieldSize, type MatchSettings, type MatchState, type PlayerType } from './types';
+import { NEUTRAL, type Cell, type Field, type FieldSize, type MatchSettings, type MatchState, type OrderComp, type PlayerType } from './types';
 
 type Ax = [number, number]; // q, r
 
@@ -331,6 +331,31 @@ function landingDrops(rng: Rng, radius: number, spacing: number, seats: number):
   throw new Error('night drop: no room for the drops');
 }
 
+/** Extra cells and grey guards of the order compensation around the night drop's squads (no randomness). */
+function landingComp(b: Board, squads: Ax[][], comp: OrderComp) {
+  const ring = (squad: Ax[]) => {
+    const out: Slot[] = [];
+    const seen = new Set<string>();
+    for (const [q, r] of squad)
+      for (const [dq, dr] of DIRS) {
+        const c = b.get(q + dq, r + dr);
+        if (c && !seen.has(key(c.q, c.r))) {
+          seen.add(key(c.q, c.r));
+          out.push(c);
+        }
+      }
+    return out.filter((c) => c.owner === NEUTRAL).sort((x, y) => x.q - y.q || x.r - y.r);
+  };
+  squads.forEach((squad, p) => {
+    const free = ring(squad).filter((c) => c.power === 0);
+    for (const c of free.slice(0, comp.extra?.[p] ?? 0)) Object.assign(c, { owner: p, power: Math.max(1, Math.min(c.max, comp.extraPower ?? 1)) });
+  });
+  squads.forEach((squad, p) => {
+    const g = comp.grey?.[p] ?? 0;
+    if (g > 0) for (const c of ring(squad)) c.power = Math.max(c.power, Math.min(c.max, g));
+  });
+}
+
 // ---------------------------------------------------------------- scenarios
 
 /** The first scenarios: duels and three-player fights. */
@@ -408,6 +433,19 @@ export type ScenarioMode = 'unions';
 export interface ScenarioConfig {
   size?: FieldSize;
   unions?: boolean;
+  /**
+   * Turn-order compensation of the night drop (missing: its default; 'off': none, as past maps of the
+   * day were built). Other scenarios have their own seats and ignore it.
+   */
+  orderComp?: OrderComp | 'off';
+  /** night drop: your squad is like the others (no knob), for measuring the turn order alone */
+  even?: boolean;
+}
+
+/** What a builder gets besides the knob, the seats and the size. */
+interface BuildExtras {
+  comp: OrderComp | null;
+  even: boolean;
 }
 
 export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
@@ -515,7 +553,7 @@ export function scenarioSetup(id: ScenarioId, config: ScenarioConfig = {}): { si
   };
 }
 
-const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: FieldSize) => Board> = {
+const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: FieldSize, extras: BuildExtras) => Board> = {
   /** You hold a small core in the middle; a ring of enemy cells surrounds you. Break out. */
   siege(rng, k) {
     const b = new Board();
@@ -1010,7 +1048,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
    * are. The drops are picked first, on the bare land, and each gets the same patch of open ground: no
    * lake, wall or armed ruin within two steps of it, so every squad can spread on its first turn.
    */
-  landing(rng, k, seats, size) {
+  landing(rng, k, seats, size, { comp, even }) {
     const { radius, spacing } = LANDING_SIZES[size as LandingSize] ?? LANDING_SIZES.XL;
     const b = new Board();
     b.disk(radius);
@@ -1036,13 +1074,20 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     }
     for (const c of rng.shuffle(wild()).slice(0, Math.round(b.cells.size * 0.075))) c.power = Math.min(c.max, 2 + rng.int(3));
     // every squad is the same little triangle, turned at random
+    const squads: Ax[][] = [];
     drops.forEach((d, p) => {
       const turn = rng.int(6);
+      const squad: Ax[] = [];
       for (const [dq, dr] of [[0, 0], DIRS[turn], DIRS[(turn + 1) % 6]]) {
         const c = b.get(d[0] + dq, d[1] + dr)!;
-        Object.assign(c, { owner: p, power: p === 0 ? Math.min(c.max, kp(rng, k)) : Math.min(c.max, 3) });
+        // the squads of the order compensation: theirs for the bots, yours stays the knob
+        const own = p === 0 && !even ? kp(rng, k) : (comp?.power?.[p] ?? 3);
+        Object.assign(c, { owner: p, power: Math.max(1, Math.min(c.max, own)) });
+        squad.push([c.q, c.r]);
       }
+      squads.push(squad);
     });
+    if (comp) landingComp(b, squads, comp);
     return b;
   },
 
@@ -1189,6 +1234,13 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
   },
 };
 
+/** The night drop's turn-order compensation for this many seats on this size (given: that one; none yet by default). */
+export function landingOrderComp(_seats: number, _size: FieldSize, given?: OrderComp | 'off'): OrderComp | null {
+  if (given === 'off') return null;
+  if (given) return given;
+  return null;
+}
+
 /**
  * Build the starting position of a scenario (deterministic for a seed). `players` replaces the
  * recommended seat types (seat 0 is you; as many seats as recommended, or any number the scenario
@@ -1200,7 +1252,8 @@ export function buildScenario(id: ScenarioId, seed: number, knob?: number, playe
   if (!seatsFit(id, seats.length)) throw new Error(`${id}: ${meta.players.length} seats, got ${seats.length}`);
   const { size, unions } = scenarioSetup(id, config);
   const rng = new Rng(seed);
-  const board = BUILDERS[id](rng, knob ?? scenarioKnob(id, size), seats.length, size);
+  const comp = id === 'landing' ? landingOrderComp(seats.length, size, config?.orderComp) : null;
+  const board = BUILDERS[id](rng, knob ?? scenarioKnob(id, size), seats.length, size, { comp, even: !!config?.even });
   board.unchoke();
   const field = board.toField(size);
   return createMatch(
@@ -1216,6 +1269,7 @@ export function buildScenario(id: ScenarioId, seed: number, knob?: number, playe
       duelRules: false,
       puzzle: id,
       ...(meta.blind ? { blind: true } : {}),
+      ...(comp ? { orderComp: comp } : {}),
     },
     { field, keepPlacement: true, seed: seed ^ 0x5bd1e995 },
   );

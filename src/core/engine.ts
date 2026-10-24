@@ -10,6 +10,7 @@ import {
   type MatchEnd,
   type MatchSettings,
   type MatchState,
+  type OrderComp,
   type UnionEvent,
 } from './types';
 
@@ -30,6 +31,9 @@ export function createMatch(settings: MatchSettings, opts: CreateOptions = {}): 
   if (s.duelRules) s.unions = false;
   // shuffle: every seat, the person's too (moving first is an advantage; who gets it is left to chance)
   if (s.shuffle && s.players.length >= 2) s.players = rng.shuffle(s.players);
+  const comp = resolveOrderComp(s);
+  if (comp) s.orderComp = comp;
+  else if (s.orderComp !== 'off') delete s.orderComp;
   const field = opts.field
     ? structuredClone(opts.field)
     : generateField({ size: s.size, symmetry: s.symmetry, players: s.players.length }, rng);
@@ -79,11 +83,15 @@ function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
     } else chosen = P.slice(0, 5);
   } else chosen = P.slice(0, 6);
   rng.shuffle(chosen);
+  const comp = s.orderComp && s.orderComp !== 'off' ? s.orderComp : null;
   chosen.forEach((ci, slot) => {
     const c = field.cells[ci];
     c.owner = slot;
     c.power = n !== 2 ? 2 : s.size !== 'S' ? (slot === 0 ? 5 : 7) : slot === 0 ? 2 : 3;
+    const p = comp?.power?.[slot];
+    if (p !== undefined) c.power = Math.max(1, Math.min(c.maxPower, p));
   });
+  if (comp && !(s.crowded && !s.duelRules)) applyStartComp(field, chosen, comp);
   if (s.crowded && !s.duelRules) {
     const order = rng.shuffle(field.cells.map((_, i) => i));
     order.forEach((ci, i) => {
@@ -91,6 +99,66 @@ function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
       field.cells[ci].power = 2;
     });
   }
+}
+
+/**
+ * The turn-order compensation a match is played with: the one given in the settings, else the default
+ * for them (none yet), or null.
+ */
+export function resolveOrderComp(s: MatchSettings): OrderComp | null {
+  if (s.orderComp === 'off') return null;
+  if (s.orderComp) return s.orderComp;
+  return null;
+}
+
+/** Extra start cells and grey guards of the order compensation (`starts` = start cell per seat). */
+function applyStartComp(field: Field, starts: number[], comp: OrderComp) {
+  const { cells, adj } = field;
+  starts.forEach((start, slot) => {
+    const extra = comp.extra?.[slot] ?? 0;
+    for (let k = 0; k < extra; k++) {
+      // the nearest free cell (breadth first from the start, field order within a ring)
+      const seen = new Set([start]);
+      let ring = [start];
+      let pick = -1;
+      while (ring.length && pick < 0) {
+        const next: number[] = [];
+        for (const v of ring)
+          for (const u of adj[v])
+            if (!seen.has(u)) {
+              seen.add(u);
+              next.push(u);
+            }
+        next.sort((a, b) => a - b);
+        pick = next.find((u) => cells[u].owner === NEUTRAL && cells[u].power === 0 && adj[u].some((w) => cells[w].owner === slot)) ?? -1;
+        ring = next;
+      }
+      if (pick < 0) break;
+      cells[pick].owner = slot;
+      cells[pick].power = Math.max(1, Math.min(cells[pick].maxPower, comp.extraPower ?? 1));
+    }
+  });
+  starts.forEach((start, slot) => {
+    const g = comp.grey?.[slot] ?? 0;
+    if (g <= 0) return;
+    for (const u of adj[start]) if (cells[u].owner === NEUTRAL) cells[u].power = Math.max(cells[u].power, Math.min(cells[u].maxPower, g));
+  });
+}
+
+/** Whether the current seat sits out its attack phase (order compensation: the first movers in round 0). */
+export function attackBlocked(state: MatchState): boolean {
+  const c = state.settings.orderComp;
+  return !!c && c !== 'off' && !!c.skip && state.turn === 0 && state.current < c.skip;
+}
+
+/** The seats in the order they move in a round (always 0..n-1 unless the order compensation changes it). */
+export function roundOrder(s: MatchSettings, round: number): number[] {
+  const n = s.players.length;
+  const base = Array.from({ length: n }, (_, i) => i);
+  const o = s.orderComp && s.orderComp !== 'off' ? s.orderComp.order : undefined;
+  if (o === 'rotate') return base.map((i) => (i + round) % n);
+  if (o === 'snake') return round % 2 ? base.reverse() : base;
+  return base;
 }
 
 // ---------------------------------------------------------------- queries
@@ -196,6 +264,7 @@ export function hasNeutralNeighbour(state: MatchState, cell: number): boolean {
 export function canAttackFrom(state: MatchState, cell: number): boolean {
   const c = state.field.cells[cell];
   if (c.power < 2 || c.owner < 0) return false;
+  if (c.owner === state.current && attackBlocked(state)) return false;
   return state.field.adj[cell].some((n) => state.field.cells[n].owner !== c.owner);
 }
 
@@ -218,7 +287,7 @@ export function anyAttackLeft(state: MatchState, slot = state.current): boolean 
 
 export function checkAttack(state: MatchState, from: number, to: number): AttackRefusal | null {
   if (state.ended) return 'ended';
-  if (state.phase !== 'attack') return 'wrongPhase';
+  if (state.phase !== 'attack' || attackBlocked(state)) return 'wrongPhase';
   const { cells, adj } = state.field;
   const a = cells[from];
   const d = cells[to];
@@ -336,6 +405,9 @@ export function endAttack(state: MatchState): UnionEvent | null {
   state.phase = 'power';
   state.selected = -1;
   state.powerLeft = incomeFor(state, state.current);
+  const comp = state.settings.orderComp;
+  const bonus = state.turn === 0 && comp && comp !== 'off' ? (comp.bonus?.[state.current] ?? 0) : 0;
+  if (bonus) state.powerLeft = Math.max(0, Math.min(state.powerLeft + bonus, freeCapacity(state, state.current)));
   return union;
 }
 
@@ -379,16 +451,28 @@ export function finishTurn(state: MatchState): void {
   state.phase = 'attack';
   state.selected = -1;
   const n = state.settings.players.length;
-  let next = state.current;
-  for (let k = 1; k <= n; k++) {
-    const cand = (state.current + k) % n;
-    if (isAlive(state, cand)) {
-      next = cand;
-      break;
+  const comp = state.settings.orderComp;
+  if (comp && comp !== 'off' && comp.order) {
+    // a changed order within the round: the next seat alive in this round's order, else the first of the next round's
+    const ord = roundOrder(state.settings, state.turn);
+    const after = ord.slice(ord.indexOf(state.current) + 1).find((p) => isAlive(state, p));
+    if (after === undefined) {
+      state.turn++;
+      state.current = roundOrder(state.settings, state.turn).find((p) => isAlive(state, p)) ?? state.current;
+    } else state.current = after;
+  } else {
+    let next = state.current;
+    for (let k = 1; k <= n; k++) {
+      const cand = (state.current + k) % n;
+      if (isAlive(state, cand)) {
+        next = cand;
+        break;
+      }
     }
+    if (next <= state.current) state.turn++;
+    state.current = next;
   }
-  if (next <= state.current) state.turn++;
-  state.current = next;
+  const next = state.current;
   if (isHuman(state, next)) state.viewer = next;
   const cap = state.settings.spectate;
   if (cap && state.turn >= cap) state.ended = { winner: -1, humanWon: false, reason: 'cap', turn: state.turn };

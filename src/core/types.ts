@@ -100,6 +100,34 @@ export interface MatchSettings {
    * people and ends at the latest when this round starts (reason 'cap', nobody won).
    */
   spectate?: number;
+  /**
+   * Turn-order compensation (who moves first has an edge). Missing: the default for these settings;
+   * 'off': none (the starts as they were before the compensation, kept by past maps of the day).
+   */
+  orderComp?: OrderComp | 'off';
+}
+
+/**
+ * Compensation for the turn order, by seat (seat 0 moves first). Every field is optional; arrays are
+ * indexed by seat (missing entries: no change).
+ */
+export interface OrderComp {
+  /** start power of each seat's start cell (ordinary maps) or of each squad cell (night drop) */
+  power?: number[];
+  /** extra start cells per seat (free neighbours of the start, in field order), of power `extraPower` */
+  extra?: number[];
+  extraPower?: number;
+  /** bonus power added to each seat's first income (round 0) */
+  bonus?: number[];
+  /** neutral cells next to each seat's start get this power (a grey guard; 0 = none) */
+  grey?: number[];
+  /** the first `skip` seats have no attack phase in round 0 (they still get their income) */
+  skip?: number;
+  /**
+   * Structural: the order within a round. 'rotate': round r opens with seat r mod n; 'snake': every
+   * other round is played backwards (0..n-1, n-1..0, ...).
+   */
+  order?: 'rotate' | 'snake';
 }
 
 export type Phase = 'attack' | 'power';
