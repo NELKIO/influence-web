@@ -480,7 +480,7 @@ export const TUNING: Record<ScenarioId, number> = {
   treasury: 4,
   bridges: 3,
   spear: 4.5,
-  landing: 5,
+  landing: 6,
   laststand: 6,
   olympus: 4.5,
   titans: 6,
@@ -490,7 +490,8 @@ export const TUNING: Record<ScenarioId, number> = {
 
 /** Knobs of a configurable scenario on its other sizes (TUNING holds the one of the default size). */
 export const SIZE_TUNING: Partial<Record<ScenarioId, Partial<Record<FieldSize, number>>>> = {
-  landing: { L: 5, XXL: 5 },
+  // newer scenarios aim at Master in your seat winning about 55–65%; on XXL the drops are farther apart
+  landing: { L: 6, XXL: 7 },
 };
 
 /** The knob for a scenario on a map size. */
