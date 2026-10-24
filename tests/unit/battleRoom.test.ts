@@ -99,8 +99,23 @@ describe('battle rules', () => {
     expect(battleHash(g)).toBe(battleHash(st));
     const s = battleSettings({ players: ['human', 'online', 'dummy', 'online', 'hunter'], shuffle: true });
     expect(shuffledSeatOrder(s, 9)).toEqual(shuffledSeatOrder(s, 9));
-    expect(shuffledSeatOrder(s, 9)[0]).toBe(0);
     expect([...shuffledSeatOrder(s, 9)].sort()).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('shuffle moves every seat, the host too: over many seeds the host sits everywhere', () => {
+    for (const n of [2, 3, 6]) {
+      const s = battleSettings({ players: ['human', ...Array(n - 1).fill('online')], shuffle: true });
+      const hostAt = new Set<number>();
+      for (let seed = 1; seed <= 200; seed++) {
+        const order = shuffledSeatOrder(s, seed);
+        expect([...order].sort()).toEqual([...Array(n).keys()]);
+        hostAt.add(order.indexOf(0));
+      }
+      expect(hostAt.size, `${n} seats`).toBe(n);
+    }
+    // off, or a scenario room (its map is built around the seats): unchanged
+    expect(shuffledSeatOrder(battleSettings({ players: ['human', 'online', 'dummy'] }), 5)).toEqual([0, 1, 2]);
+    expect(shuffledSeatOrder(battleSettings({ players: ['human', 'online', 'dummy'], shuffle: true, puzzle: 'siege' }), 5)).toEqual([0, 1, 2]);
   });
 
   it('validates messages', () => {
@@ -196,6 +211,35 @@ describe('battle lobby', () => {
 });
 
 describe('battle matches', () => {
+  it('shuffle puts the host in another seat: host and guests stay in sync, everyone sees from their own seat', async () => {
+    const players = ['human', 'online', 'hunter', 'online'] as const;
+    // a seed where the host does not move first
+    let seed = 1;
+    while (shuffledSeatOrder(battleSettings({ players: [...players], shuffle: true }), seed).indexOf(0) === 0) seed++;
+    const room = await makeRoom({ players: [...players], size: 'S', seed, darkness: true, shuffle: true });
+    room.host.start();
+    await room.hub.flush();
+    const st = room.host.state!;
+    const me = st.settings.players.indexOf('human');
+    expect(me).toBeGreaterThan(0);
+    expect(st.viewer).toBe(me);
+    expect(room.host.roster.find((r) => r.you)?.seat).toBe(me);
+    expect(room.host.roster[me].name).toBe('Hosty');
+    for (const { g, cid } of room.guests) {
+      expect(room.host.seatOf(cid)).toBe(g.seat);
+      expect(g.state!.viewer).toBe(g.seat);
+      expect(g.roster[me].onHost).toBe(true);
+      expect(g.roster[me].name).toBe('Hosty');
+    }
+    expectAllSame(room, 'start');
+    await playOut(room, 250);
+    expectAllSame(room, 'end');
+    expect(room.resyncs).toEqual([]);
+    // a host page reload keeps the shuffled seats
+    const host2 = reloadHost(room);
+    expect(host2.state!.settings.players.indexOf('human')).toBe(me);
+  });
+
   it('host + 2 guests + bot: identical states after every turn, to the end', async () => {
     const room = await makeRoom({ players: ['human', 'online', 'hunter', 'online'], size: 'S', seed: 21 });
     const fights: FightEvent[] = [];

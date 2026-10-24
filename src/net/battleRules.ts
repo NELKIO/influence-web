@@ -54,15 +54,16 @@ export function localizeBattleState(state: MatchState, seat: number): MatchState
 }
 
 /**
- * Seat order of a battle with `shuffle` on (like the engine: seat 0 stays, the rest are shuffled).
+ * Seat order of a battle with `shuffle` on: every seat is shuffled, the host's too (like the engine),
+ * deterministically for the seed. Scenario rooms keep their seats (the map is built around them).
  * Returns `order` where match seat i is lobby seat order[i].
  */
 export function shuffledSeatOrder(settings: MatchSettings, seed: number): number[] {
   const n = settings.players.length;
   const order = [...Array(n).keys()];
-  if (!settings.shuffle || n <= 2) return order;
+  if (!settings.shuffle || n < 2 || settings.puzzle) return order;
   const rng = new Rng((seed ^ 0x5bd1e995) >>> 0);
-  return [0, ...rng.shuffle(order.slice(1))];
+  return rng.shuffle(order);
 }
 
 export type ApplyOutcome =

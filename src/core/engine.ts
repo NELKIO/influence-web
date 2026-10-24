@@ -28,10 +28,8 @@ export function createMatch(settings: MatchSettings, opts: CreateOptions = {}): 
   const rng = new Rng(seed);
   const s: MatchSettings = { ...settings, players: [...settings.players] };
   if (s.duelRules) s.unions = false;
-  if (s.shuffle && s.players.length > 2) {
-    const rest = rng.shuffle(s.players.slice(1));
-    s.players = [s.players[0], ...rest];
-  }
+  // shuffle: every seat, the person's too (moving first is an advantage; who gets it is left to chance)
+  if (s.shuffle && s.players.length >= 2) s.players = rng.shuffle(s.players);
   const field = opts.field
     ? structuredClone(opts.field)
     : generateField({ size: s.size, symmetry: s.symmetry, players: s.players.length }, rng);

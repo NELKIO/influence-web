@@ -249,7 +249,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
 
   const restartSame = () => {
     const init = structuredClone(launch.initial);
-    const fresh = createMatch(init.settings, { field: init.field, keepPlacement: true, seed: init.seed + 1 });
+    // the seats keep the order they were given at the start (no new shuffle: the placement belongs to them)
+    const fresh = createMatch({ ...init.settings, shuffle: false }, { field: init.field, keepPlacement: true, seed: init.seed + 1 });
     fresh.settings = init.settings;
     navigate({ name: 'game', launch: { state: fresh, initial: launch.initial } });
   };

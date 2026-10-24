@@ -119,10 +119,29 @@ describe('match setup', () => {
     const m = createMatch({ ...base, crowded: true, players: ['human', 'dummy', 'freak'] }, { seed: 3 });
     expect(m.field.cells.every((c) => c.owner >= 0 && c.power === 2)).toBe(true);
   });
-  it('shuffle keeps slot 0', () => {
-    const m = createMatch({ ...base, shuffle: true, players: ['human', 'dummy', 'freak', 'hunter', 'master'] }, { seed: 9 });
-    expect(m.settings.players[0]).toBe('human');
-    expect([...m.settings.players].sort()).toEqual(['dummy', 'freak', 'human', 'hunter', 'master']);
+  it('shuffle moves every seat, the person too: over many seeds they sit everywhere, deterministically', () => {
+    const players = ['human', 'dummy', 'freak', 'hunter', 'master'] as MatchSettings['players'];
+    const seen = new Set<number>();
+    for (let seed = 1; seed <= 200; seed++) {
+      const m = createMatch({ ...base, shuffle: true, players }, { seed });
+      expect([...m.settings.players].sort()).toEqual(['dummy', 'freak', 'human', 'hunter', 'master']);
+      const me = m.settings.players.indexOf('human');
+      seen.add(me);
+      // the person sees from their own seat and owns its start
+      expect(m.viewer).toBe(me);
+      expect(m.field.cells.some((c) => c.owner === me)).toBe(true);
+      // the same seed gives the same order and map
+      const again = createMatch({ ...base, shuffle: true, players }, { seed });
+      expect(again.settings.players).toEqual(m.settings.players);
+      expect(again.field.cells.map((c) => [c.owner, c.power])).toEqual(m.field.cells.map((c) => [c.owner, c.power]));
+    }
+    expect([...seen].sort()).toEqual([0, 1, 2, 3, 4]);
+    // two players: either may move first
+    const firsts = new Set<string>();
+    for (let seed = 1; seed <= 40; seed++) firsts.add(createMatch({ ...base, shuffle: true }, { seed }).settings.players[0]);
+    expect([...firsts].sort()).toEqual(['dummy', 'human']);
+    // without shuffle nothing moves
+    expect(createMatch({ ...base, players }, { seed: 9 }).settings.players).toEqual(players);
   });
 });
 
