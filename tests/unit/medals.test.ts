@@ -14,9 +14,11 @@ beforeEach(() => {
   };
 });
 
-/** any scenario with a seat recommended below God, and one for three or more players */
+/** any scenario with a seat recommended below God, and a fixed one for three or more players (configurable ones: landing.test.ts) */
 const DUEL = SCENARIOS.find((id) => SCENARIO_META[id].players.length === 2 && SCENARIO_META[id].players[1] !== 'god')!;
-const BATTLE = SCENARIOS.find((id) => SCENARIO_META[id].players.length >= 3 && SCENARIO_META[id].players.some((p) => p !== 'god' && p !== 'human'))!;
+const BATTLE = SCENARIOS.find(
+  (id) => !SCENARIO_META[id].configurable && SCENARIO_META[id].players.length >= 3 && SCENARIO_META[id].players.some((p) => p !== 'god' && p !== 'human'),
+)!;
 
 const won: MatchEnd = { winner: 0, humanWon: true, reason: 'elimination', turn: 12 };
 const lost: MatchEnd = { winner: 1, humanWon: false, reason: 'elimination', turn: 12 };

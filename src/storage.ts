@@ -1,6 +1,6 @@
 import type { Lang } from './i18n';
 import type { FieldSize, MatchKind, MatchSettings, MatchState, PlayerType } from './core/types';
-import { isScenarioId, SCENARIO_META, type ScenarioId } from './core/scenarios';
+import { isScenarioId, scenarioSetup, SCENARIO_META, seatsFit, type ScenarioConfig, type ScenarioId } from './core/scenarios';
 import { betterMedal, isTier, type MedalTier } from './medals';
 
 const PREFIX = 'infweb.';
@@ -87,6 +87,8 @@ export interface SetupPrefs {
   scenario: ScenarioId | null;
   /** seat types chosen per scenario (the recommended ones when missing) */
   scenarioSeats: Partial<Record<ScenarioId, PlayerType[]>>;
+  /** size and modes chosen per configurable scenario (its defaults when missing) */
+  scenarioConfig: Partial<Record<ScenarioId, ScenarioConfig>>;
 }
 
 export const DEFAULT_SETUP: SetupPrefs = {
@@ -99,6 +101,7 @@ export const DEFAULT_SETUP: SetupPrefs = {
   shuffle: false,
   scenario: null,
   scenarioSeats: {},
+  scenarioConfig: {},
 };
 
 const SEAT_TYPES: PlayerType[] = ['dummy', 'hunter', 'master', 'god', 'human', 'online'];
@@ -112,17 +115,33 @@ export function loadSetup(): SetupPrefs {
   // keep only seat lists that still fit their scenario
   const seats: SetupPrefs['scenarioSeats'] = {};
   for (const [id, list] of Object.entries(s.scenarioSeats ?? {})) {
-    if (!isScenarioId(id) || !Array.isArray(list) || list.length !== SCENARIO_META[id].players.length) continue;
+    if (!isScenarioId(id) || !Array.isArray(list) || !seatsFit(id, list.length)) continue;
     if (list[0] !== 'human' || !list.every((p) => SEAT_TYPES.includes(p))) continue;
     seats[id] = list;
   }
   s.scenarioSeats = seats;
+  // and only choices a configurable scenario offers
+  const config: SetupPrefs['scenarioConfig'] = {};
+  for (const [id, c] of Object.entries(s.scenarioConfig ?? {})) {
+    const offer = isScenarioId(id) ? SCENARIO_META[id].configurable : undefined;
+    if (!offer || !c || typeof c !== 'object') continue;
+    const keep: ScenarioConfig = {};
+    if (c.size && offer.sizes.includes(c.size)) keep.size = c.size;
+    if (typeof c.unions === 'boolean' && offer.modes.includes('unions')) keep.unions = c.unions;
+    config[id as ScenarioId] = keep;
+  }
+  s.scenarioConfig = config;
   return s;
 }
 
 /** Seat types of a scenario: the player's choice, or the recommended ones. */
 export function scenarioSeats(s: SetupPrefs, id: ScenarioId): PlayerType[] {
   return [...(s.scenarioSeats[id] ?? SCENARIO_META[id].players)];
+}
+
+/** Size and modes of a scenario as the player set them up (its own where it allows no choice). */
+export function scenarioOptions(s: SetupPrefs, id: ScenarioId): { size: FieldSize; unions: boolean } {
+  return scenarioSetup(id, s.scenarioConfig[id]);
 }
 
 /** Seats of the battle the setup describes. */
@@ -137,14 +156,15 @@ export function saveSetup(s: SetupPrefs) {
 export function setupToSettings(s: SetupPrefs): MatchSettings {
   if (s.scenario) {
     const m = SCENARIO_META[s.scenario];
+    const { size, unions } = scenarioOptions(s, s.scenario);
     return {
       kind: 'single',
-      size: m.size,
+      size,
       players: scenarioSeats(s, s.scenario),
       darkness: !!m.darkness,
       symmetry: false,
       crowded: !!m.crowded,
-      unions: !!m.unions,
+      unions,
       shuffle: false,
       duelRules: false,
       puzzle: s.scenario,

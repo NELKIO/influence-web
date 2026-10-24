@@ -300,6 +300,37 @@ function rot(a: Ax, k: number): Ax {
   return [q, r];
 }
 
+// ---------------------------------------------------------------- the night drop
+
+type LandingSize = 'L' | 'XL' | 'XXL';
+
+/** The night drop's land for each size: a disk of this radius, drops at least `spacing` apart. */
+const LANDING_SIZES: Record<LandingSize, { radius: number; spacing: number }> = {
+  L: { radius: 7, spacing: 4 },
+  XL: { radius: 8, spacing: 5 },
+  XXL: { radius: 10, spacing: 6 },
+};
+
+/**
+ * Drop spots: random, at least `spacing` apart and two steps clear of the rim (so that the open
+ * ground around every drop is whole). Tries a few random orders before settling for less spacing.
+ */
+function landingDrops(rng: Rng, radius: number, spacing: number, seats: number): Ax[] {
+  const inland: Ax[] = [];
+  for (let q = -radius; q <= radius; q++) for (let r = -radius; r <= radius; r++) if (hexDist([q, r], [0, 0]) <= radius - 2) inland.push([q, r]);
+  for (let gap = spacing; gap > 1; gap--)
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const drops: Ax[] = [];
+      for (let p = 0; p < seats; p++) {
+        const far = inland.filter((c) => drops.every((o) => hexDist(c, o) >= gap));
+        if (!far.length) break;
+        drops.push(rng.pick(far));
+      }
+      if (drops.length === seats) return drops;
+    }
+  throw new Error('night drop: no room for the drops');
+}
+
 // ---------------------------------------------------------------- scenarios
 
 /** The first scenarios: duels and three-player fights. */
@@ -362,6 +393,21 @@ export interface ScenarioMeta {
   crowded?: boolean;
   /** exploration fog: the map itself is unknown until seen (with darkness) */
   blind?: boolean;
+  /**
+   * What the player may change besides the seat types: the map size (one of `sizes`), the number of
+   * seats (`seats` = [fewest, most], you included) and the listed modes. The rest stays fixed. The map
+   * of the day always plays the defaults (`size`, `players`, the modes above).
+   */
+  configurable?: { sizes: FieldSize[]; seats: [number, number]; modes: ScenarioMode[] };
+}
+
+/** A mode a configurable scenario lets the player switch. */
+export type ScenarioMode = 'unions';
+
+/** The player's choices for a configurable scenario (missing: the scenario's default). */
+export interface ScenarioConfig {
+  size?: FieldSize;
+  unions?: boolean;
 }
 
 export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
@@ -389,7 +435,14 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   treasury: { players: ['human', 'master'], level: 4, size: 'L' },
   bridges: { players: ['human', 'master'], level: 3, size: 'L' },
   spear: { players: ['human', 'master'], level: 4, size: 'L' },
-  landing: { players: ['human', 'god', 'master', 'hunter', 'master', 'hunter'], level: 3, size: 'XL', darkness: true, blind: true },
+  landing: {
+    players: ['human', 'god', 'master', 'hunter', 'master', 'hunter'],
+    level: 3,
+    size: 'XL',
+    darkness: true,
+    blind: true,
+    configurable: { sizes: ['L', 'XL', 'XXL'], seats: [3, 6], modes: ['unions'] },
+  },
   laststand: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 4, size: 'L' },
   titans: { players: ['human', 'master', 'master'], level: 3, size: 'L', unions: true },
   olympus: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 3, size: 'L' },
@@ -435,7 +488,33 @@ export const TUNING: Record<ScenarioId, number> = {
   raid: 3.45,
 };
 
-const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board> = {
+/** Knobs of a configurable scenario on its other sizes (TUNING holds the one of the default size). */
+export const SIZE_TUNING: Partial<Record<ScenarioId, Partial<Record<FieldSize, number>>>> = {
+  landing: { L: 5, XXL: 5 },
+};
+
+/** The knob for a scenario on a map size. */
+export function scenarioKnob(id: ScenarioId, size: FieldSize = SCENARIO_META[id].size): number {
+  return SIZE_TUNING[id]?.[size] ?? TUNING[id];
+}
+
+/** Whether a configurable scenario can be played with this many seats (others: exactly the recommended). */
+export function seatsFit(id: ScenarioId, n: number): boolean {
+  const m = SCENARIO_META[id];
+  return m.configurable ? n >= m.configurable.seats[0] && n <= m.configurable.seats[1] : n === m.players.length;
+}
+
+/** The size and modes a scenario is played with: the player's choices where it allows them, else its own. */
+export function scenarioSetup(id: ScenarioId, config: ScenarioConfig = {}): { size: FieldSize; unions: boolean } {
+  const m = SCENARIO_META[id];
+  const c = m.configurable;
+  return {
+    size: c && config.size && c.sizes.includes(config.size) ? config.size : m.size,
+    unions: c?.modes.includes('unions') && config.unions !== undefined ? config.unions : !!m.unions,
+  };
+}
+
+const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: FieldSize) => Board> = {
   /** You hold a small core in the middle; a ring of enemy cells surrounds you. Break out. */
   siege(rng, k) {
     const b = new Board();
@@ -925,38 +1004,44 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
 
   // ------------------------------------------------------------ battles for three to six players
 
-  /** A big land in darkness; everybody is dropped at a random spot and nobody knows where the others are. */
-  landing(rng, k, seats) {
+  /**
+   * A big land in darkness; everybody is dropped at a random spot and nobody knows where the others
+   * are. The drops are picked first, on the bare land, and each gets the same patch of open ground: no
+   * lake, wall or armed ruin within two steps of it, so every squad can spread on its first turn.
+   */
+  landing(rng, k, seats, size) {
+    const { radius, spacing } = LANDING_SIZES[size as LandingSize] ?? LANDING_SIZES.XL;
     const b = new Board();
-    b.disk(8);
+    b.disk(radius);
     for (const c of b.all()) c.max = rollMax(rng, 0.3);
-    // lakes and walls as landmarks, never leaving a cell that holds the land together
-    for (let i = 0; i < 10; i++) {
-      const at = rng.pick(b.all());
-      const lake = b.all().filter((c) => hexDist([c.q, c.r], [at.q, at.r]) <= (rng.float() < 0.5 ? 1 : 0));
+    const drops = landingDrops(rng, radius, spacing, seats);
+    const open = (c: Ax, d: number) => drops.every((o) => hexDist(c, o) > d);
+    // as many landmarks per cell on every size and seat count, all of them out in the wild: lakes and
+    // walls (never leaving a cell that holds the land together) and ruins, armed grey cells seen only up close
+    const land = b.cells.size;
+    const wild = () => b.all().filter((c) => open([c.q, c.r], 2));
+    for (let i = 0; i < Math.round(land / 6) && b.cells.size > land * 0.86; i++) {
+      const at = rng.pick(wild());
+      const lake = b.all().filter((c) => hexDist([c.q, c.r], [at.q, at.r]) <= (rng.float() < 0.5 ? 1 : 0) && open([c.q, c.r], 2));
       lake.forEach((c) => b.remove(c.q, c.r));
       if (!b.solid()) lake.forEach((c) => b.add(c.q, c.r, c));
     }
-    for (let i = 0; i < 40; i++) {
-      const c = rng.pick(b.all());
+    for (let i = 0; i < land / 2 && b.walls.length < land / 7; i++) {
+      const c = rng.pick(wild());
       const [dq, dr] = rng.pick(DIRS);
-      if (!b.get(c.q + dq, c.r + dr)) continue;
+      if (!b.get(c.q + dq, c.r + dr) || !open([c.q + dq, c.r + dr], 2)) continue;
       b.wall([c.q, c.r], [c.q + dq, c.r + dr]);
       if (!b.solid()) b.walls.pop();
     }
-    // ruins: armed grey cells, seen only up close
-    for (const c of b.all()) if (rng.float() < 0.08) c.power = Math.min(c.max, 2 + rng.int(3));
-    // drops: a random free spot well away from the others (or the farthest one when the land is crowded)
-    const drops: Slot[] = [];
-    const away = (c: Slot) => Math.min(99, ...drops.map((o) => hexDist([c.q, c.r], [o.q, o.r])));
-    for (let p = 0; p < seats; p++) {
-      const free = b.all().filter((c) => c.owner === NEUTRAL && c.power === 0);
-      const far = free.filter((c) => away(c) >= 5);
-      const best = far.length ? rng.pick(far) : free.reduce((m, c) => (away(c) > away(m) ? c : m));
-      drops.push(best);
-      const squad = [best, ...rng.shuffle(DIRS.map(([dq, dr]) => b.get(best.q + dq, best.r + dr))).filter((n): n is Slot => !!n && n.owner === NEUTRAL).slice(0, 2)];
-      for (const c of squad) Object.assign(c, { owner: p, power: p === 0 ? Math.min(c.max, kp(rng, k)) : Math.min(c.max, 3) });
-    }
+    for (const c of rng.shuffle(wild()).slice(0, Math.round(b.cells.size * 0.075))) c.power = Math.min(c.max, 2 + rng.int(3));
+    // every squad is the same little triangle, turned at random
+    drops.forEach((d, p) => {
+      const turn = rng.int(6);
+      for (const [dq, dr] of [[0, 0], DIRS[turn], DIRS[(turn + 1) % 6]]) {
+        const c = b.get(d[0] + dq, d[1] + dr)!;
+        Object.assign(c, { owner: p, power: p === 0 ? Math.min(c.max, kp(rng, k)) : Math.min(c.max, 3) });
+      }
+    });
     return b;
   },
 
@@ -1105,25 +1190,27 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number) => Board
 
 /**
  * Build the starting position of a scenario (deterministic for a seed). `players` replaces the
- * recommended seat types (same number of seats; seat 0 is you).
+ * recommended seat types (seat 0 is you; as many seats as recommended, or any number the scenario
+ * allows when it is configurable); `config` picks the size and modes of a configurable scenario.
  */
-export function buildScenario(id: ScenarioId, seed: number, knob = TUNING[id], players?: PlayerType[]): MatchState {
+export function buildScenario(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig): MatchState {
   const meta = SCENARIO_META[id];
   const seats = players ?? meta.players;
-  if (seats.length !== meta.players.length) throw new Error(`${id}: ${meta.players.length} seats, got ${seats.length}`);
+  if (!seatsFit(id, seats.length)) throw new Error(`${id}: ${meta.players.length} seats, got ${seats.length}`);
+  const { size, unions } = scenarioSetup(id, config);
   const rng = new Rng(seed);
-  const board = BUILDERS[id](rng, knob, seats.length);
+  const board = BUILDERS[id](rng, knob ?? scenarioKnob(id, size), seats.length, size);
   board.unchoke();
-  const field = board.toField(meta.size);
+  const field = board.toField(size);
   return createMatch(
     {
       kind: 'single',
-      size: meta.size,
+      size,
       players: [...seats],
       darkness: !!meta.darkness,
       symmetry: false,
       crowded: !!meta.crowded,
-      unions: !!meta.unions,
+      unions,
       shuffle: false,
       duelRules: false,
       puzzle: id,
@@ -1134,12 +1221,12 @@ export function buildScenario(id: ScenarioId, seed: number, knob = TUNING[id], p
 }
 
 /**
- * A new match for these settings: the scenario named in `settings.puzzle` (with the given seats and
- * kind of match), or an ordinary generated map.
+ * A new match for these settings: the scenario named in `settings.puzzle` (with the given seats, kind
+ * of match and, when the scenario is configurable, size and unions), or an ordinary generated map.
  */
 export function startMatch(settings: MatchSettings, seed = randomSeed()): MatchState {
   if (!isScenarioId(settings.puzzle)) return createMatch(settings, { seed });
-  const st = buildScenario(settings.puzzle, seed, undefined, settings.players);
+  const st = buildScenario(settings.puzzle, seed, undefined, settings.players, { size: settings.size, unions: settings.unions });
   st.settings = { ...st.settings, kind: settings.kind, turnTime: settings.turnTime };
   return st;
 }
