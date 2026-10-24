@@ -1053,7 +1053,11 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     const b = new Board();
     b.disk(radius);
     for (const c of b.all()) c.max = rollMax(rng, 0.3);
-    const drops = landingDrops(rng, radius, spacing, seats);
+    const picked = landingDrops(rng, radius, spacing, seats);
+    // the spots are picked one after another, so the last ones tend to be squeezed in between the
+    // others: with the order compensation the seats draw their spots in a random order (from a copy of
+    // the generator, so the rest of the map stays as it was)
+    const drops = comp ? new Rng(rng.state()).shuffle([...picked]) : picked;
     const open = (c: Ax, d: number) => drops.every((o) => hexDist(c, o) > d);
     // as many landmarks per cell on every size and seat count, all of them out in the wild: lakes and
     // walls (never leaving a cell that holds the land together) and ruins, armed grey cells seen only up close
