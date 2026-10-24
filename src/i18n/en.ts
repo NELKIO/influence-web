@@ -425,7 +425,7 @@ export const en: typeof ru = {
   rule4t: 'After a fight',
   rule4: 'The attacking cell drops to 1. A captured cell gets the difference. A failed attack still weakens the defender.',
   rule5t: 'Power up',
-  rule5: 'After attacking you get 1 power per cell you own. Tap adds +1, hold fills the cell. Cells hold 8 or 12.',
+  rule5: 'After attacking you get 1 power per cell you own. Tap adds +1, hold fills the cell. Cells hold 8 or 12. With three or more players, whoever moves later gets a little extra with the first power-up (up to +3 for the last one), as moving first is an edge.',
   rule6t: 'Modes',
   rule6: 'Darkness hides distant cells. Crowded splits the whole field at start. Unions let bots team up against the leader.',
 };

@@ -7,7 +7,7 @@
  */
 import { Rng, randomSeed } from './rng';
 import { buildAdjacency, geometricPairs } from './field';
-import { createMatch } from './engine';
+import { createMatch, defaultOrderComp } from './engine';
 import { articulationPoints, chokePoints } from './connectivity';
 import { NEUTRAL, type Cell, type Field, type FieldSize, type MatchSettings, type MatchState, type OrderComp, type PlayerType } from './types';
 
@@ -1238,11 +1238,15 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
   },
 };
 
-/** The night drop's turn-order compensation for this many seats on this size (given: that one; none yet by default). */
-export function landingOrderComp(_seats: number, _size: FieldSize, given?: OrderComp | 'off'): OrderComp | null {
+/**
+ * The night drop's turn-order compensation (given: that one): the seats draw their drop spots in a
+ * random order, and a later seat gets extra power with its first reinforcement, as in an ordinary
+ * battle but per squad cell. Your own squad's power stays the knob.
+ */
+export function landingOrderComp(seats: number, _size: FieldSize, given?: OrderComp | 'off'): OrderComp | null {
   if (given === 'off') return null;
   if (given) return given;
-  return null;
+  return defaultOrderComp(seats, 3) ?? {};
 }
 
 /**

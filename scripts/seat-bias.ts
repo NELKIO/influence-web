@@ -14,6 +14,7 @@
  *   duel=0|1              duel rules (2 players)
  *   games=100 offset=0    game indices offset .. offset+games-1 for every grid point
  *   shard=0 shards=1      this process plays the grid units u with u % shards == shard
+ *   block=0|1             1: shard s plays games offset + [s, s+1) * games / shards of every grid point
  *   mp=200 gr=200         Master playouts / GOD rollouts per decision
  *   comps=[...]           order compensations to compare: a JSON array (or an object by seat count
  *                         of arrays); items 'off' (none), 'default' (what the game does) or an
@@ -92,8 +93,13 @@ for (let gi = 0; gi < games; gi++)
     for (const size of sizes)
       for (const sym of mode === 'landing' ? [false] : syms) for (const item of compsFor(n)) units.push({ n, size, sym, item, g: gi + offset });
 
-for (let u = shard; u < units.length; u += shards) {
-  const { n, size, sym, item, g } = units[u];
+// block=1: shard s plays a block of game indices over the whole grid (every grid point fills up evenly
+// even when the shards run one after another); otherwise the units are dealt out round-robin
+const mine =
+  get('block', '0') === '1'
+    ? units.filter((x) => Math.floor(((x.g - offset) * shards) / games) === shard)
+    : units.filter((_, u) => u % shards === shard);
+for (const { n, size, sym, item, g } of mine) {
   const { id: compId, comp } = compOf(item);
   const seed = 7_000_003 + g * 7919;
   const starSeat = star ? g % n : -1;

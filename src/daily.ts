@@ -144,8 +144,19 @@ function battleSettings(id: string, plan: BattlePlan): MatchSettings {
     shuffle: false,
     duelRules: false,
     dailyId: id,
+    // the turn-order compensation came after these days had been played: their maps stay as they were
+    ...(id < ORDER_COMP_FROM ? { orderComp: 'off' as const } : {}),
   };
 }
+
+/**
+ * First day whose map plays with the turn-order compensation (later movers get more power with their
+ * first reinforcement, see engine.ts). Earlier days are built as before, so their maps never change.
+ */
+export const ORDER_COMP_FROM = '2026-10-27';
+
+/** The night drop's knob (your squad's power) before the compensation, kept by the earlier days. */
+const LANDING_KNOB_BEFORE_COMP = 6;
 
 /** Deterministic settings of the daily map: same for every player on that date. */
 export function dailySettings(id: string): MatchSettings {
@@ -162,7 +173,10 @@ export function createDailyMatch(id: string): MatchState {
   const k = dailyKind(id);
   if (k.kind === 'puzzle') {
     // the scenario as the battle setup recommends it; the seed of the day fixes the map (and the night drop's landing spots)
-    const st = buildScenario(k.scenario, dailySeed(id));
+    const before = id < ORDER_COMP_FROM;
+    const st = before
+      ? buildScenario(k.scenario, dailySeed(id), k.scenario === 'landing' ? LANDING_KNOB_BEFORE_COMP : undefined, undefined, { orderComp: 'off' })
+      : buildScenario(k.scenario, dailySeed(id));
     st.settings = { ...st.settings, kind: 'daily', dailyId: id };
     return st;
   }
