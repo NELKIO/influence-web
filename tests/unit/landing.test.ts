@@ -6,6 +6,7 @@ import { seatsMedal } from '../../src/medals';
 import { DEFAULT_SETUP, loadSetup, saveSetup, setupPlayers, setupToSettings } from '../../src/storage';
 import { createDailyMatch, dailyKind, dayId } from '../../src/daily';
 import type { FieldSize, MatchState, PlayerType } from '../../src/core/types';
+import { makeRoom } from './battleHelpers';
 
 /**
  * Room of a seat at the start: the empty grey cells (power 0) next to its land, the armed grey ones
@@ -103,6 +104,24 @@ describe('night drop: fair drops', () => {
       found++;
       const st = createDailyMatch(id);
       expect(st.settings).toMatchObject({ size: 'XL', unions: false, players: SCENARIO_META.landing.players });
+    }
+  });
+});
+
+describe('night drop online', () => {
+  it('the host builds the configured night drop (size, seats, unions) and the guests get it', async () => {
+    const players: PlayerType[] = ['human', 'online', 'god', 'online'];
+    const room = await makeRoom({ players, size: 'XXL', unions: true, seed: 41, darkness: true, puzzle: 'landing' });
+    room.host.start();
+    await room.hub.flush();
+    const st = room.host.state!;
+    expect(st.settings).toMatchObject({ puzzle: 'landing', size: 'XXL', unions: true, blind: true });
+    expect(st.settings.players).toHaveLength(4);
+    const built = buildScenario('landing', 41, undefined, st.settings.players, { size: 'XXL', unions: true });
+    expect(JSON.stringify(st.field.cells.map((c) => c.id))).toBe(JSON.stringify(built.field.cells.map((c) => c.id)));
+    for (const { g } of room.guests) {
+      expect(g.state!.settings).toMatchObject({ puzzle: 'landing', size: 'XXL', unions: true });
+      expect(g.state!.field.cells.length).toBe(st.field.cells.length);
     }
   });
 });

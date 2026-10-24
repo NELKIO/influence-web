@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
-import { loadMedals, loadSetup, saveGame, saveSetup, setupPlayers, setupToSettings, type SetupPrefs } from '../../storage';
+import { loadMedals, loadSetup, saveGame, saveSetup, scenarioOptions, setupPlayers, setupToSettings, type SetupPrefs } from '../../storage';
 import { seatsMedal, type MedalTier } from '../../medals';
 import { hashString, randomSeed } from '../../core/rng';
-import { buildScenario, SCENARIO_META, SCENARIOS, startMatch, type ScenarioId } from '../../core/scenarios';
+import { buildScenario, SCENARIO_META, SCENARIOS, startMatch, type ScenarioConfig, type ScenarioId } from '../../core/scenarios';
 import { prepareHost } from '../battle';
 import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../core/types';
-import { SettingRow, Toggle, TopBar } from '../components/controls';
+import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconMoon, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
 import { MiniMap, SecretMap } from '../components/MiniMap';
 import { Medal } from '../components/Medal';
@@ -27,7 +27,7 @@ function ScenarioMap({ id, field, maxHeight }: { id: ScenarioId; field: Field; m
 const medalLabel = (tier: MedalTier | null) => t(tier === 'gold' ? 'medalGoldTitle' : tier ? 'medalTitle' : 'medalNone');
 
 /** The medal of the chosen scenario: earned, or what it takes (and whether these seats can earn it). */
-function MedalStatus({ have, seats }: { have: MedalTier | null; seats: ReturnType<typeof seatsMedal> }) {
+function MedalStatus({ have, seats, free }: { have: MedalTier | null; seats: ReturnType<typeof seatsMedal>; free?: boolean }) {
   const blocked = seats === 'people' ? t('medalNoPeople') : seats === 'weaker' ? t('medalNoWeaker') : null;
   // what these seats play for, when it is worth saying
   const stake =
@@ -39,7 +39,7 @@ function MedalStatus({ have, seats }: { have: MedalTier | null; seats: ReturnTyp
         {have && <div class="title">{medalLabel(have)}</div>}
         {have === 'gold' && <div class="note">{t('medalGoldDone')}</div>}
         {have === 'medal' && (stake ?? <div class="note">{t('medalGoldNext')}</div>)}
-        {!have && <div class="note">{t('medalHint')}</div>}
+        {!have && <div class="note">{t(free ? 'medalHintFree' : 'medalHint')}</div>}
         {!have && stake}
       </div>
     </div>
@@ -57,11 +57,14 @@ export function SetupScreen() {
   const scenario = prefs.scenario;
   const meta = scenario ? SCENARIO_META[scenario] : null;
   const players = setupPlayers(prefs);
+  // what a configurable scenario lets you choose, and what is chosen
+  const conf = meta?.configurable;
+  const opts = scenario ? scenarioOptions(prefs, scenario) : null;
 
   // the preview IS the match that will start: same map, same start cells
   const preview = useMemo(
     () => startMatch(setupToSettings(prefs), mapSeed),
-    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.shuffle, players.join(',')],
+    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.shuffle, players.join(','), opts?.size],
   );
 
   const update = (p: Partial<SetupPrefs>) => {
@@ -106,12 +109,24 @@ export function SetupScreen() {
     setMapSeed(randomSeed());
   };
 
-  const setType = (slot: number, type: PlayerType) => {
-    const list = [...players];
-    list[slot] = type;
+  const setSeats = (list: PlayerType[]) => {
     if (scenario) update({ scenarioSeats: { ...prefs.scenarioSeats, [scenario]: list } });
     else update({ players: list });
   };
+
+  const setType = (slot: number, type: PlayerType) => {
+    const list = [...players];
+    list[slot] = type;
+    setSeats(list);
+  };
+
+  const configure = (c: ScenarioConfig) => {
+    if (scenario) update({ scenarioConfig: { ...prefs.scenarioConfig, [scenario]: { ...prefs.scenarioConfig[scenario], ...c } } });
+  };
+
+  // seats can be added and removed in an ordinary battle and in a scenario that allows it
+  const minSeats = meta ? (conf?.seats[0] ?? players.length) : 2;
+  const maxSeats = meta ? (conf?.seats[1] ?? players.length) : 6;
 
   const locked = (on: boolean) => <Toggle on={on} onChange={() => {}} disabled />;
 
@@ -143,6 +158,16 @@ export function SetupScreen() {
                   </button>
                 </div>
                 <div class="desc">{t(`puzzleDesc_${scenario}` as 'puzzleDesc_siege')}</div>
+                {conf && opts && conf.sizes.length > 1 && (
+                  <div class="scenario-size" data-testid="scenario-size">
+                    <Seg
+                      label={t('scenarioSize')}
+                      value={opts.size}
+                      options={conf.sizes.map((sz) => ({ value: sz, label: t(`size${sz}` as 'sizeS') }))}
+                      onChange={(size) => configure({ size })}
+                    />
+                  </div>
+                )}
                 <div class="chips">
                   <span class="chip">
                     <IconUsers width={14} height={14} /> {playersLabel(players.length)}
@@ -157,9 +182,9 @@ export function SetupScreen() {
                   ) : (
                     <span class="chip">{t('mapCells', { n: preview.field.cells.length })}</span>
                   )}
-                  {meta.unions && <span class="chip">{t('unions')}</span>}
+                  {opts?.unions && <span class="chip">{t('unions')}</span>}
                 </div>
-                <MedalStatus have={medals[scenario]?.tier ?? null} seats={seatsMedal(scenario, players)} />
+                <MedalStatus have={medals[scenario]?.tier ?? null} seats={seatsMedal(scenario, players)} free={!!conf} />
               </div>
             ) : (
               <>
@@ -233,7 +258,7 @@ export function SetupScreen() {
                     <span class="name">{t(`puzzle_${id}` as 'puzzle_siege')}</span>
                     <span class="meta">
                       <IconUsers width={12} height={12} />
-                      {m.players.length}
+                      {m.configurable ? `${m.configurable.seats[0]}–${m.configurable.seats[1]}` : m.players.length}
                       {m.darkness && <IconMoon width={12} height={12} aria-label={t('darkness')} />}
                     </span>
                   </button>
@@ -247,7 +272,15 @@ export function SetupScreen() {
           <>
             {meta && (
               <div class="locked-note">
-                <IconLock width={14} height={14} /> {t('scenarioSeatsNote')}
+                {conf ? (
+                  <>
+                    <IconUsers width={14} height={14} /> {t('scenarioSeatsFree', { min: conf.seats[0], max: conf.seats[1] })}
+                  </>
+                ) : (
+                  <>
+                    <IconLock width={14} height={14} /> {t('scenarioSeatsNote')}
+                  </>
+                )}
               </div>
             )}
             <div class="list">
@@ -270,8 +303,8 @@ export function SetupScreen() {
                         {slot === 0 ? t('desc_human') : t(`desc_${type === 'human' ? 'human' : type}` as 'desc_human')}
                       </div>
                     </div>
-                    {!meta && slot >= 2 && slot === players.length - 1 && (
-                      <button class="remove-btn" aria-label={t('removePlayer')} onClick={() => update({ players: players.slice(0, -1) })}>
+                    {slot >= Math.max(2, minSeats) && slot === players.length - 1 && (
+                      <button class="remove-btn" aria-label={t('removePlayer')} onClick={() => setSeats(players.slice(0, -1))}>
                         <IconX width={20} height={20} />
                       </button>
                     )}
@@ -298,12 +331,13 @@ export function SetupScreen() {
                   )}
                 </div>
               ))}
-              {!meta && players.length < 6 && (
+              {players.length < maxSeats && (
                 <button
                   class="add-row"
                   onClick={() => {
                     sfx.click();
-                    update({ players: [...players, 'hunter'] });
+                    // a scenario's seat comes back as designed
+                    setSeats([...players, meta?.players[players.length] ?? 'hunter']);
                   }}
                 >
                   <IconPlus width={18} height={18} /> {t('addPlayer')}
@@ -325,22 +359,37 @@ export function SetupScreen() {
           (meta ? (
             <>
               <div class="locked-note">
-                <IconLock width={14} height={14} /> {t('scenarioModesNote', { name: t(`puzzle_${scenario}` as 'puzzle_siege') })}
+                <IconLock width={14} height={14} />{' '}
+                {t(conf ? 'scenarioModesFree' : 'scenarioModesNote', { name: t(`puzzle_${scenario}` as 'puzzle_siege') })}
               </div>
               <div class="list locked">
                 <SettingRow title={t('darkness')} desc={t('darknessDesc')}>
                   {locked(!!meta.darkness)}
                 </SettingRow>
+                {meta.blind && (
+                  <SettingRow title={t('scenarioUncharted')} desc={t('blindDesc')}>
+                    {locked(true)}
+                  </SettingRow>
+                )}
                 <SettingRow title={t('symmetry')} desc={t('symmetryDesc2')}>
                   {locked(false)}
                 </SettingRow>
                 <SettingRow title={t('crowded')} desc={t('crowdedDesc')}>
                   {locked(!!meta.crowded)}
                 </SettingRow>
-                <SettingRow title={t('unions')} desc={humans > 1 && meta.unions ? t('unionsNeedOneHuman') : t('unionsDesc')}>
-                  {locked(!!meta.unions)}
-                </SettingRow>
+                {!conf?.modes.includes('unions') && (
+                  <SettingRow title={t('unions')} desc={humans > 1 && meta.unions ? t('unionsNeedOneHuman') : t('unionsDesc')}>
+                    {locked(!!meta.unions)}
+                  </SettingRow>
+                )}
               </div>
+              {conf?.modes.includes('unions') && (
+                <div class="list" data-testid="scenario-unions">
+                  <SettingRow title={t('unions')} desc={humans > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
+                    <Toggle on={!!opts?.unions} onChange={(v) => configure({ unions: v })} />
+                  </SettingRow>
+                </div>
+              )}
             </>
           ) : (
             <div class="list">

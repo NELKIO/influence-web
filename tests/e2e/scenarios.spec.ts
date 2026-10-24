@@ -157,6 +157,48 @@ test('night drop starts in darkness at a random spot; quick start and hot-seat h
   await expectNoErrors(errors);
 });
 
+test('night drop can be configured: size, unions and seats persist and reach the match', async ({ page }) => {
+  const errors = await fresh(page, { confirmEnd: false });
+  await openSetup(page);
+  await page.locator('[data-scenario="landing"]').click();
+  // a compact size choice in the banner, big sizes only; the default is the recommended one
+  const size = page.getByTestId('scenario-size').getByRole('radio');
+  await expect(size).toHaveText(['Большая', 'Огромная', 'Гигантская']);
+  await expect(page.getByTestId('scenario-size').getByRole('radio', { name: 'Огромная' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.size-grid')).toHaveCount(0);
+  await page.getByTestId('scenario-size').getByRole('radio', { name: 'Гигантская' }).click();
+
+  // seats: remove two (down to the fewest), add one back as designed
+  await page.locator('.steps button').nth(1).click();
+  await expect(page.locator('.player-row')).toHaveCount(6);
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Убрать' }).click();
+  await expect(page.locator('.player-row')).toHaveCount(3);
+  await expect(page.getByRole('button', { name: 'Убрать' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Добавить соперника' }).click();
+  await expect(page.locator('.player-row')).toHaveCount(4);
+  await expect(page.locator('.type-pick').nth(2).locator('button.on')).toHaveText('Охотник');
+
+  // modes: darkness and the uncharted map stay locked, unions can be switched on
+  await page.locator('.steps button').nth(2).click();
+  await expect(page.locator('.list.locked .toggle').first()).toBeDisabled();
+  await expect(page.locator('.list.locked')).toContainText('Неизведанная карта');
+  await page.getByTestId('scenario-unions').locator('.toggle').click();
+  await expect(page.getByTestId('scenario-unions').locator('.toggle')).toHaveClass(/on/);
+
+  // the choices survive a reload
+  await page.reload();
+  await openSetup(page);
+  await expect(page.getByTestId('scenario-pick')).toContainText('4 игрока');
+  await expect(page.getByTestId('scenario-pick')).toContainText('Союзы');
+  await expect(page.getByTestId('scenario-size').getByRole('radio', { name: 'Гигантская' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: /^В бой/ }).first().click();
+  await waitGame(page);
+  const info = await gameInfo(page);
+  expect(info).toMatchObject({ puzzle: 'landing', size: 'XXL', unions: true, darkness: true, players: ['human', 'god', 'master', 'hunter'] });
+  expect(info.cells).toBeGreaterThan(240);
+  await expectNoErrors(errors);
+});
+
 /** Seen cells of a seat (exploration fog) and how many cells the board drew in its last frame. */
 const fogInfo = (page: Page, seat: number) =>
   page.evaluate((seat) => {

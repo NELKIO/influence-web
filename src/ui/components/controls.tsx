@@ -22,13 +22,16 @@ export function Seg<T extends string | number>({
   value,
   options,
   onChange,
+  label,
 }: {
   value: T;
   options: { value: T; label: string }[];
   onChange: (v: T) => void;
+  /** accessible name of the group */
+  label?: string;
 }) {
   return (
-    <div class="seg" role="radiogroup">
+    <div class="seg" role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button
           key={String(o.value)}
