@@ -12,7 +12,7 @@ import { CODE_LENGTH, generateCode, hostPeerId, isValidCode, PEER_ID_PREFIX, ran
 
 export type TransportRole = 'host' | 'guest';
 
-/** How a link is carried: a direct WebRTC data channel or the MQTT relay. */
+/** How a link is carried: a direct WebRTC data channel or a relay (PeerJS signalling, Nostr, MQTT). */
 export type LinkKind = 'direct' | 'relay';
 
 export type TransportErrorCode =
@@ -53,6 +53,8 @@ export interface Transport {
   readonly remoteClientId: string | null;
   /** kind of the open link (composite / relay / PeerJS transports; absent for test transports) */
   readonly linkKind?: LinkKind | null;
+  /** ping round trip of the link in use in ms (multipath transports), null until measured */
+  readonly linkRtt?: number | null;
   /** send a JSON-serialisable message; returns false (message dropped) when not open */
   send(msg: unknown): boolean;
   onReady(cb: (code: string) => void): Unsubscribe;

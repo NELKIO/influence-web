@@ -10,13 +10,15 @@
  *   host  → guest  sync             (full authoritative state on mismatch/gap; host's state wins)
  *   guest → host   syncReq          (guest detected a problem it cannot fix itself)
  *   any            concede / timeout / rematch / ping / pong / reject
+ *   any            presence {hidden}  (the page was hidden / shown: "the opponent minimised the game")
  *
  * `seq` numbers every game action of a match (1, 2, 3...). Both sides keep a short log so that,
  * after a reconnect, the side that is ahead re-sends the actions the other side missed.
  */
 import type { MatchEnd, MatchState } from '../core/types';
 
-export const PROTOCOL_VERSION = 1;
+/** 2: multipath links (direct + relays together, own reliability layer) and presence messages */
+export const PROTOCOL_VERSION = 2;
 
 export type DuelAction =
   | { t: 'attack'; from: number; to: number; win: boolean }
@@ -112,6 +114,12 @@ export interface PongMsg {
   matchId?: string | null;
 }
 
+/** the sender's page was hidden (true) or shown again (false) */
+export interface PresenceMsg {
+  t: 'presence';
+  hidden: boolean;
+}
+
 export type RejectReason = 'version' | 'busy';
 
 export interface RejectMsg {
@@ -133,6 +141,7 @@ export type NetMessage =
   | RematchMsg
   | PingMsg
   | PongMsg
+  | PresenceMsg
   | RejectMsg;
 
 // ---------------------------------------------------------------- validation
@@ -208,6 +217,8 @@ export function parseMessage(x: unknown): NetMessage | null {
         return typeof x.ts === 'number';
       case 'reject':
         return isStr(x.reason);
+      case 'presence':
+        return typeof x.hidden === 'boolean';
       default:
         return false;
     }

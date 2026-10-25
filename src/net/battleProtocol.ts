@@ -15,6 +15,8 @@
  *   host  → all   bClosed    the host closed the room for good
  *   guest → host  bBye       the guest leaves for good (frees its lobby seat)
  *   guest ↔ host  bPing / bPong
+ *   guest → host  bPresence  the guest's page was hidden / shown (the host shows it in the roster: `hidden`)
+ *   host  → all   bPresence  {seat: -1} the host's page was hidden / shown
  *
  * `seq` numbers the applied actions of a match (1, 2, 3, ...). The host keeps a log of recent ones so a
  * guest that missed a few gets them re-sent; otherwise it gets a full `bSync`.
@@ -22,8 +24,11 @@
 import { isPersonType } from '../core/engine';
 import type { AttackRefusal, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
 
-/** 2: the engine gives later seats a first-reinforcement bonus (turn-order compensation); older clients would desync */
-export const BATTLE_PROTOCOL_VERSION = 2;
+/**
+ * 2: the engine gives later seats a first-reinforcement bonus (turn-order compensation); older clients would desync.
+ * 3: multipath links (direct + relays together, own reliability layer) and presence (bPresence, WireSeat.hidden).
+ */
+export const BATTLE_PROTOCOL_VERSION = 3;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =
@@ -76,6 +81,8 @@ export interface WireSeat {
   connected: boolean;
   /** online seat: a guest holds it */
   taken: boolean;
+  /** online seat: the guest's page is hidden (minimised) */
+  hidden?: boolean;
 }
 
 export type RoomStatus = 'lobby' | 'playing' | 'ended';
@@ -170,6 +177,12 @@ export interface BPongMsg {
   t: 'bPong';
   ts: number;
 }
+/** guest → host: own page hidden / shown (`seat` ignored); host → guests: seat -1 = the host's page */
+export interface BPresenceMsg {
+  t: 'bPresence';
+  hidden: boolean;
+  seat: number;
+}
 
 export type BattleMessage =
   | BHelloMsg
@@ -186,7 +199,8 @@ export type BattleMessage =
   | BClosedMsg
   | BByeMsg
   | BPingMsg
-  | BPongMsg;
+  | BPongMsg
+  | BPresenceMsg;
 
 // ---------------------------------------------------------------- validation
 
@@ -303,6 +317,8 @@ export function parseBattleMessage(x: unknown): BattleMessage | null {
       case 'bPing':
       case 'bPong':
         return typeof x.ts === 'number';
+      case 'bPresence':
+        return typeof x.hidden === 'boolean' && isInt(x.seat);
       default:
         return false;
     }

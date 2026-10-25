@@ -91,7 +91,7 @@ describe('i18n dictionaries', () => {
   });
 
   it('no untranslated English words in Russian texts (names and codes aside)', () => {
-    const allowed = new Set(['Influence', 'Web', 'Teremok', 'Games', 'VPN', 'WebRTC', 'GOD', 'P2P', 'ID', 'OK']);
+    const allowed = new Set(['Influence', 'Web', 'Teremok', 'Games', 'VPN', 'WebRTC', 'GOD', 'P2P', 'ID', 'OK', 'PeerJS', 'STUN', 'Nostr', 'MQTT', 'NAT']);
     const bad: string[] = [];
     for (const [k, v] of Object.entries(ru)) {
       const text = v.replace(/\{\w+\}/g, '');

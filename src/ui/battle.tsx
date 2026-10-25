@@ -28,6 +28,7 @@ import { buzz, sfx } from '../audio/sfx';
 import { playerColor } from './theme';
 import { cleanPlayerName } from '../storage';
 import { recordOnlineLoss } from './onlineRecord';
+import { LinkBadge, useWelcomeBack } from './online';
 
 const BC = useBroadcastTransport();
 /** with ?transport=bc several tabs of one browser play together: each tab keeps its own session */
@@ -393,14 +394,25 @@ function useTick(ms: number) {
 
 const seatLabel = (r: RosterEntry) => r.name || t('playerN', { n: r.seat + 1 });
 
-/** "direct" / "relay" under the HUD: a guest's own link; for the host 'relay' as soon as any guest is relayed */
+/**
+ * «Прямое соединение · 80 мс» / «Через ретранслятор · 250 мс» under the HUD: a guest's own link; for
+ * the host 'relay' as soon as any guest is relayed, with the slowest round trip of that kind
+ */
 function LinkLine({ roster }: { roster: RosterEntry[] }) {
-  const links = roster.map((r) => r.link).filter(Boolean);
-  const kind = links.length ? (links.includes('relay') ? 'relay' : 'direct') : null;
-  if (!kind) return null;
+  const links = roster.filter((r) => r.link);
+  if (!links.length) return null;
+  const kind = links.some((r) => r.link === 'relay') ? 'relay' : 'direct';
+  const rtts = links.filter((r) => r.link === kind && typeof r.rtt === 'number').map((r) => r.rtt as number);
+  return <LinkBadge kind={kind} rtt={rtts.length ? Math.max(...rtts) : null} />;
+}
+
+/** «Игрок 2 свернул игру — ход продолжится, когда он вернётся» for the seat whose turn it is */
+function TurnHidden({ roster, st }: { roster: RosterEntry[]; st: MatchState }) {
+  const r = roster.find((x) => x.seat === st.current && x.hidden && !x.you);
+  if (!r) return null;
   return (
-    <div class="muted" data-testid="link-kind" data-link={kind} style={{ fontSize: 11, textAlign: 'center', opacity: 0.7 }}>
-      {kind === 'relay' ? t('linkRelay') : t('linkDirect')}
+    <div class="hint" data-testid="player-hidden" style={{ color: 'var(--warn)' }}>
+      {t('playerHidden', { name: seatLabel(r) })}
     </div>
   );
 }
@@ -417,6 +429,12 @@ const Watching = () => (
  */
 function HostHud({ host, ctrl }: { host: BattleHost; ctrl: GameController }) {
   useTick(1000);
+  useWelcomeBack(
+    ctrl,
+    () => !host.state?.ended && host.roster.some((r) => r.kind === 'online' && r.connected),
+    t('welcomeBackHost'),
+    playerColor(Math.max(0, host.players.indexOf('human'))),
+  );
   const st = ctrl.state;
   if (st.ended) return null;
   const now = Date.now();
@@ -457,6 +475,7 @@ function HostHud({ host, ctrl }: { host: BattleHost; ctrl: GameController }) {
           </div>
         );
       })}
+      <TurnHidden roster={roster} st={st} />
       {!stillIn(host, st) && <Watching />}
       <LinkLine roster={roster} />
     </>
@@ -465,6 +484,7 @@ function HostHud({ host, ctrl }: { host: BattleHost; ctrl: GameController }) {
 
 /** A guest's HUD: our link, a concede waiting for it, the room gone, who else is offline, watching. */
 function GuestHud({ guest, ctrl }: { guest: BattleGuest; ctrl: GameController }) {
+  useTick(1000);
   const st = ctrl.state;
   if (st.ended) return null;
   // the room is gone for good (the host closed it, our seat was given away...)
@@ -472,6 +492,13 @@ function GuestHud({ guest, ctrl }: { guest: BattleGuest; ctrl: GameController })
     return (
       <div class="hint" data-testid="room-gone" style={{ color: 'var(--bad)' }}>
         {battleErrorText(guest.lastError)}
+      </div>
+    );
+  }
+  if (guest.hostHidden) {
+    return (
+      <div class="hint" data-testid="host-hidden" style={{ color: 'var(--warn)' }}>
+        {t('hostHidden')}
       </div>
     );
   }
@@ -491,6 +518,7 @@ function GuestHud({ guest, ctrl }: { guest: BattleGuest; ctrl: GameController })
           {t('battleAway', { names: away.map(seatLabel).join(', ') })}
         </div>
       )}
+      <TurnHidden roster={roster} st={st} />
       {guest.seat >= 0 && !isAlive(st, guest.seat) && <Watching />}
       <LinkLine roster={roster} />
     </>

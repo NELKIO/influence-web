@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { DuelSession, type DuelError } from '../net';
+import { DuelSession, onVisibility, type DuelError, type LinkKind } from '../net';
 import type { GameController, MatchDriver } from './game/controller';
 import type { OnlineBinding } from './screens/GameScreen';
 import { navigate } from './store';
@@ -114,16 +114,48 @@ function fmt(ms: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** «Прямое соединение · 80 мс» / «Через ретранслятор · 250 мс» under the HUD */
+export function LinkBadge({ kind, rtt }: { kind: LinkKind; rtt: number | null }) {
+  return (
+    <div class="muted" data-testid="link-kind" data-link={kind} data-rtt={rtt ?? ''} style={{ fontSize: 11, textAlign: 'center', opacity: 0.7 }}>
+      {kind === 'relay' ? t('linkRelayHud') : t('linkDirectHud')}
+      {rtt !== null ? ` · ${t('linkMs', { ms: Math.round(rtt) })}` : ''}
+    </div>
+  );
+}
+
+/**
+ * A gentle note when this page comes back after being hidden for a while (a phone switched to a
+ * messenger): the others could not move meanwhile. `active()`: somebody was actually waiting.
+ */
+export function useWelcomeBack(ctrl: GameController, active: () => boolean, text: string, color: string) {
+  useEffect(() => {
+    let hiddenAt = 0;
+    return onVisibility((hidden) => {
+      if (hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      const away = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      if (away >= 5000 && active()) ctrl.showHint(text, color, 3500);
+    });
+  }, [ctrl]);
+}
+
 function OnlineHud({ session, ctrl }: { session: DuelSession; ctrl: GameController }) {
   useTick(500);
+  useWelcomeBack(ctrl, () => session.connected && !session.state?.ended, t('welcomeBack'), playerColor(session.localSlot));
   const total = (session.config.turnTime || 0) * 1000;
   const left = session.timeLeftMs();
   const st = ctrl.state;
+  const link = session.link;
   return (
     <>
-      {session.link && !st.ended && (
-        <div class="muted" data-testid="link-kind" data-link={session.link} style={{ fontSize: 11, textAlign: 'center', opacity: 0.7 }}>
-          {session.link === 'relay' ? t('linkRelay') : t('linkDirect')}
+      {link && !st.ended && <LinkBadge kind={link} rtt={session.linkRtt} />}
+      {session.opponentHidden && !st.ended && (
+        <div class="hint" data-testid="opponent-hidden" style={{ color: 'var(--warn)' }}>
+          {t('opponentHidden')}
         </div>
       )}
       {total > 0 && left !== null && !st.ended && (
@@ -141,7 +173,7 @@ function OnlineHud({ session, ctrl }: { session: DuelSession; ctrl: GameControll
           </span>
         </div>
       )}
-      {(session.status === 'reconnecting' || !session.connected) && !st.ended && (
+      {(session.status === 'reconnecting' || !session.connected) && !session.opponentHidden && !st.ended && (
         <div class="hint" style={{ color: 'var(--warn)' }}>
           {t('duelReconnecting')}
         </div>

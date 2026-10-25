@@ -145,3 +145,24 @@ export class Reassembler {
     return out;
   }
 }
+
+// ---------------------------------------------------------------- text-safe frames
+
+/** Standard base64 of bytes (for relays that carry text only). */
+export function toB64(b: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+/** Bytes of a base64 string; null if it is not valid base64. */
+export function fromB64(s: string): Uint8Array | null {
+  try {
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}

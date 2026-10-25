@@ -66,6 +66,7 @@ import {
   randomId,
 } from './room';
 import type { LinkKind, PeerTransportOptions, Transport, TransportError, TransportErrorCode } from './transport';
+import { onVisibility, pageHidden } from './visibility';
 
 export type BattleStatus = 'connecting' | 'lobby' | 'playing' | 'ended' | 'error';
 
@@ -88,6 +89,10 @@ export interface RosterEntry {
   onHost: boolean;
   /** online seat: how that guest's link is carried ('direct' WebRTC / 'relay'); guest view: own link for `you` */
   link?: LinkKind | null;
+  /** round trip of that link in ms (host view: per guest; guest view: own link), null if unknown */
+  rtt?: number | null;
+  /** online seat: the guest's page is hidden (minimised) */
+  hidden?: boolean;
 }
 
 export interface BattleError {
@@ -136,9 +141,15 @@ export interface BattleHostOptions {
   transport?: MultiHostTransport | ((code: string, resume: boolean) => MultiHostTransport);
   /** PeerJS tuning (broker, ICE, logging) */
   peer?: Omit<PeerTransportOptions, 'clientId'>;
-  /** relay fallback tuning; false disables the relay */
+  /** MQTT relay tuning; false disables it */
   relay?: RelayOptions | false;
-  /** 'auto' (WebRTC with relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
+  /** PeerJS signalling relay tuning; false disables it */
+  peerRelay?: NetLinkOptions['peerRelay'];
+  /** Nostr relay tuning; false disables it */
+  nostr?: NetLinkOptions['nostr'];
+  /** multipath tuning */
+  mp?: NetLinkOptions['mp'];
+  /** 'auto' (all paths), 'direct', 'relay', 'peerrelay', 'nostr', 'mqtt'; default from `?transport=` or 'auto' */
   linkMode?: LinkMode;
   /** heartbeat interval (ms, default 3000, 0 = only manual `heartbeat()` calls) */
   heartbeatMs?: number;
@@ -152,9 +163,15 @@ export interface BattleHostOptions {
 export interface BattleResumeOptions {
   transport?: BattleHostOptions['transport'];
   peer?: Omit<PeerTransportOptions, 'clientId'>;
-  /** relay fallback tuning; false disables the relay */
+  /** MQTT relay tuning; false disables it */
   relay?: RelayOptions | false;
-  /** 'auto' (WebRTC with relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
+  /** PeerJS signalling relay tuning; false disables it */
+  peerRelay?: NetLinkOptions['peerRelay'];
+  /** Nostr relay tuning; false disables it */
+  nostr?: NetLinkOptions['nostr'];
+  /** multipath tuning */
+  mp?: NetLinkOptions['mp'];
+  /** 'auto' (all paths), 'direct', 'relay', 'peerrelay', 'nostr', 'mqtt'; default from `?transport=` or 'auto' */
   linkMode?: LinkMode;
   heartbeatMs?: number;
   awaySkipMs?: number;
@@ -256,6 +273,10 @@ export class BattleHost {
   private awaySkipMs = 90_000;
   private awayTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  /** guests whose page is hidden */
+  private hiddenCids = new Set<string>();
+  /** our own page is hidden */
+  private hidden = pageHidden();
 
   /** Create a battle room in the lobby phase. */
   static create(opts: BattleHostOptions): BattleHost {
@@ -357,6 +378,7 @@ export class BattleHost {
       transport.onLeave((cid) => this.onLeave(cid)),
       transport.onMessage((cid, m) => this.onMessage(cid, m)),
       transport.onError((e) => this.onTransportError(e)),
+      onVisibility((h) => this.setPageHidden(h)),
     );
     if (transport.code && transport.code !== this.code) this.code = transport.code;
     this.armTurnTimer();
@@ -375,7 +397,20 @@ export class BattleHost {
   }
 
   get roster(): RosterEntry[] {
-    return this.wireRoster().map((w) => ({ ...w, you: w.kind === 'human', onHost: w.kind === 'human', link: w.kind === 'online' ? this.linkOf(w.seat) : null }));
+    return this.wireRoster().map((w) => ({
+      ...w,
+      you: w.kind === 'human',
+      onHost: w.kind === 'human',
+      link: w.kind === 'online' ? this.linkOf(w.seat) : null,
+      rtt: w.kind === 'online' ? this.rttOf(w.seat) : null,
+    }));
+  }
+
+  /** Our page was hidden / shown (automatic from the document's visibility; tests call it directly). */
+  setPageHidden(hidden: boolean): void {
+    if (hidden === this.hidden || this.closed) return;
+    this.hidden = hidden;
+    for (const cid of this.helloed) this.transport.send(cid, { t: 'bPresence', hidden, seat: -1 });
   }
 
   /** every online seat is held by a connected guest */
@@ -668,6 +703,13 @@ export class BattleHost {
     this.em.clear();
   }
 
+  /** round trip to the guest in `seat` in ms, null if offline / unknown */
+  rttOf(seat: number): number | null {
+    const cid = this.seats[seat]?.clientId;
+    const t = this.transport as MultiHostTransport & { rttOf?: (cid: string) => number | null };
+    return cid && this.seatConnected(seat) && t.rttOf ? t.rttOf(cid) : null;
+  }
+
   /** link kind of the guest in `seat` ('direct' / 'relay'), null if offline or not a guest seat */
   linkOf(seat: number): LinkKind | null {
     const cid = this.seats[seat]?.clientId;
@@ -686,13 +728,17 @@ export class BattleHost {
   }
 
   private wireRoster(): WireSeat[] {
-    return this.players.map((kind, seat) => ({
-      seat,
-      kind,
-      name: this.seats[seat]?.name ?? null,
-      connected: kind === 'online' ? this.seatConnected(seat) : true,
-      taken: kind === 'online' ? !!this.seats[seat]?.clientId : false,
-    }));
+    return this.players.map((kind, seat) => {
+      const cid = this.seats[seat]?.clientId;
+      return {
+        seat,
+        kind,
+        name: this.seats[seat]?.name ?? null,
+        connected: kind === 'online' ? this.seatConnected(seat) : true,
+        taken: kind === 'online' ? !!cid : false,
+        hidden: kind === 'online' && !!cid && this.hiddenCids.has(cid),
+      };
+    });
   }
 
   /** note when held guest seats went offline / came back, and (re)arm the automatic skip */
@@ -775,6 +821,12 @@ export class BattleHost {
       case 'bPing':
         this.transport.send(cid, { t: 'bPong', ts: m.ts });
         return;
+      case 'bPresence':
+        if (m.hidden === this.hiddenCids.has(cid)) return;
+        if (m.hidden) this.hiddenCids.add(cid);
+        else this.hiddenCids.delete(cid);
+        this.emitRoster();
+        return;
       default:
         return;
     }
@@ -795,6 +847,8 @@ export class BattleHost {
     }
     this.seats[seat] = { clientId: cid, name: m.name.slice(0, NAME_MAX) || this.seats[seat].name };
     this.helloed.add(cid);
+    // a fresh hello: the guest is here (it says so again if its page is hidden)
+    this.hiddenCids.delete(cid);
     this.transport.send(cid, {
       t: 'bWelcome',
       v: BATTLE_PROTOCOL_VERSION,
@@ -804,6 +858,7 @@ export class BattleHost {
       roster: this.wireRoster(),
       matchId: this.matchId,
     });
+    if (this.hidden) this.transport.send(cid, { t: 'bPresence', hidden: true, seat: -1 });
     if (this.state) this.catchUp(cid, m);
     this.persist();
     this.emitRoster();
@@ -967,8 +1022,15 @@ function makeHostTransport(
   return createBattleHostTransport({ ...net, clientId, code, fixed });
 }
 
-function netOf(o: { peer?: NetLinkOptions['peer']; relay?: RelayOptions | false; linkMode?: LinkMode; fallbackMs?: number }): NetLinkOptions {
-  return { peer: o.peer, relay: o.relay, mode: o.linkMode, fallbackMs: o.fallbackMs };
+function netOf(o: {
+  peer?: NetLinkOptions['peer'];
+  relay?: RelayOptions | false;
+  peerRelay?: NetLinkOptions['peerRelay'];
+  nostr?: NetLinkOptions['nostr'];
+  mp?: NetLinkOptions['mp'];
+  linkMode?: LinkMode;
+}): NetLinkOptions {
+  return { peer: o.peer, relay: o.relay, peerRelay: o.peerRelay, nostr: o.nostr, mp: o.mp, mode: o.linkMode };
 }
 
 // ====================================================================================== guest
@@ -980,9 +1042,15 @@ export interface BattleGuestOptions {
   /** custom transport (tests / e2e) or a factory receiving the room code. Default: BC with `?transport=bc`, PeerJS otherwise */
   transport?: Transport | ((code: string) => Transport);
   peer?: Omit<PeerTransportOptions, 'clientId'>;
-  /** relay fallback tuning; false disables the relay */
+  /** MQTT relay tuning; false disables it */
   relay?: RelayOptions | false;
-  /** 'auto' (WebRTC with relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
+  /** PeerJS signalling relay tuning; false disables it */
+  peerRelay?: NetLinkOptions['peerRelay'];
+  /** Nostr relay tuning; false disables it */
+  nostr?: NetLinkOptions['nostr'];
+  /** multipath tuning */
+  mp?: NetLinkOptions['mp'];
+  /** 'auto' (all paths), 'direct', 'relay', 'peerrelay', 'nostr', 'mqtt'; default from `?transport=` or 'auto' */
   linkMode?: LinkMode;
   /** ignore a saved session for the same room code */
   fresh?: boolean;
@@ -990,7 +1058,7 @@ export interface BattleGuestOptions {
   requestTimeoutMs?: number;
   /** re-send the hello this often until the host answers (default 4 s, 0 = only on host heartbeats) */
   helloRetryMs?: number;
-  /** switch to the relay when WebRTC is not open after this long (ms, default 5000) */
+  /** no longer used (all paths start together) */
   fallbackMs?: number;
   /**
    * the host counts as unreachable after this long without any message from it (ms, default 10 s; the
@@ -1013,6 +1081,8 @@ export interface BattleGuestEvents {
   resync: (reason: string) => void;
   end: (end: MatchEnd) => void;
   error: (err: BattleError) => void;
+  /** the host's page was hidden (minimised) / shown again */
+  presence: (hostHidden: boolean) => void;
 }
 
 interface SavedGuest {
@@ -1062,8 +1132,12 @@ export class BattleGuest {
   matchId: string | null = null;
   seq = 0;
   lastError: BattleError | null = null;
+  /** the host's page is hidden (minimised): nothing moves until it comes back */
+  hostHidden = false;
 
   private wire: WireSeat[] = [];
+  /** our own page is hidden */
+  private hidden = pageHidden();
   private transport: Transport;
   private storage: KVStorage | null;
   private em = new Emitter<BattleGuestEvents>();
@@ -1163,6 +1237,7 @@ export class BattleGuest {
           this.em.emit('error', e);
         }
       }),
+      onVisibility((h) => this.setPageHidden(h)),
     );
     if (transport.isOpen) queueMicrotask(() => this.onOpen());
   }
@@ -1179,7 +1254,21 @@ export class BattleGuest {
       you: w.seat === this.seat,
       onHost: w.kind === 'human',
       link: w.seat === this.seat ? this.link : null,
+      rtt: w.seat === this.seat ? this.linkRtt : null,
+      hidden: !!w.hidden,
     }));
+  }
+
+  /** round trip to the host in ms (the path in use), null when unknown */
+  get linkRtt(): number | null {
+    return this.connected ? (this.transport.linkRtt ?? null) : null;
+  }
+
+  /** Our page was hidden / shown (automatic from the document's visibility; tests call it directly). */
+  setPageHidden(hidden: boolean): void {
+    if (hidden === this.hidden || this.closed) return;
+    this.hidden = hidden;
+    if (this.connected && this.welcomed) this.transport.send({ t: 'bPresence', hidden, seat: this.seat });
   }
 
   /** the host is reachable: the link is up and the host has not fallen silent */
@@ -1418,10 +1507,22 @@ export class BattleGuest {
         }
         // re-send unanswered requests (the host answers duplicates from its cache)
         for (const p of this.pending.values()) this.transport.send({ t: 'bReq', id: p.id, r: p.req });
+        // a fresh welcome: the host is here (it says so again if its page is hidden)
+        if (this.hostHidden) {
+          this.hostHidden = false;
+          this.em.emit('presence', false);
+        }
+        if (this.hidden) this.transport.send({ t: 'bPresence', hidden: true, seat: this.seat });
         this.persist();
         this.em.emit('roster', this.roster);
         return;
       }
+      case 'bPresence':
+        if (m.seat === -1 && m.hidden !== this.hostHidden) {
+          this.hostHidden = m.hidden;
+          this.em.emit('presence', m.hidden);
+        }
+        return;
       case 'bRoster':
         this.wire = m.roster;
         if (this.settings) this.settings = { ...this.settings, players: localizePlayers(m.players, this.seat) };

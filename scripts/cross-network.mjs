@@ -20,6 +20,7 @@
  *   ROUNDS    guest: rounds to play before finishing successfully (default 12)
  *   GUESTS    battle host: number of online seats (default 1)
  *   HEADED=1  show the browser
+ *   PROXY     e.g. socks5://127.0.0.1:1081: route the page's TCP traffic through a proxy
  *
  * Every turn both sides log the round, current seat, action seq and state hash. The protocol itself
  * compares hashes (duel acks / battle per-action hashes) and re-syncs on a difference; the guest exits
@@ -71,7 +72,8 @@ if (!base) {
 const url = `${base}${base.includes('?') ? '&' : '?'}${LINK !== 'auto' ? `transport=${LINK}` : 'x=1'}`;
 say(`${KIND} room ${CODE}, link ${LINK}, page ${url}`);
 
-const browser = await chromium.launch({ headless: !process.env.HEADED });
+// PROXY=socks5://127.0.0.1:1081: the page's TCP traffic (signalling, relays) goes through that proxy
+const browser = await chromium.launch({ headless: !process.env.HEADED, proxy: process.env.PROXY ? { server: process.env.PROXY, bypass: '127.0.0.1,localhost' } : undefined });
 const page = await (await browser.newContext()).newPage();
 page.on('pageerror', (e) => say('page error', String(e).slice(0, 300)));
 page.on('console', (m) => {
@@ -87,7 +89,7 @@ await page.waitForFunction(() => !!window.__infwebNet, null, { timeout: 60_000 }
 await page.evaluate(
   ({ role, kind, code, guests }) => {
     const N = window.__infwebNet;
-    const X = (window.__x = { events: [], resyncs: 0, fatal: null, turn: -1, ended: null, link: null, matches: 0, rounds: 0 });
+    const X = (window.__x = { events: [], resyncs: 0, fatal: null, turn: -1, ended: null, link: null, matches: 0, rounds: 0, rtts: [], reqs: [] });
     const ev = (type, data) => X.events.push({ type, at: Date.now(), ...data });
     const chance = (a, d) => (a <= 1 ? 0 : d === 0 ? 1 : a - d <= -2 ? 0 : a - d === -1 ? 0.25 : a - d === 0 ? 0.5 : a - d === 1 ? 0.75 : 1);
     /** greedy candidate attacks for `seat`, best first */
@@ -139,8 +141,10 @@ await page.evaluate(
         // keep the room going: both sides ask for a rematch
         setTimeout(() => s.requestRematch(), 1000);
       });
+      let lastRtt = null;
       setInterval(() => {
         X.link = s.link;
+        if (s.rtt !== null && s.rtt !== lastRtt) X.rtts.push((lastRtt = s.rtt));
         const st = s.state;
         if (!st) return;
         logTurn(st, s.seq, N.stateHash(st));
@@ -235,7 +239,9 @@ await page.evaluate(
           for (let i = 0; i < 30 && g.canAct && g.state.phase === 'attack'; i++) {
             let ok = false;
             for (const m of moves(g.state, g.seat)) {
+              const t0 = performance.now();
               const r = await g.request({ t: 'attack', from: m.from, to: m.to });
+              X.reqs.push(Math.round(performance.now() - t0));
               if (r.ok) {
                 ok = true;
                 break;
@@ -255,10 +261,17 @@ await page.evaluate(
   { role: ROLE, kind: KIND, code: CODE, guests: GUESTS },
 );
 
+const stats = (a) => {
+  if (!a?.length) return 'none';
+  const s = [...a].sort((x, y) => x - y);
+  const q = (f) => s[Math.min(s.length - 1, Math.floor(f * s.length))];
+  return `n=${s.length} median ${q(0.5)} p90 ${q(0.9)} max ${s[s.length - 1]} ms`;
+};
 let shown = 0;
 let exitCode = 0;
 const deadline = t0 + MINUTES * 60_000;
 let started = false;
+let lastX = null;
 for (;;) {
   await new Promise((r) => setTimeout(r, 1500));
   const x = await page.evaluate(() => ({ ...window.__x, session: undefined, events: window.__x.events }));
@@ -268,6 +281,7 @@ for (;;) {
     if (type === 'status' && ['waiting', 'lobby', 'playing'].includes(rest.status)) started = true;
   }
   shown = x.events.length;
+  lastX = x;
   if (x.fatal && (ROLE === 'guest' || !started)) {
     say('FAIL fatal error', x.fatal);
     exitCode = 1;
@@ -292,6 +306,7 @@ for (;;) {
     break;
   }
 }
+if (lastX) say(`latency: ping rtt ${stats(lastX.rtts)}; battle requests ${stats(lastX.reqs)}`);
 await page.evaluate(() => {
   const s = window.__x?.session;
   if (!s) return;

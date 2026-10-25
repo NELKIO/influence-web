@@ -7,6 +7,7 @@ import { Modal, Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { cleanPlayerName, PLAYER_NAME_MAX, resetAllData, type GameSpeed, type Palette } from '../../storage';
 import { PALETTES } from '../theme';
 import { PlayerToken } from '../components/icons';
+import { ConnCheckPanel } from '../components/ConnCheck';
 
 
 export function SettingsScreen() {
@@ -63,6 +64,11 @@ export function SettingsScreen() {
           <SettingRow title={t('showChance')}>
             <Toggle on={s.showChance} onChange={(v) => updateSettings({ showChance: v })} />
           </SettingRow>
+        </div>
+
+        <div class="section-title">{t('connCheck')}</div>
+        <div class="list">
+          <ConnCheckPanel />
         </div>
 
         <div class="section-title">{t('sBoard')}</div>

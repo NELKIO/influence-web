@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import * as E from '../../src/core/engine';
 import type { MatchSettings, PlayerType } from '../../src/core/types';
 import { battleHash } from '../../src/net/battleProtocol';
 import { BattleGuest, BattleHost } from '../../src/net/battleRoom';
-import { CompositeGuest, CompositeHost, createBattleHostTransport, SingleHost } from '../../src/net/composite';
+
 import { DuelSession } from '../../src/net/duelSession';
-import { createLoopbackHub } from '../../src/net/hub';
 import { RelayGuest, RelayHost, type RelayOptions } from '../../src/net/mqttRelay';
 import { MemoryStorage } from '../../src/net/persist';
 import { stateHash } from '../../src/net/protocol';
@@ -92,7 +90,7 @@ async function relayRoom(net: FakeMqttNet, players: PlayerType[], size: MatchSet
     storage: hostStorage,
     clientId: 'HOSTC',
     heartbeatMs: 0,
-    linkMode: 'relay',
+    linkMode: 'mqtt',
     relay: relay(net, 'host', extra),
   });
   await until(() => host.status === 'lobby', 8000, 'host lobby');
@@ -103,7 +101,7 @@ async function relayRoom(net: FakeMqttNet, players: PlayerType[], size: MatchSet
     const storage = new MemoryStorage();
     storages.push(storage);
     guests.push(
-      BattleGuest.join(host.code, { name: `g${i + 1}`, storage, clientId: `G${i + 1}`, linkMode: 'relay', relay: relay(net, `g${i + 1}`, extra), helloRetryMs: 100 }),
+      BattleGuest.join(host.code, { name: `g${i + 1}`, storage, clientId: `G${i + 1}`, linkMode: 'mqtt', relay: relay(net, `g${i + 1}`, extra), helloRetryMs: 100 }),
     );
   }
   await until(() => host.canStart && guests.every((g) => g.status === 'lobby' && g.roster.length > 0), 8000, 'all seats taken');
@@ -179,7 +177,7 @@ describe('relay battle rooms', () => {
     net.block('g1', B);
     net.block('g2', B);
     net.block('g2', C);
-    const ct = createBattleHostTransport({ clientId: 'H', mode: 'relay', relay: relay(net, 'host') });
+    const ct = new RelayHost('battle', 'BRKRS', { ...relay(net, 'host'), clientId: 'H', fixed: true });
     await new Promise<void>((r) => ct.onReady(() => r()));
     const g1 = new RelayGuest('battle', ct.code, 'G1', relay(net, 'g1'));
     const g2 = new RelayGuest('battle', ct.code, 'G2', relay(net, 'g2'));
@@ -190,8 +188,8 @@ describe('relay battle rooms', () => {
     await until(() => g1.isOpen && g2.isOpen && ct.clients.length === 2);
     expect(g1.broker).toBe(C);
     expect(g2.broker).toBe(A);
-    expect(ct.relayHost!.brokerOf('G1')).toBe(C);
-    expect(ct.relayHost!.brokerOf('G2')).toBe(A);
+    expect(ct.brokerOf('G1')).toBe(C);
+    expect(ct.brokerOf('G2')).toBe(A);
     expect(ct.linkOf('G1')).toBe('relay');
     g1.send({ x: 'one' });
     g2.send({ x: 'two' });
@@ -208,7 +206,7 @@ describe('relay battle rooms', () => {
 
   it('unknown and closed rooms are reported as a bad code', async () => {
     const net = new FakeMqttNet();
-    const nobody = BattleGuest.join('QWERT', { storage: new MemoryStorage(), clientId: 'X', linkMode: 'relay', relay: relay(net, 'x') });
+    const nobody = BattleGuest.join('QWERT', { storage: new MemoryStorage(), clientId: 'X', linkMode: 'mqtt', relay: relay(net, 'x') });
     await until(() => nobody.status === 'error');
     expect(nobody.lastError?.code).toBe('bad-code');
 
@@ -220,7 +218,7 @@ describe('relay battle rooms', () => {
     await until(() => guests[0].status === 'error');
     expect(guests[0].lastError?.code).toBe('closed');
     await sleep(30);
-    const late = BattleGuest.join(code, { storage: new MemoryStorage(), clientId: 'Y', linkMode: 'relay', relay: relay(net, 'y') });
+    const late = BattleGuest.join(code, { storage: new MemoryStorage(), clientId: 'Y', linkMode: 'mqtt', relay: relay(net, 'y') });
     await until(() => late.status === 'error');
     expect(late.lastError?.code).toBe('bad-code');
   });
@@ -228,7 +226,7 @@ describe('relay battle rooms', () => {
   it('no reachable broker → broker error', async () => {
     const net = new FakeMqttNet();
     for (const u of net.urls) net.block('z', u);
-    const g = BattleGuest.join('QWERT', { storage: new MemoryStorage(), clientId: 'Z', linkMode: 'relay', relay: relay(net, 'z') });
+    const g = BattleGuest.join('QWERT', { storage: new MemoryStorage(), clientId: 'Z', linkMode: 'mqtt', relay: relay(net, 'z') });
     await until(() => g.status === 'error');
     expect(g.lastError?.code).toBe('broker');
   });
@@ -249,7 +247,7 @@ describe('relay battle rooms', () => {
 
     // host page reload: the room stays on the relay, guests re-dial the resumed host
     host.dispose();
-    const h2 = BattleHost.resume(hostStorage, { heartbeatMs: 0, linkMode: 'relay', relay: relay(net, 'host2') })!;
+    const h2 = BattleHost.resume(hostStorage, { heartbeatMs: 0, linkMode: 'mqtt', relay: relay(net, 'host2') })!;
     expect(h2.code).toBe(host.code);
     await until(() => guests.every((g) => g.connected) && h2.roster.filter((r) => r.kind === 'online').every((r) => r.connected), 6000, 'guests back after host reload');
     await until(() => guests.every((g) => g.seq === h2.seq));
@@ -268,12 +266,12 @@ describe('relay duels', () => {
       seed: 5,
       hostFirst: true,
       pingMs: 0,
-      linkMode: 'relay',
+      linkMode: 'mqtt',
       relay: relay(net, 'host'),
     });
     await until(() => host.status === 'waiting');
     const gStorage = new MemoryStorage();
-    const guest = DuelSession.join(host.code!, { storage: gStorage, clientId: 'G', pingMs: 0, linkMode: 'relay', relay: relay(net, 'g') });
+    const guest = DuelSession.join(host.code!, { storage: gStorage, clientId: 'G', pingMs: 0, linkMode: 'mqtt', relay: relay(net, 'g') });
     await until(() => host.status === 'playing' && guest.status === 'playing');
     expect(host.link).toBe('relay');
     expect(guest.link).toBe('relay');
@@ -282,12 +280,12 @@ describe('relay duels', () => {
       playScriptedTurn(host.isMyTurn ? host : guest);
       await until(same, 8000, 'duel in sync');
     }
-    const third = DuelSession.join(host.code!, { storage: new MemoryStorage(), clientId: 'T', pingMs: 0, linkMode: 'relay', relay: relay(net, 't') });
+    const third = DuelSession.join(host.code!, { storage: new MemoryStorage(), clientId: 'T', pingMs: 0, linkMode: 'mqtt', relay: relay(net, 't') });
     await until(() => third.status === 'error');
     expect(third.lastError?.code).toBe('room-full');
     // guest page reload
     guest.dispose();
-    const g2 = DuelSession.resume({ storage: gStorage, pingMs: 0, linkMode: 'relay', relay: relay(net, 'g2') })!;
+    const g2 = DuelSession.resume({ storage: gStorage, pingMs: 0, linkMode: 'mqtt', relay: relay(net, 'g2') })!;
     await until(() => g2.status === 'playing' && g2.connected && host.connected);
     await until(() => host.seq === g2.seq && stateHash(host.state!) === stateHash(g2.state!));
     for (let i = 0; i < 4 && !host.state!.ended; i++) {
@@ -300,92 +298,8 @@ describe('relay duels', () => {
 
   it('an unknown duel code is a bad code over the relay', async () => {
     const net = new FakeMqttNet();
-    const g = DuelSession.join('ZZ9Z', { storage: new MemoryStorage(), clientId: 'G', pingMs: 0, linkMode: 'relay', relay: relay(net, 'g') });
+    const g = DuelSession.join('ZZ9Z', { storage: new MemoryStorage(), clientId: 'G', pingMs: 0, linkMode: 'mqtt', relay: relay(net, 'g') });
     await until(() => g.status === 'error');
     expect(g.lastError?.code).toBe('bad-code');
-  });
-});
-
-describe('composite fallback', () => {
-  /** host over a loopback "direct" path + the relay; guests get a loopback direct endpoint */
-  function compositeRoom(net: FakeMqttNet) {
-    const hub = createLoopbackHub('ABCDE');
-    const hostT = new CompositeHost({
-      code: 'ABCDE',
-      direct: () => hub.host,
-      relay: () => new RelayHost('battle', 'ABCDE', { ...relay(net, 'host'), clientId: 'H', fixed: true }),
-    });
-    const host = BattleHost.create({ settings: settings(['human', 'online', 'online']), seed: 3, storage: null, clientId: 'H', heartbeatMs: 0, transport: hostT });
-    const guest = (cid: string, directOpens: boolean, fallbackMs = 200) => {
-      const t = new CompositeGuest('ABCDE', {
-        direct: () => hub.guest(cid, { autoConnect: directOpens }),
-        relay: () => new RelayGuest('battle', 'ABCDE', cid, relay(net, cid)),
-        fallbackMs,
-      });
-      return { t, g: BattleGuest.join('ABCDE', { storage: null, clientId: cid, transport: t, helloRetryMs: 100 }) };
-    };
-    return { hub, hostT, host, guest };
-  }
-
-  it('WebRTC that never opens falls back to the relay; a working one stays direct', async () => {
-    const net = new FakeMqttNet();
-    const { host, guest } = compositeRoom(net);
-    await until(() => host.status === 'lobby');
-    const a = guest('G1', false);
-    const b = guest('G2', true);
-    await until(() => host.canStart, 8000, 'both seated');
-    // the guest learns its own link from its own event, which may come after the host seats it
-    await until(() => a.g.link === 'relay', 8000, 'G1 on the relay');
-    expect(a.t.fellBackBecause).toMatch(/not open/);
-    expect(b.g.link).toBe('direct');
-    expect(net.connectedOf('G2')).toEqual([]);
-    await until(() => host.roster[1].link === (a.g.seat === 1 ? 'relay' : 'direct'), 8000, 'host roster link');
-    host.start();
-    await until(() => [a.g, b.g].every((g) => g.status === 'playing'));
-    await playBattle(host, [a.g, b.g], 6);
-    host.close();
-  });
-
-  it('a WebRTC error switches at once; a direct link that dies switches mid-match', async () => {
-    const net = new FakeMqttNet();
-    const { hub, host, guest } = compositeRoom(net);
-    await until(() => host.status === 'lobby');
-    const a = guest('G1', false, 60_000);
-    const b = guest('G2', true, 200);
-    await sleep(20);
-    hub.guestEndpoint('G1')!._emit('error', { code: 'webrtc', message: 'ICE failed', fatal: false });
-    await until(() => host.canStart, 8000, 'both seated');
-    // the guest learns its own link from its own event, which may come after the host seats it
-    await until(() => a.g.link === 'relay', 8000, 'G1 on the relay');
-    expect(a.t.fellBackBecause).toBe('direct: webrtc');
-    host.start();
-    await until(() => [a.g, b.g].every((g) => g.status === 'playing'));
-    await playBattle(host, [a.g, b.g], 3);
-    // G2's direct link dies for good
-    hub.disconnect('G2');
-    await until(() => b.g.link === 'relay' && b.g.connected, 8000, 'G2 on the relay');
-    await until(() => b.g.seq === host.seq);
-    await until(() => host.roster[b.g.seat].link === 'relay', 8000, 'host sees G2 on the relay');
-    await playBattle(host, [a.g, b.g], 4);
-    host.close();
-  });
-
-  it('duel host over the composite refuses a second guest on either path', async () => {
-    const net = new FakeMqttNet();
-    const hub = createLoopbackHub('ABCD');
-    const t = new SingleHost(
-      new CompositeHost({ code: 'ABCD', direct: () => hub.host, relay: () => new RelayHost('duel', 'ABCD', { ...relay(net, 'host'), clientId: 'H', fixed: true }) }),
-    );
-    const host = DuelSession.host({ storage: null, clientId: 'H', transport: t, size: 'S', pingMs: 0, hostFirst: true });
-    await until(() => host.status === 'waiting');
-    const g = DuelSession.join('ABCD', { storage: null, clientId: 'G', pingMs: 0, transport: hub.guest('G') });
-    await until(() => host.status === 'playing' && g.status === 'playing');
-    expect(host.link).toBe('direct');
-    const intruder = DuelSession.join('ABCD', { storage: null, clientId: 'X', pingMs: 0, transport: new RelayGuest('duel', 'ABCD', 'X', relay(net, 'x')) });
-    await until(() => intruder.status === 'error');
-    expect(intruder.lastError?.code).toBe('room-full');
-    expect(E.cellsOf(g.state!, 0).length).toBeGreaterThan(0);
-    host.leave();
-    g.leave();
   });
 });

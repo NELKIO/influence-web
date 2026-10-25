@@ -27,7 +27,8 @@ import {
   type SyncMsg,
 } from './protocol';
 import { isValidCode, normalizeCode, randomId } from './room';
-import { createDuelGuestTransport, createDuelHostTransport, type LinkMode } from './composite';
+import { onVisibility, pageHidden } from './visibility';
+import { createDuelGuestTransport, createDuelHostTransport, type LinkMode, type NetLinkOptions } from './composite';
 import type { RelayOptions } from './mqttRelay';
 import type { LinkKind, PeerTransportOptions, Transport, TransportError, TransportErrorCode } from './transport';
 
@@ -99,6 +100,8 @@ export interface DuelEvents {
    * ordered) has reached it, e.g. a concede
    */
   peerSeen: () => void;
+  /** the opponent's page was hidden (minimised) / shown again */
+  presence: (hidden: boolean) => void;
 }
 
 export interface DuelOptions {
@@ -116,11 +119,17 @@ export interface DuelOptions {
   pingMs?: number;
   /** PeerJS transport tuning (broker, ICE, logging) */
   peer?: Omit<PeerTransportOptions, 'clientId'>;
-  /** relay fallback tuning (brokers, MQTT client factory); false disables the relay */
+  /** MQTT relay tuning (brokers, MQTT client factory); false disables it */
   relay?: RelayOptions | false;
-  /** 'auto' (WebRTC, relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
+  /** PeerJS signalling relay tuning; false disables it */
+  peerRelay?: NetLinkOptions['peerRelay'];
+  /** Nostr relay tuning; false disables it */
+  nostr?: NetLinkOptions['nostr'];
+  /** multipath tuning */
+  mp?: NetLinkOptions['mp'];
+  /** 'auto' (all paths), 'direct', 'relay', 'peerrelay', 'nostr', 'mqtt'; default from `?transport=` or 'auto' */
   linkMode?: LinkMode;
-  /** guest: switch to the relay when WebRTC is not open after this long (ms, default 5000) */
+  /** no longer used (all paths start together) */
   fallbackMs?: number;
 }
 
@@ -206,8 +215,8 @@ export function duelSettings(config: DuelConfig, localSlot: number): MatchSettin
   };
 }
 
-function netOpts(opts: DuelOptions) {
-  return { peer: opts.peer, relay: opts.relay, mode: opts.linkMode, fallbackMs: opts.fallbackMs };
+function netOpts(opts: DuelOptions): NetLinkOptions {
+  return { peer: opts.peer, relay: opts.relay, peerRelay: opts.peerRelay, nostr: opts.nostr, mp: opts.mp, mode: opts.linkMode };
 }
 
 function resolveStorage(opts: DuelOptions): KVStorage | null {
@@ -243,6 +252,8 @@ export class DuelSession {
   rtt: number | null = null;
   canClaimTimeout = false;
   lastError: DuelError | null = null;
+  /** the opponent's page is hidden (minimised): its moves wait until it comes back */
+  opponentHidden = false;
 
   private transport: Transport;
   private storage: KVStorage | null;
@@ -261,6 +272,8 @@ export class DuelSession {
   /** local epoch ms of the last hello exchange (pings sent since then answer `peerSeen`) */
   private handshakeAt = Infinity;
   private closed = false;
+  /** our own page is hidden */
+  private hidden = pageHidden();
 
   // ------------------------------------------------------------------ construction
 
@@ -357,6 +370,7 @@ export class DuelSession {
       transport.onClose(() => this.handleClose()),
       transport.onMessage((m) => this.handleMessage(m)),
       transport.onError((e) => this.handleTransportError(e)),
+      onVisibility((h) => this.setPageHidden(h)),
     );
     if (transport.isOpen) queueMicrotask(() => this.handleOpen());
   }
@@ -392,6 +406,12 @@ export class DuelSession {
   /** how the link to the opponent is carried right now ('direct' WebRTC or 'relay'), null when offline */
   get link(): LinkKind | null {
     return this.connected ? (this.transport.linkKind ?? null) : null;
+  }
+
+  /** round trip to the opponent in ms (the path in use; else the game's own ping), null when unknown */
+  get linkRtt(): number | null {
+    if (!this.connected) return null;
+    return this.transport.linkRtt ?? this.rtt;
   }
 
   get isHost(): boolean {
@@ -554,6 +574,13 @@ export class DuelSession {
     this.persist();
   }
 
+  /** Our page was hidden / shown (automatic from the document's visibility; tests call it directly). */
+  setPageHidden(hidden: boolean): void {
+    if (hidden === this.hidden || this.closed) return;
+    this.hidden = hidden;
+    this.sendGame({ t: 'presence', hidden });
+  }
+
   /** Ping the opponent now (after the hello exchange); its answer fires `peerSeen`. */
   ping(): boolean {
     return this.peerHello && this.send({ t: 'ping', ts: Date.now() });
@@ -698,6 +725,12 @@ export class DuelSession {
       case 'ping':
         this.send({ t: 'pong', ts: msg.ts, seq: this.seq, matchId: this.matchId });
         return;
+      case 'presence':
+        if (msg.hidden !== this.opponentHidden) {
+          this.opponentHidden = msg.hidden;
+          this.em.emit('presence', msg.hidden);
+        }
+        return;
       case 'pong':
         this.rtt = Math.max(0, Date.now() - msg.ts);
         this.checkPeerProgress(msg.seq, msg.matchId);
@@ -729,9 +762,17 @@ export class DuelSession {
     }
     this.peerHello = true;
     this.handshakeAt = Date.now();
+    // a fresh hello: the peer is here; it says so again if its page is hidden
+    if (this.opponentHidden) {
+      this.opponentHidden = false;
+      this.em.emit('presence', false);
+    }
+    // (the guest said hello already; the host says it now, the presence goes after it)
+    if (this.hidden && this.role === 'guest') this.send({ t: 'presence', hidden: true });
 
     if (this.role === 'host') {
       this.sendHello();
+      if (this.hidden) this.send({ t: 'presence', hidden: true });
       if (!this.state) {
         this.startNewMatch();
         return;
