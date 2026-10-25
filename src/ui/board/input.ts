@@ -103,7 +103,7 @@ export function attachBoardInput(canvas: HTMLCanvasElement, r: BoardRenderer, h:
     if (cell < 0) {
       // double tap on empty space toggles zoom
       if (now - lastTap < 320 && r.canZoom) {
-        if (r.zoomed) r.resetCamera();
+        if (r.zoomed) r.fitView();
         else r.zoomTo(p.x, p.y, r.maxScale * 0.8);
         lastTap = 0;
       } else lastTap = now;

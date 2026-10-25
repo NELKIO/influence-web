@@ -177,6 +177,8 @@ export interface MatchEnd {
   winner: number;
   /** true if a human won */
   humanWon: boolean;
+  /** an early finish with the first place shared by people: a draw (winner -1, not a defeat) */
+  draw?: boolean;
   reason: 'elimination' | 'early' | 'concede' | 'timeout' | 'cap';
   turn: number;
 }

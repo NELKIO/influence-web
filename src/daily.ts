@@ -1,6 +1,6 @@
 import { Rng, hashString } from './core/rng';
 import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, SCENARIOS, type ScenarioId } from './core/scenarios';
-import { createMatch } from './core/engine';
+import { createMatch, withFreshDice } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
 /** Local calendar date as yyyy-mm-dd. */
@@ -168,6 +168,14 @@ export function createDailyMatch(id: string): MatchState {
     return st;
   }
   return createMatch(dailySettings(id), { seed: dailySeed(id) });
+}
+
+/**
+ * An attempt at the map of the day: the day's map and starting forces exactly as createDailyMatch
+ * builds them for everybody, with dice of its own (a retry must not replay the same fights).
+ */
+export function createDailyAttempt(id: string): MatchState {
+  return withFreshDice(createDailyMatch(id));
 }
 
 export type { ScenarioId };

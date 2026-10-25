@@ -43,7 +43,7 @@ export function SettingsScreen() {
               onChange={(v) => updateSettings({ speed: v })}
             />
           </div>
-          <SettingRow title={t('confirmEnd')}>
+          <SettingRow title={t('confirmEnd')} desc={t('confirmEndDesc')}>
             <Toggle on={s.confirmEnd} onChange={(v) => updateSettings({ confirmEnd: v })} />
           </SettingRow>
           <SettingRow title={t('showChance')}>

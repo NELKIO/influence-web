@@ -64,6 +64,16 @@ export function createMatch(settings: MatchSettings, opts: CreateOptions = {}): 
   return state;
 }
 
+/**
+ * New dice for a match about to be played again (restart, another attempt at the map of the day):
+ * the map, the placement and the seed it was built from stay, only the fights are rolled anew.
+ */
+export function withFreshDice(state: MatchState, seed = randomSeed()): MatchState {
+  state.rng = new Rng(seed).state();
+  state.luck = [0, 0, 0];
+  return state;
+}
+
 function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
   for (const c of field.cells) {
     c.owner = NEUTRAL;
@@ -222,6 +232,16 @@ export function alivePlayers(state: MatchState): number[] {
 
 export function humansAlive(state: MatchState): number[] {
   return alivePlayers(state).filter((p) => isHuman(state, p));
+}
+
+/** The next alive person at this device after `seat` in seat order (wrapping round), or -1. */
+export function nextHumanAfter(state: MatchState, seat: number): number {
+  const n = state.settings.players.length;
+  for (let k = 1; k <= n; k++) {
+    const p = (seat + k + n) % n;
+    if (isHuman(state, p) && isAlive(state, p)) return p;
+  }
+  return -1;
 }
 
 export function freeCapacity(state: MatchState, slot: number): number {
@@ -565,7 +585,10 @@ export function checkEnd(state: MatchState): void {
 
 export interface StuckOffer {
   percent: number;
+  /** finishing now wins the match for the current seat */
   enough: boolean;
+  /** with other people in the match the first place is shared by a person: finishing now is a draw */
+  draw?: boolean;
 }
 
 /** Called at the start of a human's turn. Returns an early-finish offer when the board is saturated. */
@@ -585,37 +608,41 @@ export function checkStuck(state: MatchState): StuckOffer | null {
   if (total <= 0.8 * max) return null;
   const mine = cellCount(state, state.current);
   const percent = (mine / state.field.cells.length) * 100;
-  // with other people still in the match a fair share is not enough: only the leader can claim the win
-  const leader = leaderOf(state);
-  const others = humansAlive(state).length > 1;
-  return { percent, enough: percent >= 100 / alive.length && (!others || leader === state.current) };
+  // alone against bots (the original rule): a fair share of the field wins, less loses
+  if (humansAlive(state).length <= 1) return { percent, enough: percent >= 100 / alive.length };
+  // with other people still in the match the leader takes it; a first place shared by a person is a draw
+  const top = leadersOf(state);
+  if (top.length === 1) return { percent, enough: top[0] === state.current };
+  return { percent, enough: false, draw: top.some((p) => isPersonType(s.players[p])) };
 }
 
-/** The alive seat with the most cells (-1 on a tie for first place). */
-function leaderOf(state: MatchState): number {
-  let best = -1;
+/** The alive seats with the most cells (several on a tie for first place). */
+function leadersOf(state: MatchState): number[] {
+  let best: number[] = [];
   let bestN = -1;
-  let tie = false;
   for (const p of alivePlayers(state)) {
     const n = cellCount(state, p);
     if (n > bestN) {
-      best = p;
+      best = [p];
       bestN = n;
-      tie = false;
-    } else if (n === bestN) tie = true;
+    } else if (n === bestN) best.push(p);
   }
-  return tie ? -1 : best;
+  return best;
 }
 
 export function finishEarly(state: MatchState, offer: StuckOffer): void {
-  // alone against bots giving up early is a defeat; with other people the leader takes the match
-  const winner = offer.enough ? state.current : humansAlive(state).length > 1 ? leaderOf(state) : -1;
-  state.ended = {
-    winner,
-    humanWon: winner >= 0 && isHuman(state, winner),
-    reason: 'early',
-    turn: state.turn,
-  };
+  const end = { reason: 'early' as const, turn: state.turn };
+  if (offer.enough) {
+    state.ended = { ...end, winner: state.current, humanWon: true };
+  } else if (offer.draw) {
+    // the people at the top are level: nobody won, nobody lost
+    state.ended = { ...end, winner: -1, humanWon: false, draw: true };
+  } else {
+    // alone against bots giving up early is a defeat; with other people the single leader takes the match
+    const top = humansAlive(state).length > 1 ? leadersOf(state) : [];
+    const winner = top.length === 1 ? top[0] : -1;
+    state.ended = { ...end, winner, humanWon: winner >= 0 && isHuman(state, winner) };
+  }
 }
 
 /**
@@ -644,7 +671,10 @@ export function concede(state: MatchState, loser: number): void {
     state.ended = { ...end, reason: 'concede' };
     return;
   }
-  if (state.viewer === loser) state.viewer = humansAlive(state)[0] ?? state.viewer;
+  if (state.viewer === loser) {
+    const next = nextHumanAfter(state, loser);
+    if (next >= 0) state.viewer = next;
+  }
   if (state.current === loser) finishTurn(state);
   else if (state.selected >= 0 && state.field.cells[state.selected].owner !== state.current) state.selected = -1;
 }

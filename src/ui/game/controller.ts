@@ -13,6 +13,7 @@ import {
   finishTurn,
   humansAlive,
   incomeCells,
+  nextHumanAfter,
   isAlive,
   isHuman,
   targetsFrom,
@@ -112,6 +113,24 @@ export class GameController {
   private handoverDone = -1;
   private stuckChecked = -1;
   private resultShown = false;
+  /**
+   * The match was already over when it was handed to this controller (a finished match opened again):
+   * its result was recorded when it ended, so onEnd must not fire for it again.
+   */
+  private overAtLaunch: boolean;
+  /**
+   * Bumped whenever the match changes under the bots' feet (a person gives up, the state is replaced,
+   * the screen goes away): a bot step planned before must not be applied after it.
+   */
+  private epoch = 0;
+  /** the attack a bot is about to make, shown for a moment before it is rolled (-1: none) */
+  private botFrom = -1;
+  private botTo = -1;
+  /**
+   * Hot-seat darkness: the device has to be handed to this seat before its view may be shown (the
+   * seat looking at the board went out); -1 when nothing is pending.
+   */
+  private pendingHandover = -1;
   private driver: MatchDriver;
   private opts: ControllerOptions;
   private fx: typeof sfx;
@@ -120,6 +139,7 @@ export class GameController {
   constructor(opts: ControllerOptions) {
     this.opts = opts;
     this.state = opts.state;
+    this.overAtLaunch = !!opts.state.ended;
     this.settings = opts.settings;
     this.driver = { ...this.localDriver(), ...(opts.driver ?? {}) };
     this.fx = opts.background ? SILENT_SFX : sfx;
@@ -199,12 +219,16 @@ export class GameController {
   /** External state replacement (online sync). */
   replaceState(state: MatchState) {
     this.state = state;
+    this.epoch++;
+    // a match that is still on (or a new one) ends under our eyes: its end is reported
+    if (!state.ended) this.overAtLaunch = false;
     this.emit();
     this.afterChange();
   }
 
   dispose() {
     this.disposed = true;
+    this.epoch++;
     clearTimeout(this.hintTimer);
     for (const b of this.bots.values()) b.dispose?.();
     this.listeners.clear();
@@ -232,11 +256,21 @@ export class GameController {
 
   view(): BoardView {
     const s = this.state;
-    const visible = visibleCells(s, s.viewer);
-    const known = exploredCells(s, s.viewer);
+    let visible = visibleCells(s, s.viewer);
+    let known = exploredCells(s, s.viewer);
+    if (this.pendingHandover >= 0 && s.settings.darkness && !s.ended) {
+      // the device has not been handed over yet: show nothing of the next person's view
+      visible = new Uint8Array(visible.length);
+      known = new Uint8Array(visible.length);
+    }
     const local = this.isLocalTurn && this.overlay.kind !== 'handover';
-    const selected = local && s.phase === 'attack' ? s.selected : -1;
-    const targets = new Set<number>(selected >= 0 ? targetsFrom(s, selected) : []);
+    let selected = local && s.phase === 'attack' ? s.selected : -1;
+    let targets = new Set<number>(selected >= 0 ? targetsFrom(s, selected) : []);
+    if (!local && this.botFrom >= 0 && !s.ended) {
+      // a bot's attack about to be rolled: its cell and its target, as far as the viewer can see them
+      selected = visible[this.botFrom] ? this.botFrom : -1;
+      targets = new Set(this.botTo >= 0 && visible[this.botTo] ? [this.botTo] : []);
+    }
     let active: Set<number> | null = null;
     if (local && s.phase === 'attack' && this.settings.inactiveCells) {
       active = new Set();
@@ -248,7 +282,7 @@ export class GameController {
       for (const p of alivePlayers(s)) for (const i of incomeCells(s, p)) income.add(i);
     }
     let chances: Map<number, number> | null = null;
-    if (selected >= 0 && this.settings.showChance) {
+    if (local && selected >= 0 && this.settings.showChance) {
       chances = new Map();
       const a = s.field.cells[selected].power;
       for (const ti of targets) {
@@ -479,9 +513,15 @@ export class GameController {
   concedeMatch() {
     const slot = this.localHumanSlot();
     if (slot < 0) return;
+    const viewer = this.state.viewer;
     this.driver.concede(slot);
+    // whatever a bot was about to do was planned on the board before the seat left
+    this.epoch++;
+    this.botFrom = this.botTo = -1;
     this.paused = false;
     this.overlay = { kind: 'none' };
+    // the person who gave up was looking at the board: the next one gets the device first
+    this.fixViewer(viewer);
     this.saveAndEmit();
     this.afterChange();
   }
@@ -513,7 +553,36 @@ export class GameController {
       if (seen) this.renderer?.ring(ev.to, playerColor(ev.eliminated), true);
       const text = this.isYou(ev.eliminated) ? this.opts.t('youEliminated') : this.opts.t('eliminated', { name: this.name(ev.eliminated) });
       this.showHint(text, playerColor(ev.eliminated), 3000);
+      this.fixViewer();
     }
+  }
+
+  /**
+   * The seat whose eyes the board shows has gone out (hot-seat): the board would turn black. The view
+   * moves on to the next person still in play; in darkness the device is handed over first.
+   */
+  private fixViewer(prevViewer = this.state.viewer) {
+    const s = this.state;
+    if (s.ended || this.opts.remoteDriven) return;
+    let next = s.viewer;
+    if (next < 0 || !isAlive(s, next) || !isHuman(s, next)) {
+      next = nextHumanAfter(s, Math.max(0, s.viewer));
+      if (next < 0) return;
+      s.viewer = next;
+    }
+    if (next === prevViewer || !s.settings.darkness || this.humansCount < 2 || this.opts.background) return;
+    // whoever holds the device must not see the next person's board before handing it over
+    if (this.overlay.kind === 'handover' && this.overlay.next === next) return;
+    this.pendingHandover = next;
+    this.showPendingHandover();
+  }
+
+  private showPendingHandover() {
+    if (this.pendingHandover < 0 || this.paused || this.state.ended) return;
+    if (this.overlay.kind !== 'none' && this.overlay.kind !== 'confirmAuto' && this.overlay.kind !== 'confirmEndAttack') return;
+    this.overlay = { kind: 'handover', next: this.pendingHandover };
+    this.pendingHandover = -1;
+    this.emit();
   }
 
   /** Called by the online driver when the opponent's fight arrives. */
@@ -547,15 +616,19 @@ export class GameController {
     if (this.disposed) return;
     const s = this.state;
     if (s.ended) {
+      this.botFrom = this.botTo = -1;
+      this.pendingHandover = -1;
       if (!this.resultShown) {
         this.resultShown = true;
         this.endedAt = Date.now();
-        this.opts.onEnd?.(s);
+        // a match that was already over when it was opened has been recorded when it ended
+        if (!this.overAtLaunch) this.opts.onEnd?.(s);
         const won = s.ended.humanWon;
         if (this.opts.background) return;
         window.setTimeout(() => {
           if (this.disposed) return;
           if (won || s.settings.spectate || (this.humansCount > 1 && s.ended && s.ended.winner >= 0 && isHuman(s, s.ended.winner))) this.fx.win();
+          else if (s.ended?.draw) this.fx.turn();
           else this.fx.lose();
           if (!this.paused) this.overlay = { kind: 'result' };
           this.emit();
@@ -567,6 +640,9 @@ export class GameController {
       this.overlay = { kind: 'none' };
       this.emit();
     }
+    // the seat looking at the board may have gone out
+    this.fixViewer();
+    this.showPendingHandover();
     if (this.paused || this.overlay.kind !== 'none') return;
     const cur = s.current;
     if (isHuman(s, cur)) {
@@ -605,6 +681,15 @@ export class GameController {
     while (this.paused && !this.disposed) await this.sleep(120);
   }
 
+  /**
+   * After every await of the bot loop: wait out a pause, then tell whether the step planned before
+   * may still be applied (same state object, nothing changed under it, the match still on).
+   */
+  private async stillValid(s: MatchState, epoch: number): Promise<boolean> {
+    await this.waitWhilePaused();
+    return !this.disposed && this.state === s && this.epoch === epoch && !s.ended;
+  }
+
   private async runBots() {
     if (this.running) return;
     this.running = true;
@@ -612,7 +697,9 @@ export class GameController {
     try {
       while (!this.disposed && !this.state.ended) {
         await this.waitWhilePaused();
+        if (this.disposed || this.state.ended) break;
         const s = this.state;
+        const epoch = this.epoch;
         const slot = s.current;
         const bot = this.bots.get(slot);
         if (!bot) break;
@@ -622,25 +709,28 @@ export class GameController {
           this.thinking = true;
           const mv = await bot.nextAttack(s, ctx);
           this.thinking = false;
-          if (this.disposed) return;
-          await this.waitWhilePaused();
-          if (this.disposed || this.state !== s) return;
+          // the match moved on while the bot thought (a seat gave up, a new state, the end): plan again
+          if (!(await this.stillValid(s, epoch))) continue;
           if (mv) {
-            const vis = visibleCells(this.state);
+            const vis = visibleCells(s);
             const seen = vis[mv.from] || vis[mv.to];
             if (seen && speed > 0) {
-              this.state.selected = mv.from;
-              this.renderer?.ensureVisible(mv.from);
+              s.selected = mv.from;
+              this.botFrom = mv.from;
+              this.botTo = mv.to;
+              this.renderer?.ensureVisible(vis[mv.from] ? mv.from : mv.to);
               this.emit();
               await this.sleep(speed * 0.5);
-              if (this.disposed) return;
-              await this.waitWhilePaused();
-              if (this.disposed) return;
+              const ok = await this.stillValid(s, epoch);
+              this.botFrom = this.botTo = -1;
+              if (!ok) {
+                if (this.state === s && !s.ended) s.selected = -1;
+                continue;
+              }
             }
-            if (this.state !== s) continue;
-            const ev = attack(this.state, mv.from, mv.to);
+            const ev = attack(s, mv.from, mv.to);
             if (typeof ev !== 'string') this.report(slot, { t: 'attack', from: mv.from, to: mv.to, win: ev.win });
-            this.state.selected = -1;
+            s.selected = -1;
             if (typeof ev === 'string') {
               // illegal move from a bot: end its attack instead of looping
               console.warn('bot produced illegal attack', mv, ev);
@@ -649,37 +739,35 @@ export class GameController {
               this.onFight(ev, false);
               this.emit();
               if (seen && speed > 0) await this.sleep(speed * 0.8);
-              if (this.disposed) return;
             }
           } else {
             this.botEndAttack();
           }
         } else {
           const placement = await bot.placePower(s, ctx);
-          if (this.disposed) return;
-          await this.waitWhilePaused();
-          if (this.disposed || this.state !== s) return;
-          const vis = visibleCells(this.state);
+          if (!(await this.stillValid(s, epoch))) continue;
+          const vis = visibleCells(s);
           for (const [cell, n] of placement) {
-            const added = addPower(this.state, cell, n);
+            const added = addPower(s, cell, n);
             if (added) this.report(slot, { t: 'power', cell, amount: added });
             if (added && vis[cell]) this.renderer?.floatText(cell, `+${added}`, playerColor(slot));
           }
-          if (this.state.powerLeft > 0) for (const [cell, amount] of autoPower(this.state)) this.report(slot, { t: 'power', cell, amount });
-          finishTurn(this.state);
+          if (s.powerLeft > 0) for (const [cell, amount] of autoPower(s)) this.report(slot, { t: 'power', cell, amount });
+          finishTurn(s);
           this.report(slot, { t: 'endTurn' });
-          this.opts.onSave?.(this.state);
+          this.opts.onSave?.(s);
           // a human moves next: stop here so the hand-over screen (if any) appears before the new view
-          if (isHuman(this.state, this.state.current)) break;
+          if (isHuman(s, s.current)) break;
           this.emit();
           if (speed > 0 && placement.size) await this.sleep(Math.min(400, speed));
-          if (this.disposed) return;
         }
       }
     } finally {
       this.running = false;
       this.thinking = false;
+      this.botFrom = this.botTo = -1;
     }
+    if (this.disposed) return;
     this.emit();
     if (isHuman(this.state, this.state.current) && !this.state.ended) this.fx.turn();
     this.afterChange();

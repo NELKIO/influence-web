@@ -12,8 +12,8 @@ import { countGame } from '../../sitestats';
 import { addRecord, awardMedal, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
 import { matchMedal, type MedalTier } from '../../medals';
 import { Medal } from '../components/Medal';
-import { createMatch } from '../../core/engine';
-import { createDailyMatch } from '../../daily';
+import { createMatch, withFreshDice } from '../../core/engine';
+import { createDailyAttempt } from '../../daily';
 import { startMatch } from '../../core/scenarios';
 import { Modal } from '../components/controls';
 import {
@@ -46,6 +46,8 @@ export interface OnlineBinding {
   ResultActions?: (p: { ctrl: GameController }) => preact.JSX.Element | null;
   /** where "menu" leads from this match */
   exitTo?: Route;
+  /** the binding records this result itself (battle glue: the person's seat went out and was recorded then); GameScreen must not record it again */
+  ownsResult?: (s: MatchState) => boolean;
 }
 
 function isSaveable(state: MatchState) {
@@ -89,10 +91,11 @@ export function GameScreen({ launch }: { launch: Launch }) {
       onSave: (s) => {
         if (isSaveable(s) && !s.ended) saveGame({ state: s, initial: launch.initial });
       },
+      // only for a match that ends on this screen (a finished match opened again is not recorded twice)
       onEnd: (s) => {
         if (isSaveable(s)) saveGame(null);
         // watching the bots fight on changes nothing: the real result was recorded when the people lost
-        if (!s.settings.spectate) setNewMedal(recordResult(s));
+        if (!s.settings.spectate && !online?.ownsResult?.(s)) setNewMedal(recordResult(s));
       },
     });
   }, [launch]);
@@ -101,6 +104,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
     ctrl.settings = settings;
     ctrl.start();
   }, [settings]);
+
+  const ovKind = ctrl.overlay.kind;
+  // "don't ask again" starts unticked every time a confirmation opens (it applies only on confirm)
+  useEffect(() => {
+    if (ovKind === 'confirmAuto' || ovKind === 'confirmEndAttack') setDontAsk(false);
+  }, [ovKind]);
 
   useEffect(() => {
     const r = new BoardRenderer(canvas.current!);
@@ -226,7 +235,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const toggleZoom = () => {
     const r = ctrl.board;
     if (!r) return;
-    if (r.zoomed) r.resetCamera();
+    if (r.zoomed) r.fitView();
     else {
       const sel = s.selected >= 0 ? r.cellScreenPos(s.selected) : null;
       const el = wrap.current!;
@@ -250,14 +259,17 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const restartSame = () => {
     const init = structuredClone(launch.initial);
     // the seats keep the order they were given at the start (no new shuffle: the placement belongs to them)
-    const fresh = createMatch({ ...init.settings, shuffle: false }, { field: init.field, keepPlacement: true, seed: init.seed + 1 });
+    const fresh = createMatch({ ...init.settings, shuffle: false }, { field: init.field, keepPlacement: true, seed: init.seed });
     fresh.settings = init.settings;
+    // the same map and starts, but new dice: a restart must not replay the same fights
+    withFreshDice(fresh);
     navigate({ name: 'game', launch: { state: fresh, initial: launch.initial } });
   };
 
   const newGame = () => {
     if (s.settings.kind === 'daily' && s.settings.dailyId) {
-      const st = createDailyMatch(s.settings.dailyId);
+      // the day's map for everybody, fresh dice for this attempt
+      const st = createDailyAttempt(s.settings.dailyId);
       navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
     } else if (s.settings.kind === 'single') {
       navigate({ name: 'setup' });
@@ -339,7 +351,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
                 </div>
               )}
               <div class="text">{statusText}</div>
-              {s.settings.spectate && !s.ended && (
+              {/* at instant speed the bots already move as fast as they can */}
+              {s.settings.spectate && !s.ended && settings.speed !== 'instant' && (
                 <button
                   class="btn ghost small speed-btn"
                   onClick={() => {
@@ -415,12 +428,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
       {ov.kind === 'stuck' && (
         <Modal>
           <h2>{t('earlyTitle')}</h2>
-          <p>{t(ov.offer.enough ? 'earlyWin' : 'earlyLose', { p: Math.round(ov.offer.percent) })}</p>
+          <p>{t(ov.offer.enough ? 'earlyWin' : ov.offer.draw ? 'earlyDraw' : 'earlyLose', { p: Math.round(ov.offer.percent) })}</p>
           <div class="row">
             <button class="btn ghost" onClick={() => ctrl.acceptStuck(false)}>
               {t('keepPlaying')}
             </button>
-            <button class={`btn ${ov.offer.enough ? 'green' : 'red'}`} onClick={() => ctrl.acceptStuck(true)}>
+            <button class={`btn ${ov.offer.enough ? 'green' : ov.offer.draw ? '' : 'red'}`} onClick={() => ctrl.acceptStuck(true)}>
               {t('finishNow')}
             </button>
           </div>
@@ -480,7 +493,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
         <ResultModal
           ctrl={ctrl}
           onMenu={exitToMenu}
-          onRestart={!online ? restartSame : undefined}
+          // the map of the day has a single way to play again: "another attempt"
+          onRestart={!online && s.settings.kind !== 'daily' ? restartSame : undefined}
           onNew={s.settings.kind !== 'duelOnline' ? quickRematch : undefined}
           onViewBoard={() => setViewingBoard(true)}
           onWatch={!online && canSpectate(s) ? watchBots : undefined}
@@ -600,7 +614,11 @@ function ResultModal({
   let title: string;
   let color: string;
   const spectate = !!s.settings.spectate;
-  if (spectate) {
+  const draw = !!end.draw && !spectate;
+  if (draw) {
+    title = t('draw');
+    color = 'var(--muted)';
+  } else if (spectate) {
     title = end.winner >= 0 ? t('winnerIs', { name: playerName(s.settings, end.winner) }) : t('spectateDraw', { n: end.turn + 1 });
     color = end.winner >= 0 ? playerColor(end.winner) : 'var(--muted)';
   } else if (humans > 1) {
@@ -623,7 +641,7 @@ function ResultModal({
   return (
     <Modal>
       <div class="result-banner">
-        <ResultEmblem color={color} win={spectate || humans > 1 ? end.winner >= 0 : end.humanWon} plain={spectate} />
+        <ResultEmblem color={color} win={spectate || humans > 1 ? end.winner >= 0 : end.humanWon} plain={spectate || draw} />
         <div class="result-title" style={{ color, fontSize: spectate || humans > 1 ? 24 : undefined }}>
           {title}
         </div>
@@ -645,6 +663,11 @@ function ResultModal({
       {end.reason === 'concede' && s.settings.kind === 'duelOnline' && end.humanWon && <p>{t('oppConceded')}</p>}
       {end.reason === 'timeout' && end.humanWon && <p>{t('timeoutWin')}</p>}
       {spectate && <p class="muted" style={{ textAlign: 'center', margin: 0 }}>{t('spectateNote')}</p>}
+      {draw && (
+        <p class="muted" style={{ textAlign: 'center', margin: 0 }} data-testid="draw-note">
+          {t('drawNote')}
+        </p>
+      )}
       <div class="result-stats">
         {humans === 1 && !spectate && (
           <>
@@ -671,7 +694,7 @@ function ResultModal({
       {extra}
       {onNew && (
         <button class="btn primary" onClick={onNew}>
-          {s.settings.kind === 'daily' ? t('dailyRetry') : t('newGame')}
+          {s.settings.kind === 'daily' ? t('dailyRetry') : s.settings.kind === 'duelTraining' || s.settings.kind === 'duelLocal' ? t('newDuel') : t('newGame')}
         </button>
       )}
       {onWatch && (
@@ -728,6 +751,7 @@ function recordResult(s: MatchState): MedalTier | null {
     size: s.settings.size,
     opponents: s.settings.players.filter((_, i) => i !== me),
     humans,
+    // a draw (people level at an early finish) is not a win; with several people the streak is not touched
     win,
     rounds: (s.ended?.turn ?? s.turn) + 1,
     captured: s.chronicle.conquered,

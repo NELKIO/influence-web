@@ -35,6 +35,15 @@ export function cellRadius(maxPower: number): number {
   return maxPower > 8 ? 0.9 : 0.78;
 }
 
+/** Radius of every cell hidden in the dark: its capacity is not given away by its size. */
+export const HIDDEN_RADIUS = 0.78;
+
+/**
+ * Exploration fog: the camera starts at this scale (px per world unit, a cell about 40 px across) when
+ * the fitted map would make cells smaller, so the cells around your land are easy to tap on a phone.
+ */
+export const FOG_START_SCALE = 26;
+
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -118,6 +127,10 @@ export class BoardRenderer {
   private bounds = { minX: 0, minY: 0, maxX: 1, maxY: 1 };
   private centers: [number, number][] = [];
   private fieldRef: Field | null = null;
+  /** the seat whose eyes the last view showed (effects of another seat's turn are dropped on a change) */
+  private viewer = -1;
+  /** the camera is where resetCamera put it (no zoom or pan since): a resize may place it again */
+  private autoCamera = true;
   /**
    * Exploration fog: the camera keeps the scale that fits the whole map (stable, never zooming into a
    * few cells) but is centred on, and pans within, what the viewer has seen, so the drawn part says
@@ -159,7 +172,7 @@ export class BoardRenderer {
     this.staticLayer.height = this.canvas.height;
     const prevFit = this.fitScale;
     this.computeFit();
-    if (!prevFit || this.scale <= prevFit * 1.001) this.resetCamera();
+    if (!prevFit || this.scale <= prevFit * 1.001 || this.autoCamera) this.resetCamera();
     else {
       this.scale = Math.min(this.maxScale, Math.max(this.fitScale, this.scale));
       this.clampCamera();
@@ -169,6 +182,12 @@ export class BoardRenderer {
   }
 
   setView(view: BoardView) {
+    // hot-seat darkness: what happened on the previous person's board (floating +N, rings, fights)
+    // must not be seen by the next one
+    if (view.state.viewer !== this.viewer) {
+      if (view.state.settings.darkness && this.viewer !== -1) this.effects = [];
+      this.viewer = view.state.viewer;
+    }
     // a new field object with the same shape (online resync) keeps the camera
     const prev = this.fieldRef;
     const sameShape =
@@ -252,13 +271,24 @@ export class BoardRenderer {
     return this.scale > this.fitScale * 1.05;
   }
 
-  resetCamera() {
-    this.scale = this.fitScale;
+  /**
+   * Place the camera: the whole map fitted, or under exploration fog centred on the seen land and (on
+   * small screens) zoomed so its cells are easy to tap. `fit`: the whole map at its fitted scale.
+   */
+  resetCamera(fit = false) {
+    this.scale = this.fog && !fit ? Math.min(this.maxScale, Math.max(this.fitScale, FOG_START_SCALE)) : this.fitScale;
+    this.autoCamera = !fit;
     const box = this.fog ?? this.bounds;
     this.camX = (box.minX + box.maxX) / 2;
     this.camY = (box.minY + box.maxY) / 2;
+    this.clampCamera();
     this.invalidate();
     this.onCamera?.();
+  }
+
+  /** Zoom out to the whole map (the zoom button, a double tap). */
+  fitView() {
+    this.resetCamera(true);
   }
 
   private screenCentre(): [number, number] {
@@ -280,6 +310,7 @@ export class BoardRenderer {
     const [wx, wy] = this.screenToWorld(px, py);
     const next = Math.min(this.maxScale, Math.max(this.fitScale, this.scale * factor));
     this.scale = next;
+    this.autoCamera = false;
     const [sx, sy] = this.screenCentre();
     this.camX = wx - (px - sx) / next;
     this.camY = wy - (py - sy) / next;
@@ -293,6 +324,7 @@ export class BoardRenderer {
   }
 
   pan(dx: number, dy: number) {
+    this.autoCamera = false;
     this.camX -= dx / this.scale;
     this.camY -= dy / this.scale;
     this.clampCamera();
@@ -330,6 +362,18 @@ export class BoardRenderer {
     if (y < top) dy = top - y;
     if (y > bottom) dy = bottom - y;
     if (dx || dy) this.pan(dx, dy);
+  }
+
+  /**
+   * Drawn radius of a cell for the current viewer: hidden cells all look the same size, unless the
+   * exploration fog remembers them (a remembered cell was seen, its size with it).
+   */
+  private radiusOf(i: number): number {
+    const v = this.view;
+    const c = v?.state.field.cells[i];
+    if (!c) return HIDDEN_RADIUS;
+    if (!v.visible[i] && !(v.known && v.known[i])) return HIDDEN_RADIUS;
+    return cellRadius(c.maxPower);
   }
 
   cellAt(px: number, py: number): number {
@@ -484,7 +528,7 @@ export class BoardRenderer {
       this.drawnCells++;
       const c = cells[i];
       const [x, y] = pos[i];
-      const r = cellRadius(c.maxPower) * s;
+      const r = this.radiusOf(i) * s;
       if (!v.visible[i]) {
         shapePath(ctx, -1, false, x, y, r);
         ctx.fillStyle = '#101216';
@@ -574,11 +618,11 @@ export class BoardRenderer {
         shake = Math.sin((t - 0.38) * 60) * (1 - (t - 0.38) / 0.37) * Math.max(1.5, s * 0.08);
       }
     }
-    if (shakeCell >= 0) {
+    if (shakeCell >= 0 && v.visible[shakeCell]) {
       // draw the static layer, then re-draw the shaken cell area offset
       ctx.drawImage(this.staticLayer, 0, 0, this.canvas.width, this.canvas.height, 0, 0, this.cssW, this.cssH);
       const [x, y] = P(shakeCell);
-      const r = cellRadius(cells[shakeCell].maxPower) * s * 1.05;
+      const r = this.radiusOf(shakeCell) * s * 1.05;
       ctx.save();
       shapePath(ctx, -1, false, x, y, r);
       ctx.clip();
@@ -595,10 +639,10 @@ export class BoardRenderer {
       const col = playerColor(v.state.current);
       const k = 0.5 + 0.5 * Math.sin(now / 260);
       for (const i of v.targets) {
-        if (!this.centers[i]) continue;
+        if (!this.centers[i] || !v.visible[i]) continue;
         const [x, y] = P(i);
         const c = cells[i];
-        const r = cellRadius(c.maxPower) * s;
+        const r = this.radiusOf(i) * s;
         shapePath(ctx, c.owner, v.colorblind, x, y, r + Math.max(2, s * 0.1));
         ctx.setLineDash([Math.max(3, s * 0.22), Math.max(2, s * 0.14)]);
         ctx.lineDashOffset = -now / 40;
@@ -610,10 +654,10 @@ export class BoardRenderer {
     }
 
     // selection
-    if (v.selected >= 0 && this.centers[v.selected]) {
+    if (v.selected >= 0 && this.centers[v.selected] && v.visible[v.selected]) {
       const [x, y] = P(v.selected);
       const c = cells[v.selected];
-      const r = cellRadius(c.maxPower) * s;
+      const r = this.radiusOf(v.selected) * s;
       shapePath(ctx, c.owner, v.colorblind, x, y, r + Math.max(2.5, s * 0.12));
       ctx.lineWidth = Math.max(2, s * 0.1);
       ctx.strokeStyle = '#ffffff';
@@ -622,7 +666,7 @@ export class BoardRenderer {
     if (v.hover >= 0 && v.hover !== v.selected && this.centers[v.hover] && v.visible[v.hover]) {
       const [x, y] = P(v.hover);
       const c = cells[v.hover];
-      shapePath(ctx, c.owner, v.colorblind, x, y, cellRadius(c.maxPower) * s + 2);
+      shapePath(ctx, c.owner, v.colorblind, x, y, this.radiusOf(v.hover) * s + 2);
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.stroke();
@@ -630,8 +674,9 @@ export class BoardRenderer {
 
     for (const e of this.effects) {
       const t = Math.min(1, (now - e.t0) / e.dur);
+      // nothing is drawn on cells the viewer cannot see
       if (e.kind === 'fight') {
-        if (!this.centers[e.from] || !this.centers[e.to]) continue;
+        if (!this.centers[e.from] || !this.centers[e.to] || (!v.visible[e.from] && !v.visible[e.to])) continue;
         const [ax, ay] = P(e.from);
         const [bx, by] = P(e.to);
         const ease = (u: number) => 1 - (1 - u) * (1 - u);
@@ -656,10 +701,9 @@ export class BoardRenderer {
           ctx.beginPath();
           ctx.arc(hx, hy, Math.max(1.5, s * 0.1), 0, Math.PI * 2);
           ctx.fill();
-        } else {
+        } else if (v.visible[e.to]) {
           const k = (t - 0.4) / 0.6;
-          const c = cells[e.to];
-          const r = cellRadius(c?.maxPower ?? 8) * s;
+          const r = this.radiusOf(e.to) * s;
           // impact flash on the target
           ctx.save();
           shapePath(ctx, -1, false, bx, by, r);
@@ -680,7 +724,7 @@ export class BoardRenderer {
           }
         }
       } else if (e.kind === 'text') {
-        if (!this.centers[e.cell]) continue;
+        if (!this.centers[e.cell] || !v.visible[e.cell]) continue;
         const [x, y] = P(e.cell);
         const ease = 1 - (1 - t) * (1 - t);
         const fs = Math.max(11, Math.min(18, s * 0.42));
@@ -695,7 +739,7 @@ export class BoardRenderer {
         ctx.fillText(e.text, x, ty);
         ctx.globalAlpha = 1;
       } else if (e.kind === 'ring') {
-        if (!this.centers[e.cell]) continue;
+        if (!this.centers[e.cell] || !v.visible[e.cell]) continue;
         const [x, y] = P(e.cell);
         const ease = 1 - (1 - t) * (1 - t);
         hexPath(ctx, x, y, Math.max(0.1, s * (0.9 + ease * (e.big ? 2.6 : 0.8))));
@@ -709,9 +753,9 @@ export class BoardRenderer {
       const col = playerColor(v.state.current);
       const [sx, sy] = P(v.selected);
       for (const [i, p] of v.chances) {
-        if (!this.centers[i]) continue;
+        if (!this.centers[i] || !v.visible[i]) continue;
         const [x, y] = P(i);
-        const r = cellRadius(cells[i].maxPower) * s;
+        const r = this.radiusOf(i) * s;
         // on the far side of the target, away from the selected cell and its white frame
         const dx = x - sx;
         const dy = y - sy;

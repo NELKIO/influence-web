@@ -2,12 +2,13 @@ import { useMemo, useState } from 'preact/hooks';
 import { getLang, t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
-import { createDailyMatch, dailyLevel, dayId, dayNumber, parseDay, type ScenarioId } from '../../daily';
+import { createDailyAttempt, createDailyMatch, dailyLevel, dayId, dayNumber, parseDay, type ScenarioId } from '../../daily';
 import { loadDaily, loadSavedGame } from '../../storage';
 import { IconBack, IconArrow } from '../components/icons';
 import { SecretMap } from '../components/MiniMap';
 import { useDiscardGuard } from '../components/DiscardGuard';
 import { sfx, unlockAudio } from '../../audio/sfx';
+import { playerName } from '../names';
 
 const FIRST_DAY = '2026-01-01';
 
@@ -38,6 +39,10 @@ export function DailyScreen() {
   }, [results, today]);
   const solved = Object.values(results).filter((r) => r.bestRounds !== null).length;
 
+  const savedGame = loadSavedGame();
+  /** an unfinished attempt at this day is saved: the button resumes it */
+  const resumable = !!savedGame && savedGame.state.settings.kind === 'daily' && savedGame.state.settings.dailyId === sel && !savedGame.state.ended;
+
   const play = () => {
     unlockAudio();
     sfx.click();
@@ -47,7 +52,8 @@ export function DailyScreen() {
       return;
     }
     guard(() => {
-      const st = createDailyMatch(sel);
+      // the day's map as everybody gets it, with dice of this attempt's own
+      const st = createDailyAttempt(sel);
       navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
     });
   };
@@ -99,10 +105,10 @@ export function DailyScreen() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {cfg.players.slice(1).map((p, i) => (
+            {cfg.players.slice(1).map((_, i) => (
               <span key={i} class="tag" style={{ '--c': `var(--p${i + 1})` }}>
                 <span class="sw" />
-                {t(`player_${p}` as 'player_human')}
+                {playerName(cfg, i + 1)}
               </span>
             ))}
             {cfg.darkness && <span class="tag">{t('darkness')}</span>}
@@ -115,7 +121,7 @@ export function DailyScreen() {
             {res?.attempts ? <span class="muted" style={{ fontWeight: 600 }}> · {t('dailyAttempts', { n: res.attempts })}</span> : null}
           </div>
           <button class="btn primary" onClick={play}>
-            {res?.attempts ? t('dailyRetry') : t('dailyPlay')}
+            {resumable ? t('continue') : res?.attempts ? t('dailyRetry') : t('dailyPlay')}
           </button>
         </div>
 
