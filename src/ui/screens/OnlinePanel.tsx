@@ -4,7 +4,7 @@ import { Modal, Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import type { DuelOptions } from './DuelsScreen';
 import { inviteUrl, isValidCode, normalizeCode, type DuelSession } from '../../net';
 import { errorText, launchOnline } from '../online';
-import { canCreate, hostDuel, joinDuel, listSlots, MAX_DUELS, onDuelsChange, removeSlot, resumeAll, slotSession } from '../duels';
+import { abandonSlot, canCreate, hostDuel, joinDuel, listSlots, MAX_DUELS, onDuelsChange, removeSlot, resumeAll, setViewing, slotSession } from '../duels';
 import { IconChevron, IconShare, IconX } from '../components/icons';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import type { FieldSize } from '../../core/types';
@@ -32,8 +32,29 @@ const TONE: Record<string, string> = {
   lose: 'var(--bad)',
 };
 
-export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions; join?: string; onBack: () => void }) {
-  const [opts, setOpts] = useState<DuelOptions>(initial);
+/** a guest slot that never reached its host (a dead or mistyped code): nothing worth keeping */
+function deadGuest(id: string): boolean {
+  const s = slotSession(id);
+  return !!s && s.role === 'guest' && !s.state;
+}
+
+export function OnlinePanel({
+  opts: initial,
+  onOpts,
+  join,
+  onBack,
+}: {
+  opts: DuelOptions;
+  /** the options changed (the duels screen keeps them) */
+  onOpts?: (o: DuelOptions) => void;
+  join?: string;
+  onBack: () => void;
+}) {
+  const [opts, setOptsState] = useState<DuelOptions>(initial);
+  const setOpts = (o: DuelOptions) => {
+    setOptsState(o);
+    onOpts?.(o);
+  };
   const [view, setView] = useState<View>({ kind: 'lobby' });
   const [code, setCode] = useState(join ?? '');
   const [, setTick] = useState(0);
@@ -47,6 +68,19 @@ export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions
     if (join && isValidCode(normalizeCode(join))) startJoin(join);
     return off;
   }, []);
+
+  // the room being waited in is "viewed": its match opens here by itself, so its first turn (announced
+  // before the board is up) is no news. Leaving the waiting view of a guest that never reached the host
+  // drops that slot.
+  const viewId = view.kind === 'room' ? view.id : null;
+  useEffect(() => {
+    if (!viewId) return;
+    setViewing(viewId);
+    return () => {
+      setViewing(null, viewId);
+      if (deadGuest(viewId)) removeSlot(viewId);
+    };
+  }, [viewId]);
 
   // open the board as soon as the match of the room we are looking at starts
   const room = view.kind === 'room' ? slotSession(view.id) : null;
@@ -93,9 +127,8 @@ export function OnlinePanel({ opts: initial, join, onBack }: { opts: DuelOptions
   };
 
   const remove = (id: string) => {
-    const s = slotSession(id);
-    if (s?.state && !s.state.ended) s.concede();
-    removeSlot(id);
+    // a running match: a loss now, the concede reaches the opponent now or when both are online
+    abandonSlot(id);
     setAskRemove(null);
     if (view.kind === 'room' && view.id === id) setView({ kind: 'lobby' });
   };

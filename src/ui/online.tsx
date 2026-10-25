@@ -6,12 +6,14 @@ import { navigate } from './store';
 import { t } from '../i18n';
 import { playerColor } from './theme';
 import { sfx, buzz } from '../audio/sfx';
-import { setViewing, slotIdOf } from './duels';
+import { duelResultRecorded, setViewing, slotIdOf } from './duels';
 import type { MatchState } from '../core/types';
+import { setOnlineNames } from './names';
 
 export function errorText(e: DuelError | null): string {
   if (!e) return t('duelError');
-  if (e.code === 'bad-code') return t('duelBadCode');
+  // a malformed code is caught before dialling; otherwise nobody hosts this code
+  if (e.code === 'bad-code') return /^invalid/i.test(e.message) ? t('duelBadCode') : t('roomNotFound');
   if (e.code === 'room-full') return t('duelRoomFull');
   if (e.code === 'webrtc') return t('duelNoP2P');
   if (e.code === 'version') return t('duelVersion');
@@ -21,7 +23,18 @@ export function errorText(e: DuelError | null): string {
 /** Open the game screen for the session's current match. */
 export function launchOnline(session: DuelSession) {
   const st = session.state!;
+  // this match is on screen from now on: no "your turn" notice for it (its first turn may be emitted
+  // before the game screen binds)
+  setViewing(slotIdOf(session));
+  opponentNames(session);
   navigate({ name: 'game', launch: { state: st, initial: st, online: makeBinding(session) } });
+}
+
+/** the opponent's name for the HUD and results (none: «Соперник») */
+function opponentNames(session: DuelSession) {
+  const names: (string | null)[] = [];
+  if (session.remoteSlot >= 0) names[session.remoteSlot] = session.opponentName || null;
+  setOnlineNames(names);
 }
 
 function makeBinding(session: DuelSession): OnlineBinding {
@@ -44,8 +57,11 @@ function makeBinding(session: DuelSession): OnlineBinding {
   };
   return {
     driver,
+    // a result recorded by the duel list (the match ended while elsewhere) is not recorded again
+    ownsResult: () => duelResultRecorded(session),
     bind(ctrl: GameController) {
-      setViewing(slotIdOf(session));
+      const id = slotIdOf(session);
+      setViewing(id);
       const offs = [
         session.onRemoteFight((ev) => ctrl.remoteFight(ev)),
         session.onRemotePower((ev) => ctrl.remotePower(ev.cell, ev.amount, ev.player)),
@@ -55,6 +71,8 @@ function makeBinding(session: DuelSession): OnlineBinding {
             if (!st.ended) launchOnline(session);
             return;
           }
+          // the turn passed: the "your turn" note goes with it
+          if (!session.isMyTurn && ctrl.hint?.text === t('yourTurn')) ctrl.hint = null;
           ctrl.replaceState(st);
         }),
         session.onTurn((info) => {
@@ -65,10 +83,14 @@ function makeBinding(session: DuelSession): OnlineBinding {
           }
         }),
         session.onStatus(() => ctrl.replaceState(session.state ?? ctrl.state)),
+        session.onOpponent(() => {
+          opponentNames(session);
+          ctrl.replaceState(ctrl.state);
+        }),
       ];
       if (session.state && session.state !== ctrl.state) ctrl.replaceState(session.state);
       return () => {
-        setViewing(null);
+        setViewing(null, id);
         offs.forEach((f) => f());
       };
     },

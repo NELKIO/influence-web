@@ -101,6 +101,8 @@ export function setVibration(on: boolean) {
 }
 export function buzz(ms: number | number[] = 12) {
   if (vibrate && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    // before the first tap the browser blocks vibration (and logs an error about it): stay quiet
+    if ((navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive === false) return;
     try {
       navigator.vibrate(ms);
     } catch {

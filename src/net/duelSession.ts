@@ -94,6 +94,11 @@ export interface DuelEvents {
   resync: (reason: string) => void;
   /** opponent silent for turnTime + grace: `claimTimeout()` is now possible */
   timeoutClaimable: () => void;
+  /**
+   * the opponent answered a ping after the hello exchange: everything sent before that ping (links are
+   * ordered) has reached it, e.g. a concede
+   */
+  peerSeen: () => void;
 }
 
 export interface DuelOptions {
@@ -253,6 +258,8 @@ export class DuelSession {
   private endNotified: string | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  /** local epoch ms of the last hello exchange (pings sent since then answer `peerSeen`) */
+  private handshakeAt = Infinity;
   private closed = false;
 
   // ------------------------------------------------------------------ construction
@@ -547,6 +554,16 @@ export class DuelSession {
     this.persist();
   }
 
+  /** Ping the opponent now (after the hello exchange); its answer fires `peerSeen`. */
+  ping(): boolean {
+    return this.peerHello && this.send({ t: 'ping', ts: Date.now() });
+  }
+
+  /** the hello exchange with the opponent is done on the current link */
+  get handshaken(): boolean {
+    return this.peerHello;
+  }
+
   /** Close the connection but keep the saved session (it can be resumed later). */
   dispose(): void {
     this.shutdown(true);
@@ -684,6 +701,7 @@ export class DuelSession {
       case 'pong':
         this.rtt = Math.max(0, Date.now() - msg.ts);
         this.checkPeerProgress(msg.seq, msg.matchId);
+        if (this.peerHello && msg.ts >= this.handshakeAt) this.em.emit('peerSeen');
         return;
       case 'reject':
         if (msg.reason === 'version')
@@ -710,6 +728,7 @@ export class DuelSession {
       this.em.emit('opponent', name);
     }
     this.peerHello = true;
+    this.handshakeAt = Date.now();
 
     if (this.role === 'host') {
       this.sendHello();

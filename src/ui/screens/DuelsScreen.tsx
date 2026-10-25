@@ -90,7 +90,7 @@ export function DuelsScreen({ join, online: openOnline }: { join?: string; onlin
     );
   };
 
-  if (online) return <OnlinePanel opts={opts} join={join} onBack={() => setOnline(false)} />;
+  if (online) return <OnlinePanel opts={opts} onOpts={update} join={join} onBack={() => setOnline(false)} />;
 
   return (
     <div class="screen">
