@@ -2426,3 +2426,112 @@ button {
   padding: 0 14px;
   font-size: 13px;
 }
+
+/* ---------------------------------------------------------------- menus: small-screen fixes */
+
+/* a segmented control next to a title (language) keeps its labels whole */
+.list-item > .seg {
+  flex: none;
+}
+
+.list-item > .seg button {
+  min-width: 46px;
+  padding: 0 10px;
+}
+
+/* four choices (bot speed) go two by two on a phone instead of cutting the labels */
+@media (max-width: 440px) {
+  .seg:has(> button:nth-child(4)) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* the menu: a gap under the tagline, and the card titles stay clear of the pictures */
+.menu-head {
+  padding-bottom: 18px;
+}
+
+.mode-card {
+  padding-top: 66px;
+}
+
+@media (max-width: 360px) {
+  .mode-card .art {
+    width: 54px;
+    height: 44px;
+  }
+
+  .mode-card {
+    padding-top: 58px;
+  }
+}
+
+/* rules: the odds diagram shrinks with the card */
+.odds {
+  gap: 4px;
+}
+
+.odds-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.odds-col svg {
+  width: 100%;
+  max-width: 60px;
+  height: auto;
+}
+
+/* scenario cards: the medal has its own corner above the map */
+.puzzle-card {
+  padding-top: 28px;
+}
+
+@media (min-width: 520px) {
+  .puzzle-card {
+    padding-top: 32px;
+  }
+}
+
+/* the stats medal wall: even rows */
+.medal-wall {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 7), minmax(0, 1fr));
+  justify-items: center;
+  gap: 8px 4px;
+}
+
+/* seat types: every choice is a visible tile, so the two rows line up */
+.type-pick button:not(.on) {
+  background: color-mix(in srgb, var(--surface-3) 40%, transparent);
+}
+
+/* join box */
+.join-hint {
+  margin: -4px 0 0;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* a screen that failed to render */
+.crash-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18vh;
+  padding: 24px 20px;
+  text-align: center;
+}
+
+.crash-card h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.crash-card p {
+  margin: 0 0 6px;
+  line-height: 1.5;
+}
