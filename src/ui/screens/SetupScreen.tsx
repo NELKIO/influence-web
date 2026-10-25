@@ -75,6 +75,8 @@ export function SetupScreen() {
   };
 
   const humans = players.filter((p) => p === 'human').length;
+  // unions need exactly one person (on this device or online): with more the toggle is off and locked
+  const persons = players.filter((p) => p === 'human' || p === 'online').length;
   const hasOnline = players.includes('online');
   const { guard, modal } = useDiscardGuard();
 
@@ -187,7 +189,7 @@ export function SetupScreen() {
                   ) : (
                     <span class="chip">{t('mapCells', { n: preview.field.cells.length })}</span>
                   )}
-                  {opts?.unions && <span class="chip">{t('unions')}</span>}
+                  {opts?.unions && persons < 2 && <span class="chip">{t('unions')}</span>}
                 </div>
                 <MedalStatus have={medals[scenario]?.tier ?? null} seats={seatsMedal(scenario, players)} free={!!conf} />
               </div>
@@ -383,15 +385,15 @@ export function SetupScreen() {
                   {locked(!!meta.crowded)}
                 </SettingRow>
                 {!conf?.modes.includes('unions') && (
-                  <SettingRow title={t('unions')} desc={humans > 1 && meta.unions ? t('unionsNeedOneHuman') : t('unionsDesc')}>
+                  <SettingRow title={t('unions')} desc={persons > 1 && meta.unions ? t('unionsNeedOneHuman') : t('unionsDesc')}>
                     {locked(!!meta.unions)}
                   </SettingRow>
                 )}
               </div>
               {conf?.modes.includes('unions') && (
                 <div class="list" data-testid="scenario-unions">
-                  <SettingRow title={t('unions')} desc={humans > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
-                    <Toggle on={!!opts?.unions} onChange={(v) => configure({ unions: v })} />
+                  <SettingRow title={t('unions')} desc={persons > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
+                    <Toggle on={persons < 2 && !!opts?.unions} disabled={persons > 1} onChange={(v) => configure({ unions: v })} />
                   </SettingRow>
                 </div>
               )}
@@ -407,8 +409,8 @@ export function SetupScreen() {
               <SettingRow title={t('crowded')} desc={t('crowdedDesc')}>
                 <Toggle on={prefs.crowded} onChange={(v) => update({ crowded: v })} />
               </SettingRow>
-              <SettingRow title={t('unions')} desc={humans > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
-                <Toggle on={prefs.unions} onChange={(v) => update({ unions: v })} />
+              <SettingRow title={t('unions')} desc={persons > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
+                <Toggle on={persons < 2 && prefs.unions} disabled={persons > 1} onChange={(v) => update({ unions: v })} />
               </SettingRow>
             </div>
           ))}
