@@ -11,8 +11,11 @@ type Wire =
   | { k: 'dial'; id: string; clientId: string }
   | { k: 'accept'; to: string; clientId: string }
   | { k: 'reject'; to: string }
-  | { k: 'msg'; from: TransportRole; data: unknown }
-  | { k: 'bye'; from: TransportRole };
+  | { k: 'msg'; from: TransportRole; data: unknown; id?: string }
+  /** `id`: the sender's tab (a guest tab that was turned away must not close the real guest's link) */
+  | { k: 'bye'; from: TransportRole; id?: string }
+  /** a (reloaded) host is up: guests dial again */
+  | { k: 'hostUp' };
 
 export class BroadcastTransport implements Transport {
   private em = new Emitter<TransportEvents>();
@@ -21,6 +24,11 @@ export class BroadcastTransport implements Transport {
   private closed = false;
   isOpen = false;
   remoteClientId: string | null = null;
+  /** host: the tab of the accepted guest */
+  private remoteTab: string | null = null;
+  private everOpened = false;
+  private dialTimer: ReturnType<typeof setTimeout> | null = null;
+  private onPageHide = () => this.post({ k: 'bye', from: this.role, id: this.id });
 
   private constructor(
     readonly role: TransportRole,
@@ -29,11 +37,16 @@ export class BroadcastTransport implements Transport {
   ) {
     this.ch = new BroadcastChannel(`infweb-bc-${code}`);
     this.ch.onmessage = (e) => this.handle(e.data as Wire);
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', this.onPageHide);
   }
 
   static host(clientId: string, code = generateCode()): BroadcastTransport {
     const t = new BroadcastTransport('host', code, clientId);
-    queueMicrotask(() => t.em.emit('ready', code));
+    queueMicrotask(() => {
+      if (t.closed) return;
+      t.em.emit('ready', code);
+      t.post({ k: 'hostUp' });
+    });
     return t;
   }
 
@@ -50,18 +63,16 @@ export class BroadcastTransport implements Transport {
     return t;
   }
 
-  private dial() {
+  /**
+   * Dial the host until it answers. Never connected yet: a few tries, then a bad code. Once connected
+   * (the host went away: reload, closed tab) it keeps dialling, slower, until the host is back.
+   */
+  private dial(tries = 0) {
     if (this.closed || this.isOpen) return;
+    if (!this.everOpened && tries > 10) return this.fail({ code: 'bad-code', message: 'no such room', fatal: true });
     this.post({ k: 'dial', id: this.id, clientId: this.clientId });
-    // no host answered: keep retrying a few times, then report a bad code
-    let tries = 0;
-    const retry = () => {
-      if (this.closed || this.isOpen) return;
-      if (++tries > 10) return this.fail({ code: 'bad-code', message: 'no such room', fatal: true });
-      this.post({ k: 'dial', id: this.id, clientId: this.clientId });
-      setTimeout(retry, 300);
-    };
-    setTimeout(retry, 300);
+    if (this.dialTimer) clearTimeout(this.dialTimer);
+    this.dialTimer = setTimeout(() => this.dial(tries + 1), this.everOpened ? 1000 : 300);
   }
 
   private fail(err: TransportError) {
@@ -75,6 +86,7 @@ export class BroadcastTransport implements Transport {
   private setOpen(open: boolean) {
     if (this.isOpen === open) return;
     this.isOpen = open;
+    if (open) this.everOpened = true;
     this.em.emit(open ? 'open' : 'close');
   }
 
@@ -87,39 +99,49 @@ export class BroadcastTransport implements Transport {
           return;
         }
         this.remoteClientId = w.clientId;
+        this.remoteTab = w.id;
         this.post({ k: 'accept', to: w.id, clientId: this.clientId });
         if (this.isOpen) this.setOpen(false);
         this.setOpen(true);
       } else if (w.k === 'msg' && w.from === 'guest') {
-        this.em.emit('message', w.data);
+        // only the accepted guest tab is heard (old senders without an id are trusted)
+        if (this.isOpen && (!w.id || w.id === this.remoteTab)) this.em.emit('message', w.data);
       } else if (w.k === 'bye' && w.from === 'guest') {
-        this.setOpen(false);
+        if (!w.id || w.id === this.remoteTab) this.setOpen(false);
       }
     } else {
       if (w.k === 'accept' && w.to === this.id) {
+        if (this.dialTimer) clearTimeout(this.dialTimer);
+        this.dialTimer = null;
         this.remoteClientId = w.clientId;
+        if (this.isOpen) this.setOpen(false);
         this.setOpen(true);
       } else if (w.k === 'reject' && w.to === this.id) {
         this.fail({ code: 'room-full', message: 'room full', fatal: true });
       } else if (w.k === 'msg' && w.from === 'host') {
-        this.em.emit('message', w.data);
-      } else if (w.k === 'bye' && w.from === 'host') {
+        // host messages reach every tab on the channel: only a tab the host accepted listens
+        if (this.isOpen) this.em.emit('message', w.data);
+      } else if ((w.k === 'bye' && w.from === 'host') || w.k === 'hostUp') {
+        if (!this.isOpen && !this.everOpened) return;
         this.setOpen(false);
+        this.dial(0);
       }
     }
   }
 
   send(msg: unknown): boolean {
     if (!this.isOpen || this.closed) return false;
-    this.post({ k: 'msg', from: this.role, data: JSON.parse(JSON.stringify(msg)) });
+    this.post({ k: 'msg', from: this.role, id: this.id, data: JSON.parse(JSON.stringify(msg)) });
     return true;
   }
 
   close(): void {
     if (this.closed) return;
-    this.post({ k: 'bye', from: this.role });
+    this.post({ k: 'bye', from: this.role, id: this.id });
     this.closed = true;
     this.isOpen = false;
+    if (this.dialTimer) clearTimeout(this.dialTimer);
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.onPageHide);
     this.ch.close();
   }
 
