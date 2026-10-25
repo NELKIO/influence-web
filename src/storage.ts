@@ -51,6 +51,8 @@ export interface Settings {
   palette: Palette;
   lowFx: boolean;
   trainingLocalFirst: boolean;
+  /** shown to the other people of online matches (empty: «Игрок N» / «Соперник»); see cleanPlayerName */
+  playerName: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -66,7 +68,17 @@ export const DEFAULT_SETTINGS: Settings = {
   palette: 'main',
   lowFx: false,
   trainingLocalFirst: false,
+  playerName: '',
 };
+
+export const PLAYER_NAME_MAX = 16;
+
+/** A player name as it is kept and sent: no control characters, single spaces, trimmed, at most 16 characters. */
+export function cleanPlayerName(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  // eslint-disable-next-line no-control-regex
+  return [...v.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim()].slice(0, PLAYER_NAME_MAX).join('').trim();
+}
 
 export const SPEED_MS: Record<GameSpeed, number> = { instant: 0, fast: 200, normal: 350, slow: 600 };
 
@@ -283,6 +295,8 @@ export interface GameRecord {
   rounds: number;
   captured: number;
   ms: number;
+  /** online battles: the place the person finished on (1 = won), when known */
+  place?: number;
 }
 
 export interface Stats {

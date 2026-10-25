@@ -4,7 +4,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { readCounters, type SiteCounter } from '../../sitestats';
 import { getLang } from '../../i18n';
 import { Modal, Seg, SettingRow, Toggle, TopBar } from '../components/controls';
-import { resetAllData, type GameSpeed, type Palette } from '../../storage';
+import { cleanPlayerName, PLAYER_NAME_MAX, resetAllData, type GameSpeed, type Palette } from '../../storage';
 import { PALETTES } from '../theme';
 import { PlayerToken } from '../components/icons';
 
@@ -27,6 +27,20 @@ export function SettingsScreen() {
                 { value: 'en', label: 'EN' },
               ]}
               onChange={(v) => updateSettings({ lang: v })}
+            />
+          </SettingRow>
+          <SettingRow title={t('playerNameSetting')} desc={t('playerNameDesc')}>
+            <input
+              class="name-input"
+              value={s.playerName}
+              maxLength={PLAYER_NAME_MAX}
+              placeholder={t('playerNamePlaceholder')}
+              autoComplete="nickname"
+              spellcheck={false}
+              aria-label={t('playerNameSetting')}
+              data-testid="player-name"
+              onInput={(e) => updateSettings({ playerName: (e.target as HTMLInputElement).value.slice(0, PLAYER_NAME_MAX) })}
+              onBlur={(e) => updateSettings({ playerName: cleanPlayerName((e.target as HTMLInputElement).value) })}
             />
           </SettingRow>
           <SettingRow title={t('sound')}>
