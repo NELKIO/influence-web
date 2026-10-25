@@ -22,7 +22,8 @@
 import { isPersonType } from '../core/engine';
 import type { AttackRefusal, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
 
-export const BATTLE_PROTOCOL_VERSION = 1;
+/** 2: the engine gives later seats a first-reinforcement bonus (turn-order compensation); older clients would desync */
+export const BATTLE_PROTOCOL_VERSION = 2;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =
