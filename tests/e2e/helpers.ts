@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
-export async function fresh(page: Page, settings: Record<string, unknown> = {}) {
+/** Open the app with clean storage and the given settings (`path`: e.g. './?transport=bc'). */
+export async function fresh(page: Page, settings: Record<string, unknown> = {}, path = './') {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => {
@@ -17,7 +18,7 @@ export async function fresh(page: Page, settings: Record<string, unknown> = {}) 
       sessionStorage.setItem('init', '1');
     }
   }, settings);
-  await page.goto('./');
+  await page.goto(path);
   return errors;
 }
 
