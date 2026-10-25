@@ -41,7 +41,7 @@ test('after losing, the bots left on the board can be watched to the end; the re
   });
 
   // the bots fight it out: a bot wins, or nobody within the round limit
-  await expect(page.locator('.result-title')).toHaveText(/Победил Охотник|никто не победил/, { timeout: 60_000 });
+  await expect(page.locator('.result-title')).toHaveText(/Победитель: Охотник [12]|никто не победил/, { timeout: 60_000 });
   await expect(page.getByText(/Так закончилась бы битва без вас/)).toBeVisible();
   await expect(page.getByTestId('watch-bots')).toHaveCount(0);
   expect(await records()).toBe(1);
