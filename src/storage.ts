@@ -165,7 +165,8 @@ export function setupToSettings(s: SetupPrefs): MatchSettings {
       symmetry: false,
       crowded: !!m.crowded,
       unions,
-      shuffle: false,
+      // only a configurable scenario has equal seats to shuffle
+      shuffle: !!m.configurable && s.shuffle,
       duelRules: false,
       puzzle: s.scenario,
       ...(m.blind ? { blind: true } : {}),

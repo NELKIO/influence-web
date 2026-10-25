@@ -9,6 +9,7 @@
  */
 import * as E from '../core/engine';
 import { Rng } from '../core/rng';
+import { isScenarioId, SCENARIO_META } from '../core/scenarios';
 import type { FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType, UnionEvent } from '../core/types';
 import type { BattleAction } from './battleProtocol';
 
@@ -61,7 +62,9 @@ export function localizeBattleState(state: MatchState, seat: number): MatchState
 export function shuffledSeatOrder(settings: MatchSettings, seed: number): number[] {
   const n = settings.players.length;
   const order = [...Array(n).keys()];
-  if (!settings.shuffle || n < 2 || settings.puzzle) return order;
+  // scenario rooms keep their seats, except a configurable scenario, whose seats are all alike
+  const fixed = settings.puzzle && !(isScenarioId(settings.puzzle) && SCENARIO_META[settings.puzzle].configurable);
+  if (!settings.shuffle || n < 2 || fixed) return order;
   const rng = new Rng((seed ^ 0x5bd1e995) >>> 0);
   return rng.shuffle(order);
 }

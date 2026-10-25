@@ -173,6 +173,8 @@ test('night drop can be configured: size, unions and seats persist and reach the
   await expect(page.locator('.player-row')).toHaveCount(6);
   for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Убрать' }).click();
   await expect(page.locator('.player-row')).toHaveCount(3);
+  // the night drop's seats are all alike, so "shuffle players" is offered (fixed scenarios hide it)
+  await expect(page.getByText('Перемешать игроков')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Убрать' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Добавить соперника' }).click();
   await expect(page.locator('.player-row')).toHaveCount(4);

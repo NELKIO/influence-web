@@ -344,7 +344,7 @@ export function SetupScreen() {
                 </button>
               )}
             </div>
-            {!meta && (
+            {(!meta || meta.configurable) && (
               <div class="list">
                 <SettingRow title={t('shuffle')} desc={t('shuffleDesc')}>
                   <Toggle on={prefs.shuffle} onChange={(v) => update({ shuffle: v })} />

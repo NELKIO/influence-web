@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createBot } from '../../src/ai';
 import { runMatch } from '../../src/ai/arena';
 import { autoPower, createMatch, defaultOrderComp, endAttack, finishTurn, roundOrder, seatBonus } from '../../src/core/engine';
-import { buildScenario, SCENARIOS } from '../../src/core/scenarios';
+import { buildScenario, SCENARIOS, startMatch } from '../../src/core/scenarios';
+import { seatsMedal } from '../../src/medals';
 import { createDailyMatch, dailyKind, dailySettings, dayId } from '../../src/daily';
 import type { FieldSize, MatchSettings, OrderComp, PlayerType } from '../../src/core/types';
 
@@ -131,14 +132,14 @@ describe('turn-order compensation in ordinary battles', () => {
 });
 
 describe('turn-order compensation in the night drop', () => {
-  it("the bots' squads keep 3, yours keeps the knob; a later seat gets 3 per squad cell and seat", () => {
+  it('every squad starts with 3 per cell, yours too; a later seat gets 3 per squad cell and seat', () => {
     for (const n of [3, 4, 6]) {
       const players = seats(n);
       const st = buildScenario('landing', 17, 6, players, { size: 'XL' });
       for (let p = 0; p < n; p++) {
         const squad = st.field.cells.filter((c) => c.owner === p);
         expect(squad).toHaveLength(3);
-        for (const c of squad) expect(c.power).toBe(Math.min(c.maxPower, p === 0 ? 6 : 3));
+        for (const c of squad) expect(c.power).toBe(Math.min(c.maxPower, 3));
       }
       const st2 = buildScenario('landing', 17, 6, players, { size: 'XL' });
       for (let k = 0; k < n; k++) {
@@ -207,5 +208,30 @@ describe('turn-order compensation: simulation', () => {
       expect(s).toBeGreaterThan(0.16);
       expect(s).toBeLessThan(0.34);
     }
+  });
+});
+
+describe('night drop: equal seats and shuffling', () => {
+  it('"shuffle players" decides who moves first; the person may sit anywhere and still earns a medal', () => {
+    const seen = new Set<number>();
+    for (let seed = 1; seed <= 60; seed++) {
+      const st = startMatch(
+        { kind: 'single', size: 'XL', players: ['human', 'god', 'master', 'master'], darkness: true, symmetry: false, crowded: false, unions: false, shuffle: true, duelRules: false, puzzle: 'landing', blind: true },
+        seed,
+      );
+      const me = st.settings.players.indexOf('human');
+      seen.add(me);
+      expect([...st.settings.players].sort()).toEqual(['god', 'human', 'master', 'master']);
+      expect(seatsMedal('landing', st.settings.players)).toBe('medal');
+    }
+    expect([...seen].sort()).toEqual([0, 1, 2, 3]);
+  });
+
+  it('without shuffle the seats stay as chosen', () => {
+    const st = startMatch(
+      { kind: 'single', size: 'XL', players: ['human', 'god', 'master'], darkness: true, symmetry: false, crowded: false, unions: false, shuffle: false, duelRules: false, puzzle: 'landing', blind: true },
+      5,
+    );
+    expect(st.settings.players).toEqual(['human', 'god', 'master']);
   });
 });

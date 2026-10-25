@@ -1050,7 +1050,7 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
    * are. The drops are picked first, on the bare land, and each gets the same patch of open ground: no
    * lake, wall or armed ruin within two steps of it, so every squad can spread on its first turn.
    */
-  landing(rng, k, seats, size, { comp, even }) {
+  landing(rng, _k, seats, size, { comp }) {
     const { radius, spacing } = LANDING_SIZES[size as LandingSize] ?? LANDING_SIZES.XL;
     const b = new Board();
     b.disk(radius);
@@ -1086,8 +1086,8 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
       const squad: Ax[] = [];
       for (const [dq, dr] of [[0, 0], DIRS[turn], DIRS[(turn + 1) % 6]]) {
         const c = b.get(d[0] + dq, d[1] + dr)!;
-        // the squads of the order compensation: theirs for the bots, yours stays the knob
-        const own = p === 0 && !even ? kp(rng, k) : (comp?.power?.[p] ?? 3);
+        // every squad starts the same, yours too: a party map, the later movers get the order compensation
+        const own = comp?.power?.[p] ?? 3;
         Object.assign(c, { owner: p, power: Math.max(1, Math.min(c.max, own)) });
         squad.push([c.q, c.r]);
       }
@@ -1291,7 +1291,10 @@ export function buildScenario(id: ScenarioId, seed: number, knob?: number, playe
  */
 export function startMatch(settings: MatchSettings, seed = randomSeed()): MatchState {
   if (!isScenarioId(settings.puzzle)) return createMatch(settings, { seed });
-  const st = buildScenario(settings.puzzle, seed, undefined, settings.players, { size: settings.size, unions: settings.unions });
-  st.settings = { ...st.settings, kind: settings.kind, turnTime: settings.turnTime };
+  // a configurable scenario has equal seats, so "shuffle players" may decide who moves first
+  const shuffle = !!settings.shuffle && !!SCENARIO_META[settings.puzzle].configurable;
+  const players = shuffle ? new Rng((seed ^ 0x2545f491) >>> 0).shuffle([...settings.players]) : settings.players;
+  const st = buildScenario(settings.puzzle, seed, undefined, players, { size: settings.size, unions: settings.unions });
+  st.settings = { ...st.settings, kind: settings.kind, turnTime: settings.turnTime, ...(shuffle ? { shuffle: true } : {}) };
   return st;
 }
