@@ -3,7 +3,7 @@ import { createBot } from '../../src/ai';
 import { runMatch } from '../../src/ai/arena';
 import { autoPower, createMatch, defaultOrderComp, endAttack, finishTurn, roundOrder, seatBonus } from '../../src/core/engine';
 import { buildScenario, SCENARIOS } from '../../src/core/scenarios';
-import { createDailyMatch, dailyKind, dailySettings, dayId, ORDER_COMP_FROM } from '../../src/daily';
+import { createDailyMatch, dailyKind, dailySettings, dayId } from '../../src/daily';
 import type { FieldSize, MatchSettings, OrderComp, PlayerType } from '../../src/core/types';
 
 const base: MatchSettings = {
@@ -168,22 +168,15 @@ describe('turn-order compensation in the night drop', () => {
 describe('turn-order compensation and the map of the day', () => {
   const days = (from: string, count: number) => Array.from({ length: count }, (_, i) => dayId(new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8)) + i)));
 
-  it('days before the switch are built exactly as before; later ones get the compensation', () => {
+  it('every day, past ones too, plays with the compensation; the scenario of a day is unchanged', () => {
     for (const id of days('2026-10-01', 60)) {
       const k = dailyKind(id);
       const st = createDailyMatch(id);
-      const before = id < ORDER_COMP_FROM;
       if (k.kind === 'battle') {
-        expect(dailySettings(id).orderComp, id).toBe(before ? 'off' : undefined);
-        const n = st.settings.players.length;
-        if (before) expect(st.settings.orderComp).toBe('off');
-        else expect(st.settings.orderComp ?? null).toEqual(defaultOrderComp(n));
+        expect(dailySettings(id).orderComp, id).toBeUndefined();
+        expect(st.settings.orderComp ?? null).toEqual(defaultOrderComp(st.settings.players.length));
       } else if (k.scenario === 'landing') {
-        if (before) {
-          expect(st.settings.orderComp, id).toBeUndefined();
-          // the old knob: your squad 6 per cell
-          for (const c of st.field.cells.filter((c) => c.owner === 0)) expect(c.power).toBe(Math.min(c.maxPower, 6));
-        } else expect(st.settings.orderComp, id).toEqual(defaultOrderComp(st.settings.players.length, 3));
+        expect(st.settings.orderComp, id).toEqual(defaultOrderComp(st.settings.players.length, 3));
       } else expect(st.settings.orderComp, id).toBeUndefined();
     }
   });
