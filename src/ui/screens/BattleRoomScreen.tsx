@@ -5,9 +5,10 @@ import { Modal, TopBar } from '../components/controls';
 import { IconShare, PlayerToken } from '../components/icons';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import type { BattleGuest, BattleHost, RosterEntry } from '../../net';
-import { battleInvite, closeBattle, getBattle, hasPendingHost, launchBattle, startGuest, startHost, takePendingHost } from '../battle';
+import { battleErrorText, battleInvite, closeBattle, getBattle, hasPendingHost, launchBattle, startGuest, startHost, takePendingHost } from '../battle';
 import { playerColor } from '../theme';
-import { isScenarioId } from '../../core/scenarios';
+import { isScenarioId, SCENARIO_META } from '../../core/scenarios';
+import type { MatchSettings } from '../../core/types';
 
 /**
  * Lobby of an online battle. Host: room code, invite link, seats filling up, start.
@@ -64,6 +65,8 @@ export function BattleRoomScreen({ join }: { join?: string }) {
   const code = room.code;
   const scenario = isScenarioId(room.settings?.puzzle) ? room.settings.puzzle : null;
   const error = room.status === 'error';
+  // a guest whose link to the host dropped (host page closed / reloading, network)
+  const hostLost = !isHost && !error && (room as BattleGuest).seat >= 0 && !(room as BattleGuest).online;
 
   const share = async () => {
     if (!code) return;
@@ -114,7 +117,9 @@ export function BattleRoomScreen({ join }: { join?: string }) {
 
         {error ? (
           <div class="card" style={{ display: 'flex', flexDirection: 'column', gap: 14, textAlign: 'center' }}>
-            <div style={{ color: 'var(--bad)', fontWeight: 700, fontSize: 17 }}>{battleErrorText(room)}</div>
+            <div data-testid="room-error" style={{ color: 'var(--bad)', fontWeight: 700, fontSize: 17 }}>
+              {battleErrorText(room.lastError)}
+            </div>
             <button class="btn" onClick={leave}>
               {t('ok')}
             </button>
@@ -144,17 +149,24 @@ export function BattleRoomScreen({ join }: { join?: string }) {
               )}
             </div>
 
-            {scenario && (
+            {hostLost && (
+              <div class="hint" data-testid="host-lost" style={{ color: 'var(--warn)', textAlign: 'center' }}>
+                {t('battleHostLost')}
+              </div>
+            )}
+
+            {scenario && room.settings && (
               <div class="locked-note" data-testid="room-scenario">
                 {t('scenarioKicker')}: {t(`puzzle_${scenario}` as 'puzzle_siege')}
-                {room.settings?.darkness ? ` · ${t('darkness')}` : ''}
+                {scenarioModes(room.settings).map((m) => ` · ${m}`)}
               </div>
             )}
 
             {roster.length > 0 && (
               <div class="list" data-testid="roster">
                 {roster.map((r) => {
-                  const waiting = (r.kind === 'online' || r.kind === 'remote') && !r.taken;
+                  // the host's own seats are never waited for (on a guest they are 'remote' seats nobody "takes")
+                  const waiting = (r.kind === 'online' || r.kind === 'remote') && !r.taken && !r.onHost;
                   return (
                     <div key={r.seat} class="list-item" style={{ minHeight: 56, opacity: waiting ? 0.6 : 1 }}>
                       <PlayerToken slot={r.seat} size={26} shape={settings.colorblind} />
@@ -215,13 +227,14 @@ export function BattleRoomScreen({ join }: { join?: string }) {
   );
 }
 
-function battleErrorText(room: BattleHost | BattleGuest): string {
-  const e = (room as { lastError?: { code?: string } }).lastError;
-  const code = e?.code ?? '';
-  if (code === 'bad-code') return t('duelBadCode');
-  if (code === 'full' || code === 'room-full') return t('battleRoomFull');
-  if (code === 'closed') return t('battleRoomClosed');
-  if (code === 'webrtc') return t('duelNoP2P');
-  if (code === 'version') return t('duelVersion');
-  return t('duelError');
+/** What a scenario room is set to: darkness, and for a configurable scenario its size, unions and shuffle. */
+function scenarioModes(st: MatchSettings): string[] {
+  const out: string[] = [];
+  const conf = isScenarioId(st.puzzle) ? SCENARIO_META[st.puzzle].configurable : undefined;
+  if (conf) out.push(t(`size${st.size}` as 'sizeM'));
+  if (st.darkness) out.push(t('darkness'));
+  // unions only work with a single person (never so in a room)
+  if (conf?.modes.includes('unions') && st.unions && st.players.filter((p) => p === 'human' || p === 'online').length < 2) out.push(t('unions'));
+  if (conf && st.shuffle) out.push(t('shuffle'));
+  return out;
 }
