@@ -24,8 +24,12 @@
  * The match never waits for anybody except the seat whose turn it is; with `settings.turnTime` > 0 the
  * host ends an online seat's turn when its time is up (auto power). `fillWithBots(type)` turns online
  * seats without a connected guest into bots (lobby or mid-match), so a match continues if a guest leaves
- * for good; a guest whose seat was replaced is told so ('replaced') when it comes back.
- * Concede: see battleRules.concedeSeat (the seat's cells turn neutral; the match goes on).
+ * for good (`fillWithBots(type, [seat])`: just that seat); a guest whose seat was replaced is told so
+ * ('replaced') when it comes back. `awaySince(seat)` tells how long a guest has been offline; an away
+ * guest's turn is skipped automatically once it has been offline for `awaySkipMs` (default 90 s), so a
+ * match never hangs on a guest who vanished on its turn (a skip, not a bot: the guest may come back).
+ * Concede: see battleRules.concedeSeat (the seat's cells turn neutral; the match goes on). A guest's
+ * concede is never dropped: offline it waits for the link (and survives a reload) and it never times out.
  */
 import * as E from '../core/engine';
 import { randomSeed } from '../core/rng';
@@ -138,6 +142,11 @@ export interface BattleHostOptions {
   linkMode?: LinkMode;
   /** heartbeat interval (ms, default 3000, 0 = only manual `heartbeat()` calls) */
   heartbeatMs?: number;
+  /**
+   * an online seat whose guest has been away this long is skipped automatically on its turn (ms,
+   * default 90 s, 0 = never): a lone host who does not notice the "no link" controls is not stuck
+   */
+  awaySkipMs?: number;
 }
 
 export interface BattleResumeOptions {
@@ -148,6 +157,7 @@ export interface BattleResumeOptions {
   /** 'auto' (WebRTC with relay fallback), 'direct' or 'relay'; default from `?transport=` or 'auto' */
   linkMode?: LinkMode;
   heartbeatMs?: number;
+  awaySkipMs?: number;
   /** ignore saves older than this (default 7 days) */
   maxAgeMs?: number;
 }
@@ -241,6 +251,10 @@ export class BattleHost {
   private turnTimer: ReturnType<typeof setTimeout> | null = null;
   private turnKey = '';
   private turnStartedAt = 0;
+  /** online seats held by a guest whose link is down: since when (local epoch ms) */
+  private away = new Map<number, number>();
+  private awaySkipMs = 90_000;
+  private awayTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
 
   /** Create a battle room in the lobby phase. */
@@ -257,6 +271,7 @@ export class BattleHost {
     const code = opts.code ? normalizeCode(opts.code) : generateBattleCode();
     const transport = makeHostTransport(opts.transport, code, false, clientId, netOf(opts), !!opts.code);
     const host = new BattleHost(transport, storage, clientId, name, code, { ...opts.settings, players: [...opts.settings.players] }, opts.seed ?? null, seats);
+    host.awaySkipMs = opts.awaySkipMs ?? host.awaySkipMs;
     host.startHeartbeat(opts.heartbeatMs);
     return host;
   }
@@ -267,7 +282,10 @@ export class BattleHost {
     if (!saved || saved.v !== 1 || Date.now() - saved.savedAt > (opts.maxAgeMs ?? 7 * 24 * 3600_000)) return null;
     const transport = makeHostTransport(opts.transport, saved.code, true, saved.clientId, netOf(opts));
     const host = new BattleHost(transport, storage, saved.clientId, saved.name, saved.code, saved.lobby, saved.seed, saved.seats, saved);
+    host.awaySkipMs = opts.awaySkipMs ?? host.awaySkipMs;
     host.startHeartbeat(opts.heartbeatMs);
+    // after a reload nobody is connected yet: the guests count as away from now
+    host.trackAway();
     return host;
   }
 
@@ -371,6 +389,19 @@ export class BattleHost {
     return this.seats.findIndex((s) => s.clientId === clientId);
   }
 
+  /** local epoch ms since which the guest of online seat `seat` has been offline (null: connected / not a held guest seat) */
+  awaySince(seat: number): number | null {
+    return this.away.get(seat) ?? null;
+  }
+
+  /** local epoch ms when an away guest's current turn is skipped automatically (null: not pending) */
+  get awaySkipAt(): number | null {
+    const st = this.shadow;
+    if (!this.awaySkipMs || !st || st.ended || this.status !== 'playing' || this.players[st.current] !== 'online') return null;
+    const since = this.away.get(st.current);
+    return since === undefined ? null : since + this.awaySkipMs;
+  }
+
   /** local epoch ms when the current online seat's turn times out (null: no timer) */
   get turnDeadline(): number | null {
     const tt = this.settings.turnTime ?? 0;
@@ -440,14 +471,15 @@ export class BattleHost {
 
   /**
    * Turn online seats that have no connected guest into bots of `type` (lobby: before start; in a
-   * match: the seat continues as a bot, broadcast as a 'settings' action). Returns the seats changed.
+   * match: the seat continues as a bot, broadcast as a 'settings' action). `only`: just these seats.
+   * Returns the seats changed.
    */
-  fillWithBots(type: BotType): number[] {
+  fillWithBots(type: BotType, only?: number[]): number[] {
     if (this.closed || this.status === 'error') return [];
     const players = this.players;
     const changed: number[] = [];
     players.forEach((p, i) => {
-      if (p === 'online' && !this.seatConnected(i)) changed.push(i);
+      if (p === 'online' && !this.seatConnected(i) && (!only || only.includes(i))) changed.push(i);
     });
     if (!changed.length) return [];
     for (const i of changed) {
@@ -625,7 +657,8 @@ export class BattleHost {
     this.closed = true;
     if (this.hbTimer) clearInterval(this.hbTimer);
     if (this.turnTimer) clearTimeout(this.turnTimer);
-    this.hbTimer = this.turnTimer = null;
+    if (this.awayTimer) clearTimeout(this.awayTimer);
+    this.hbTimer = this.turnTimer = this.awayTimer = null;
     for (const u of this.unsubs) u();
     this.unsubs = [];
     // let queued messages (bClosed) leave before the links go down; keepRoom: the relay presence
@@ -662,7 +695,34 @@ export class BattleHost {
     }));
   }
 
+  /** note when held guest seats went offline / came back, and (re)arm the automatic skip */
+  private trackAway() {
+    const now = Date.now();
+    this.players.forEach((p, i) => {
+      const held = p === 'online' && !!this.seats[i]?.clientId;
+      if (!held || this.seatConnected(i)) this.away.delete(i);
+      else if (!this.away.has(i)) this.away.set(i, now);
+    });
+    for (const i of [...this.away.keys()]) if (i >= this.players.length) this.away.delete(i);
+    this.armAwayTimer();
+  }
+
+  private armAwayTimer() {
+    if (this.awayTimer) clearTimeout(this.awayTimer);
+    this.awayTimer = null;
+    const at = this.awaySkipAt;
+    if (at === null || this.closed) return;
+    const seat = this.shadow!.current;
+    const key = this.turnKey;
+    this.awayTimer = setTimeout(() => {
+      this.awayTimer = null;
+      if (this.closed || this.turnKey !== key || this.awaySkipAt === null || this.awaySkipAt > Date.now()) return this.armAwayTimer();
+      this.act(seat, { t: 'endTurn' });
+    }, Math.max(0, at - Date.now()));
+  }
+
   private emitRoster(broadcast = true) {
+    this.trackAway();
     if (broadcast) {
       const msg = { t: 'bRoster', roster: this.wireRoster(), players: [...this.players] };
       for (const cid of this.helloed) this.transport.send(cid, msg);
@@ -816,13 +876,16 @@ export class BattleHost {
     const sh = this.shadow;
     if (sh?.ended && this.status !== 'ended') {
       if (this.turnTimer) clearTimeout(this.turnTimer);
-      this.turnTimer = null;
+      if (this.awayTimer) clearTimeout(this.awayTimer);
+      this.turnTimer = this.awayTimer = null;
       this.setStatus('ended');
       this.em.emit('end', { ...(this.state?.ended ?? sh.ended) });
       return;
     }
     if (sh && !sh.ended && this.status === 'ended') this.setStatus('playing');
+    const key = this.turnKey;
     this.armTurnTimer();
+    if (key !== this.turnKey) this.armAwayTimer();
   }
 
   private resyncFromState(reason: string) {
@@ -929,12 +992,18 @@ export interface BattleGuestOptions {
   helloRetryMs?: number;
   /** switch to the relay when WebRTC is not open after this long (ms, default 5000) */
   fallbackMs?: number;
+  /**
+   * the host counts as unreachable after this long without any message from it (ms, default 10 s; the
+   * host's heartbeat comes every 3 s; 0 = rely on the link's close only): a host page that vanished
+   * without closing its link (no bye) is noticed too
+   */
+  silenceMs?: number;
 }
 
 export interface BattleGuestEvents {
   status: (s: BattleStatus) => void;
   roster: (r: RosterEntry[]) => void;
-  /** transport link up / down */
+  /** transport link up / down, or the host fell silent / was heard again (see `online`) */
   connection: (connected: boolean) => void;
   /** an action from the host was applied to `state` (animate it); fired before `state` */
   applied: (a: AppliedAction, fight: FightEvent | null) => void;
@@ -957,6 +1026,8 @@ interface SavedGuest {
   seq: number;
   roster: WireSeat[];
   settings: MatchSettings | null;
+  /** a concede asked for while offline, still to be delivered */
+  concede?: boolean;
   savedAt: number;
 }
 
@@ -965,7 +1036,15 @@ interface PendingReq {
   req: BattleRequest;
   ticks: number;
   resolve: (r: RequestResult) => void;
+  /** more callers waiting for the same (concede) request */
+  also?: ((r: RequestResult) => void)[];
   timer: ReturnType<typeof setTimeout> | null;
+}
+
+function settle(p: PendingReq, r: RequestResult) {
+  if (p.timer) clearTimeout(p.timer);
+  p.resolve(r);
+  for (const f of p.also ?? []) f(r);
 }
 
 export class BattleGuest {
@@ -998,6 +1077,10 @@ export class BattleGuest {
   private helloRetryMs: number;
   private helloTimer: ReturnType<typeof setInterval> | null = null;
   private endNotified = '';
+  private silenceMs = 10_000;
+  private lastHeard = 0;
+  private silent = false;
+  private silenceTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
 
   /** Join battle room `code` (5 chars, case-insensitive). Resumes a saved session for the same code unless `fresh`. */
@@ -1014,6 +1097,7 @@ export class BattleGuest {
     else transport = createBattleGuestTransport(c, { ...netOf(opts), clientId });
     const g = new BattleGuest(transport, storage, clientId, (opts.name ?? resume?.name ?? '').slice(0, NAME_MAX), c, opts.requestTimeoutMs ?? 20_000, opts.helloRetryMs ?? 4000, resume);
     if (!isValidBattleCode(c)) queueMicrotask(() => g.fail({ code: 'bad-code', message: `Invalid room code "${code}"`, fatal: true }));
+    g.silenceMs = opts.silenceMs ?? g.silenceMs;
     return g;
   }
 
@@ -1065,6 +1149,7 @@ export class BattleGuest {
       if (this.state) {
         this.status = this.state.ended ? 'ended' : 'playing';
         if (this.state.ended) this.endNotified = this.endKey();
+        else if (saved.concede) this.queue({ t: 'concede' }, () => {});
       }
     }
     this.unsubs.push(
@@ -1097,6 +1182,11 @@ export class BattleGuest {
     }));
   }
 
+  /** the host is reachable: the link is up and the host has not fallen silent */
+  get online(): boolean {
+    return this.connected && !this.silent;
+  }
+
   /** how the link to the host is carried right now ('direct' WebRTC or 'relay'), null when offline */
   get link(): LinkKind | null {
     return this.connected ? (this.transport.linkKind ?? null) : null;
@@ -1114,6 +1204,12 @@ export class BattleGuest {
   /** requests sent but not answered yet */
   get pendingRequests(): number {
     return this.pending.size;
+  }
+
+  /** a concede is waiting for the host (asked for while offline, or not answered yet) */
+  get concedePending(): boolean {
+    for (const p of this.pending.values()) if (p.req.t === 'concede') return true;
+    return false;
   }
 
   // ------------------------------------------------------------------ events
@@ -1152,27 +1248,41 @@ export class BattleGuest {
     const no = (reason: RequestRefusal | string) => Promise.resolve<RequestResult>({ ok: false, reason });
     if (this.closed) return no('closed');
     if (!st || this.status !== 'playing' || st.ended) return no('notPlaying');
-    if (!this.connected || !this.welcomed) return no('offline');
-    if (req.t !== 'concede') {
-      if (st.current !== this.seat) return no('notYourTurn');
-      if (req.t === 'attack') {
-        const r = E.checkAttack(st, req.from, req.to);
-        if (r) return no(r);
-      } else if (req.t === 'addPower' || req.t === 'autoPower') {
-        if (st.phase !== 'power') return no('wrongPhase');
-        if (req.t === 'addPower' && st.field.cells[req.cell]?.owner !== this.seat) return no('notOwn');
-      } else if (req.t === 'endAttack' && st.phase !== 'attack') return no('wrongPhase');
+    if (req.t === 'concede') {
+      // a concede is never lost: offline it waits for the link (and survives a reload), and it does
+      // not time out — the host answers it when it gets it
+      for (const p of this.pending.values()) if (p.req.t === 'concede') return new Promise((r) => (p.also ??= []).push(r));
+      return new Promise<RequestResult>((resolve) => {
+        const p = this.queue(req, resolve);
+        if (this.connected && this.welcomed) this.transport.send({ t: 'bReq', id: p.id, r: req });
+        this.persist();
+        this.em.emit('state', st);
+      });
     }
-    const id = `${this.reqTag}-${++this.reqN}`;
+    if (!this.connected || !this.welcomed) return no('offline');
+    if (st.current !== this.seat) return no('notYourTurn');
+    if (req.t === 'attack') {
+      const r = E.checkAttack(st, req.from, req.to);
+      if (r) return no(r);
+    } else if (req.t === 'addPower' || req.t === 'autoPower') {
+      if (st.phase !== 'power') return no('wrongPhase');
+      if (req.t === 'addPower' && st.field.cells[req.cell]?.owner !== this.seat) return no('notOwn');
+    } else if (req.t === 'endAttack' && st.phase !== 'attack') return no('wrongPhase');
     return new Promise<RequestResult>((resolve) => {
-      const p: PendingReq = { id, req, ticks: 0, resolve, timer: null };
+      const p = this.queue(req, resolve);
       if (this.timeoutMs > 0)
         p.timer = setTimeout(() => {
-          if (this.pending.delete(id)) resolve({ ok: false, reason: 'timeout' });
+          if (this.pending.delete(p.id)) resolve({ ok: false, reason: 'timeout' });
         }, this.timeoutMs);
-      this.pending.set(id, p);
-      this.transport.send({ t: 'bReq', id, r: req });
+      this.transport.send({ t: 'bReq', id: p.id, r: req });
     });
+  }
+
+  private queue(req: BattleRequest, resolve: (r: RequestResult) => void): PendingReq {
+    const id = `${this.reqTag}-${++this.reqN}`;
+    const p: PendingReq = { id, req, ticks: 0, resolve, timer: null };
+    this.pending.set(id, p);
+    return p;
   }
 
   /** Ask the host for the full state. */
@@ -1198,11 +1308,9 @@ export class BattleGuest {
   private shutdown(reason: string) {
     this.closed = true;
     if (this.helloTimer) clearInterval(this.helloTimer);
-    this.helloTimer = null;
-    for (const p of this.pending.values()) {
-      if (p.timer) clearTimeout(p.timer);
-      p.resolve({ ok: false, reason });
-    }
+    if (this.silenceTimer) clearInterval(this.silenceTimer);
+    this.helloTimer = this.silenceTimer = null;
+    for (const p of this.pending.values()) settle(p, { ok: false, reason });
     this.pending.clear();
     for (const u of this.unsubs) u();
     this.unsubs = [];
@@ -1219,6 +1327,9 @@ export class BattleGuest {
     this.connected = true;
     this.welcomed = false;
     this.syncAsked = false;
+    this.silent = false;
+    this.lastHeard = Date.now();
+    this.watchSilence();
     this.em.emit('connection', true);
     this.sendHello();
     // the hello (or the welcome) may get lost: say it again until welcomed
@@ -1244,6 +1355,21 @@ export class BattleGuest {
     });
   }
 
+  /** a host that stops talking (its page vanished without a bye) counts as offline until heard again */
+  private watchSilence() {
+    if (this.silenceTimer || !this.silenceMs || this.closed) return;
+    this.silenceTimer = setInterval(() => {
+      if (this.closed || this.status === 'error') {
+        if (this.silenceTimer) clearInterval(this.silenceTimer);
+        this.silenceTimer = null;
+        return;
+      }
+      if (!this.connected || this.silent || Date.now() - this.lastHeard <= this.silenceMs) return;
+      this.silent = true;
+      this.em.emit('connection', false);
+    }, Math.min(1000, this.silenceMs));
+  }
+
   private onClose() {
     if (this.closed) return;
     this.connected = false;
@@ -1256,12 +1382,11 @@ export class BattleGuest {
     this.lastError = err;
     if (this.helloTimer) clearInterval(this.helloTimer);
     this.helloTimer = null;
+    if (this.silenceTimer) clearInterval(this.silenceTimer);
+    this.silenceTimer = null;
     this.setStatus('error');
     this.em.emit('error', err);
-    for (const p of this.pending.values()) {
-      if (p.timer) clearTimeout(p.timer);
-      p.resolve({ ok: false, reason: 'closed' });
-    }
+    for (const p of this.pending.values()) settle(p, { ok: false, reason: 'closed' });
     this.pending.clear();
     this.connected = false;
     this.transport.close();
@@ -1271,6 +1396,11 @@ export class BattleGuest {
     if (this.closed || this.status === 'error') return;
     const m = parseBattleMessage(raw);
     if (!m) return;
+    this.lastHeard = Date.now();
+    if (this.silent) {
+      this.silent = false;
+      this.em.emit('connection', true);
+    }
     this.handle(m);
   }
 
@@ -1317,8 +1447,11 @@ export class BattleGuest {
         const p = this.pending.get(m.id);
         if (!p) return;
         this.pending.delete(m.id);
-        if (p.timer) clearTimeout(p.timer);
-        p.resolve(m.ok ? { ok: true, seq: m.seq ?? this.seq } : { ok: false, reason: m.reason ?? 'bad' });
+        settle(p, m.ok ? { ok: true, seq: m.seq ?? this.seq } : { ok: false, reason: m.reason ?? 'bad' });
+        if (p.req.t === 'concede') {
+          this.persist();
+          if (this.state) this.em.emit('state', this.state);
+        }
         return;
       }
       case 'bReject':
@@ -1425,6 +1558,7 @@ export class BattleGuest {
       seq: this.seq,
       roster: this.wire,
       settings: this.settings,
+      concede: this.concedePending || undefined,
       savedAt: Date.now(),
     };
     writeJson(this.storage, BATTLE_GUEST_KEY, saved);
