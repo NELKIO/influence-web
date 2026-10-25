@@ -158,8 +158,8 @@ test('host who conceded leaves: the room plays on in the background, other games
 
   // quick start with an online setup opens a new room instead of the old match
   await host.getByRole('button', { name: /Быстрый старт/ }).click();
-  // (the map of the day left unfinished above asks first)
-  await host.locator('.modal').getByRole('button', { name: 'Начать новую' }).click();
+  // (an online room leaves the unfinished local match alone: nothing to confirm)
+  await expect(host.locator('.modal')).toHaveCount(0);
   const codeEl = host.getByTestId('room-code');
   await expect(codeEl).toHaveText(/^[A-Z0-9]{5}$/, { timeout: 30_000 });
   expect((await codeEl.textContent())!.trim()).not.toBe(code);

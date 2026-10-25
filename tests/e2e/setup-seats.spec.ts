@@ -58,8 +58,10 @@ test('a smaller line-up with repeated types, and the setup is remembered', async
   await seatCount(page, 3);
   await pick(page, 1, 'master');
   await pick(page, 2, 'master');
+  // a reload keeps the setup screen open
   await page.reload();
-  await openSeats(page);
+  await expect(page.locator('.topbar h1')).toHaveText('Настройка битвы');
+  await page.locator('.steps button').nth(1).click();
   await expect(rows(page)).toHaveCount(3);
   for (const slot of [1, 2]) await expect(page.locator('.type-pick').nth(slot - 1).locator('button.master')).toHaveClass(/\bon\b/);
   await page.locator('.footer-actions .btn.ghost').click();
@@ -67,8 +69,9 @@ test('a smaller line-up with repeated types, and the setup is remembered', async
   expect(await page.evaluate(() => (window as any).__infweb.ctrl.state.settings.players)).toEqual(['human', 'master', 'master']);
   // two seats is the minimum: no remove button then (leaving the started match behind)
   await page.goto('./');
+  // opening the setup loses nothing yet: no question (it comes when a new match starts)
   await page.locator('.play-btn', { hasText: 'Новая битва' }).click();
-  await page.locator('.modal').getByRole('button', { name: 'Начать новую' }).click();
+  await expect(page.locator('.modal')).toHaveCount(0);
   await expect(page.locator('.topbar h1')).toHaveText('Настройка битвы');
   await page.locator('.steps button').nth(1).click();
   await seatCount(page, 2);

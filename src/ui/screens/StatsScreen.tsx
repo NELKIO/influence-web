@@ -1,4 +1,4 @@
-import { t } from '../../i18n';
+import { getLang, t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
 import { loadDaily, loadMedals, loadStats, type GameRecord } from '../../storage';
@@ -33,6 +33,11 @@ function BarLine({ label, x }: { label: string; x: Tally }) {
   );
 }
 
+/** Columns of the medal wall: rows of equal length when the count allows it (28 -> 4 rows of 7). */
+export function wallColumns(n: number): number {
+  return [7, 6, 8, 5].find((c) => n % c === 0 && n >= c) ?? 7;
+}
+
 /** Medals of the scenarios in play: how many, how many gold, and every medal (or its empty place). */
 function MedalProgress() {
   const medals = loadMedals();
@@ -52,7 +57,7 @@ function MedalProgress() {
             {t('statMedalsGold', { n: gold })}
           </span>
         </div>
-        <div class="medal-wall">
+        <div class="medal-wall" style={{ '--cols': wallColumns(SCENARIOS.length) }}>
           {SCENARIOS.map((id) => (
             <span key={id} title={name(id)}>
               <Medal tier={medals[id]?.tier ?? null} size={26} label={name(id)} />
@@ -207,7 +212,7 @@ export function StatsScreen() {
                         )}
                       </div>
                       <div class="desc">
-                        {new Date(r.at).toLocaleDateString()} · {t('round', { n: r.rounds })}
+                        {new Date(r.at).toLocaleDateString(getLang() === 'ru' ? 'ru-RU' : 'en-US')} · {t('round', { n: r.rounds })}
                       </div>
                     </div>
                   </div>

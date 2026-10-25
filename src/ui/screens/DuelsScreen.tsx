@@ -17,12 +17,23 @@ export interface DuelOptions {
 
 const KEY = 'infweb.duelopts';
 
+const DUEL_SIZES: FieldSize[] = ['M', 'L', 'XL'];
+const DEFAULT_DUEL: DuelOptions = { size: 'L', darkness: false, turnTime: 0 };
+
+/** Saved duel options, checked field by field: anything malformed falls back to its default. */
 export function loadDuelOptions(): DuelOptions {
+  let saved: unknown = null;
   try {
-    return { size: 'L', darkness: false, turnTime: 0, ...JSON.parse(localStorage.getItem(KEY) || '{}') };
+    saved = JSON.parse(localStorage.getItem(KEY) || 'null');
   } catch {
-    return { size: 'L', darkness: false, turnTime: 0 };
+    /* broken JSON: the defaults */
   }
+  const o = (saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {}) as Partial<Record<keyof DuelOptions, unknown>>;
+  return {
+    size: DUEL_SIZES.includes(o.size as FieldSize) ? (o.size as FieldSize) : DEFAULT_DUEL.size,
+    darkness: typeof o.darkness === 'boolean' ? o.darkness : DEFAULT_DUEL.darkness,
+    turnTime: typeof o.turnTime === 'number' && Number.isFinite(o.turnTime) && o.turnTime >= 0 ? o.turnTime : DEFAULT_DUEL.turnTime,
+  };
 }
 
 function saveDuelOptions(o: DuelOptions) {
@@ -59,20 +70,24 @@ export function DuelsScreen({ join, online: openOnline }: { join?: string; onlin
     saveDuelOptions(n);
   };
 
-  const launch = (s: MatchSettings) => {
+  /** Start a match (after the overwrite question, if a saved match exists); `before` runs only on confirm. */
+  const launch = (s: () => MatchSettings, before?: () => void) => {
     unlockAudio();
     guard(() => {
+      before?.();
       sfx.versus();
-      const st = createMatch(s);
+      const st = createMatch(s());
       navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
     });
   };
 
   const training = () => {
-    // first move alternates between training games
+    // first move alternates between training games: flipped only when the game really starts
     const localFirst = !getSettings().trainingLocalFirst;
-    updateSettings({ trainingLocalFirst: localFirst });
-    launch(duelSettings('duelTraining', opts, localFirst ? ['human', 'duelHunter'] : ['duelHunter', 'human']));
+    launch(
+      () => duelSettings('duelTraining', opts, localFirst ? ['human', 'duelHunter'] : ['duelHunter', 'human']),
+      () => updateSettings({ trainingLocalFirst: localFirst }),
+    );
   };
 
   if (online) return <OnlinePanel opts={opts} join={join} onBack={() => setOnline(false)} />;
@@ -103,7 +118,7 @@ export function DuelsScreen({ join, online: openOnline }: { join?: string; onlin
           </div>
           <IconChevron class="chev" />
         </button>
-        <button class="choice yellow" onClick={() => launch(duelSettings('duelLocal', opts, ['human', 'human']))}>
+        <button class="choice yellow" onClick={() => launch(() => duelSettings('duelLocal', opts, ['human', 'human']))}>
           <span class="ic">
             <IconUsers />
           </span>

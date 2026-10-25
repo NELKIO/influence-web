@@ -2,9 +2,9 @@ import { useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { loadSavedGame, loadSetup, saveGame, setupPlayers, setupToSettings } from '../../storage';
-import { startMatch } from '../../core/scenarios';
+import { isScenarioId, startMatch } from '../../core/scenarios';
 import { IconArrow, IconChart, IconGear, IconPlay, IconWifi, LogoMark, ModeArt } from '../components/icons';
-import { Modal } from '../components/controls';
+import { useDiscardGuard } from '../components/DiscardGuard';
 import { AmbientBoard } from '../components/AmbientBoard';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import { dayNumber, dayId } from '../../daily';
@@ -17,7 +17,7 @@ export function MenuScreen() {
   useSettings();
   const saved = loadSavedGame();
   const setup = loadSetup();
-  const [confirmNew, setConfirmNew] = useState<null | (() => void)>(null);
+  const { guard, modal } = useDiscardGuard();
   const [, setTick] = useState(0);
   useEffect(() => onDuelsChange(() => setTick((n) => n + 1)), []);
   const duelTurns = myTurnCount();
@@ -29,26 +29,33 @@ export function MenuScreen() {
     fn();
   };
 
-  const guardNew = (fn: () => void) => {
-    if (saved) setConfirmNew(() => fn);
-    else fn();
-  };
-
   const quick = () => {
     if (setupPlayers(setup).includes('online')) {
+      // an online room leaves the local saved match alone
       prepareHost(setupToSettings(setup), randomSeed());
       navigate({ name: 'battleRoom' });
       return;
     }
-    const st = startMatch(setupToSettings(setup));
-    saveGame(null);
-    navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    // a new local match replaces the saved one: ask first when there is one
+    guard(() => {
+      const st = startMatch(setupToSettings(setup));
+      saveGame(null);
+      navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    });
   };
 
+  /** What the saved match is: the map of the day, a duel, a scenario by name, or a battle by map size; and its round. */
   const savedLabel = () => {
     if (!saved) return '';
     const s = saved.state.settings;
-    const kind = s.kind === 'daily' ? t('daily') : s.kind.startsWith('duel') ? t('duels') : t(`size${s.size}` as 'sizeM');
+    const kind =
+      s.kind === 'daily'
+        ? t('daily')
+        : s.kind.startsWith('duel')
+          ? t('duels')
+          : isScenarioId(s.puzzle)
+            ? t(`puzzle_${s.puzzle}` as 'puzzle_siege')
+            : t(`size${s.size}` as 'sizeM');
     return `${kind} · ${t('round', { n: saved.state.turn + 1 })}`;
   };
 
@@ -98,7 +105,7 @@ export function MenuScreen() {
               </div>
             </button>
           )}
-          <button class="play-btn" onClick={() => go(() => guardNew(() => navigate({ name: 'setup' })))}>
+          <button class="play-btn" onClick={() => go(() => navigate({ name: 'setup' }))}>
             <div>
               <div class="big">{t('play')}</div>
               <div class="small">{t('playSub')}</div>
@@ -109,7 +116,7 @@ export function MenuScreen() {
           </button>
 
           <div class="mode-grid">
-            <button class="mode-card" onClick={() => go(() => guardNew(quick))}>
+            <button class="mode-card" onClick={() => go(quick)}>
               <ModeArt kind="quick" />
               <div class="t">{t('quickStart')}</div>
               <div class="d">{quickSub}</div>
@@ -154,27 +161,7 @@ export function MenuScreen() {
         </div>
       </div>
 
-      {confirmNew && (
-        <Modal onBackdrop={() => setConfirmNew(null)}>
-          <h2>{t('unfinishedGame')}</h2>
-          <p>{t('unfinishedLost')}</p>
-          <div class="row">
-            <button class="btn ghost" onClick={() => setConfirmNew(null)}>
-              {t('cancel')}
-            </button>
-            <button
-              class="btn red"
-              onClick={() => {
-                const fn = confirmNew;
-                setConfirmNew(null);
-                fn();
-              }}
-            >
-              {t('startNew')}
-            </button>
-          </div>
-        </Modal>
-      )}
+      {modal}
     </div>
   );
 }

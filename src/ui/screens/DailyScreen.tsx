@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { getLang, t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { TopBar } from '../components/controls';
@@ -12,11 +12,45 @@ import { playerName } from '../names';
 
 const FIRST_DAY = '2026-01-01';
 
+/** "Октябрь 2026" / "October 2026": the month's own name with a capital, then the year (no "г."). */
+export function monthTitle(month: Date, locale: string): string {
+  const name = month.toLocaleDateString(locale, { month: 'long' });
+  return `${name.charAt(0).toLocaleUpperCase(locale)}${name.slice(1)} ${month.getFullYear()}`;
+}
+
 export function DailyScreen() {
   useSettings();
   const { guard, modal } = useDiscardGuard();
-  const today = dayId();
+  // "today" moves on at midnight while the screen is open (and when the tab comes back)
+  const [today, setToday] = useState(dayId);
   const [sel, setSel] = useState(today);
+  useEffect(() => {
+    let timer = 0;
+    let last = dayId();
+    const refresh = () => {
+      const now = dayId();
+      if (now !== last) {
+        const prev = last;
+        last = now;
+        setToday(now);
+        // the selection follows "today" unless another day was picked
+        setSel((s) => (s === prev ? now : s));
+      }
+      clearTimeout(timer);
+      const d = new Date();
+      const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 1);
+      timer = window.setTimeout(refresh, Math.min(next.getTime() - d.getTime(), 2 ** 31 - 1));
+    };
+    const onVisible = () => document.visibilityState === 'visible' && refresh();
+    refresh();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, []);
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -147,7 +181,9 @@ export function DailyScreen() {
             >
               <IconBack />
             </button>
-            <div style={{ fontWeight: 700, textTransform: 'capitalize' }}>{month.toLocaleDateString(locale, { month: 'long', year: 'numeric' })}</div>
+            <div style={{ fontWeight: 700 }} data-testid="cal-month">
+              {monthTitle(month, locale)}
+            </div>
             <button
               class="icon-btn"
               disabled={!canNext}

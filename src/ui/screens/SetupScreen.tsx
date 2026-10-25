@@ -12,6 +12,7 @@ import { IconLock, IconMoon, IconPlus, IconRestart, IconUsers, IconX, PlayerToke
 import { MiniMap, SecretMap } from '../components/MiniMap';
 import { Medal } from '../components/Medal';
 import { sfx } from '../../audio/sfx';
+import { useDiscardGuard } from '../components/DiscardGuard';
 
 const TYPES: PlayerType[] = ['dummy', 'hunter', 'master', 'god', 'human', 'online'];
 const LEVEL: Partial<Record<PlayerType, number>> = { dummy: 1, hunter: 2, master: 3, god: 4 };
@@ -39,8 +40,8 @@ function MedalStatus({ have, seats, free }: { have: MedalTier | null; seats: Ret
         {have && <div class="title">{medalLabel(have)}</div>}
         {have === 'gold' && <div class="note">{t('medalGoldDone')}</div>}
         {have === 'medal' && (stake ?? <div class="note">{t('medalGoldNext')}</div>)}
-        {!have && <div class="note">{t(free ? 'medalHintFree' : 'medalHint')}</div>}
-        {!have && stake}
+        {!have && (blocked ? stake : <div class="note">{t(free ? 'medalHintFree' : 'medalHint')}</div>)}
+        {!have && !blocked && stake}
       </div>
     </div>
   );
@@ -75,19 +76,23 @@ export function SetupScreen() {
 
   const humans = players.filter((p) => p === 'human').length;
   const hasOnline = players.includes('online');
+  const { guard, modal } = useDiscardGuard();
 
   const start = () => {
     sfx.click();
     if (hasOnline) {
-      // seats for people on other devices: open a room first
+      // seats for people on other devices: open a room first (the local saved match stays)
       prepareHost(setupToSettings(prefs), mapSeed);
       navigate({ name: 'battleRoom' });
       return;
     }
-    // same seed as the preview -> the same map and start cells, with the current modes
-    const st = startMatch(setupToSettings(prefs), mapSeed);
-    saveGame(null);
-    navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    // a new local match replaces the saved one: ask first when there is one
+    guard(() => {
+      // same seed as the preview -> the same map and start cells, with the current modes
+      const st = startMatch(setupToSettings(prefs), mapSeed);
+      saveGame(null);
+      navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
+    });
   };
 
   const samples = useMemo(
@@ -425,6 +430,7 @@ export function SetupScreen() {
           )}
         </div>
       </div>
+      {modal}
     </div>
   );
 }
