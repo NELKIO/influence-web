@@ -104,12 +104,14 @@ function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
 /**
  * Turn-order compensation (measured with scripts/seat-bias.ts): who moves first in a round has an
  * edge, so a later seat gets extra power with its first reinforcement, after its first attacks. Seat k
- * (k seats moved before it) gets k points, scaled down with more than four seats so that the last one
- * never gets more than 3: per start cell (the night drop's squads have three).
+ * (k seats moved before it) gets k points per start cell, scaled down with more than four seats so that
+ * the last one never gets more than 3 per start cell (ordinary battles have one start cell, the night
+ * drop's squads three): 0 1 2 | 0 1 2 3 | 0 1 2 2 3 | 0 1 1 2 2 3, and in the night drop
+ * 0 3 6 | 0 3 6 9 | 0 2 5 7 9 | 0 2 4 5 7 9.
  */
 export function seatBonus(seat: number, seats: number, startCells = 1): number {
   if (seats < 3) return 0;
-  return startCells * Math.round(seat * Math.min(1, 3 / (seats - 1)));
+  return Math.round(seat * startCells * Math.min(1, 3 / (seats - 1)));
 }
 
 /** The default compensation of an ordinary battle (none for two seats: they start with 5 and 7). */

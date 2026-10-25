@@ -35,7 +35,7 @@ function incomes(settings: MatchSettings, rounds = 2, seed = 5): number[][] {
 }
 
 describe('turn-order compensation: the table', () => {
-  it('a later seat gets more power with its first reinforcement, at most 3 (per start cell)', () => {
+  it('a later seat gets more power with its first reinforcement, at most 3 per start cell', () => {
     const table = (n: number, cells = 1) => Array.from({ length: n }, (_, k) => seatBonus(k, n, cells));
     expect(table(2)).toEqual([0, 0]);
     expect(table(3)).toEqual([0, 1, 2]);
@@ -43,7 +43,9 @@ describe('turn-order compensation: the table', () => {
     expect(table(5)).toEqual([0, 1, 2, 2, 3]);
     expect(table(6)).toEqual([0, 1, 1, 2, 2, 3]);
     expect(table(4, 3)).toEqual([0, 3, 6, 9]);
-    expect(table(6, 3)).toEqual([0, 3, 3, 6, 6, 9]);
+    expect(table(3, 3)).toEqual([0, 3, 6]);
+    expect(table(5, 3)).toEqual([0, 2, 5, 7, 9]);
+    expect(table(6, 3)).toEqual([0, 2, 4, 5, 7, 9]);
     expect(defaultOrderComp(2)).toBeNull();
     expect(defaultOrderComp(4)).toEqual({ bonus: [0, 1, 2, 3] });
   });
