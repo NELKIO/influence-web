@@ -22,6 +22,7 @@ export const en: typeof ru = {
   rulesBefore: 'before',
   rulesAfter: 'after',
   confirmEndAttackNone: 'Nothing can attack any more — moving on to power-up.',
+  concedeWatchNote: 'Then the whole map opens and you can watch the bots play it out without you.',
   concedeText: 'The match will count as a defeat.',
   resetDo: 'Delete',
   layoutTriangle: 'Triangle map: all three players get identical positions',

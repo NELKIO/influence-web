@@ -6,7 +6,7 @@ import { t } from '../../i18n';
 import { getSettings, navigate, updateSettings, useSettings, type Launch, type Route } from '../store';
 import { playerName } from '../names';
 import { playerColor } from '../theme';
-import { alivePlayers, anyAttackLeft, canSpectate, cellCount, scoreOf, spectateCopy } from '../../core/engine';
+import { alivePlayers, anyAttackLeft, canSpectate, cellCount, isPersonType, scoreOf, spectateCopy } from '../../core/engine';
 import type { MatchState } from '../../core/types';
 import { countGame } from '../../sitestats';
 import { addRecord, awardMedal, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
@@ -220,6 +220,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const orderBonus = (i: number) => (comp && s.turn === 0 ? (comp.bonus?.[i] ?? 0) : 0);
   /** the seat has not received its bonus yet (it comes after its first attack phase) */
   const bonusAhead = (i: number) => orderBonus(i) > 0 && (i > cur || (i === cur && s.phase === 'attack'));
+
+  // giving up alone against two or more bots: the map opens and the bots can be watched afterwards
+  const concedeLeavesBots =
+    !online &&
+    alive.filter((p) => !isPersonType(s.settings.players[p])).length >= 2 &&
+    alive.filter((p) => isPersonType(s.settings.players[p])).length === 1;
 
   // ---- status line
   let phaseLabel = s.phase === 'attack' ? t('phaseAttack') : t('phasePower');
@@ -462,6 +468,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
         <Modal onBackdrop={() => setAskConcede(false)}>
           <h2>{t('concedeConfirm')}</h2>
           <p>{t('concedeText')}</p>
+          {concedeLeavesBots && <p class="muted" style={{ marginTop: -6 }}>{t('concedeWatchNote')}</p>}
           <div class="row">
             <button class="btn ghost" onClick={() => setAskConcede(false)}>
               {t('cancel')}
@@ -491,7 +498,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
               <IconRestart width={18} height={18} /> {t('restartSame')}
             </button>
           )}
-          {!s.ended && !s.settings.spectate && (s.settings.kind === 'duelOnline' || s.settings.kind === 'battleOnline' || s.settings.kind === 'daily' || s.settings.kind === 'duelTraining') && (
+          {/* every match can be given up, a lone game against bots too (then the map opens and the bots can be watched) */}
+          {!s.ended && !s.settings.spectate && ctrl.localHumanSlot() >= 0 && (
             <button
               class="btn red"
               onClick={() => setAskConcede(true)}
