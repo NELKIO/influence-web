@@ -5,7 +5,8 @@
  * compensations) split over processes with shard / shards.
  *
  * Usage: npx vite-node scripts/seat-bias.ts -- [key=value ...]
- *   mode=battle|landing   battle: an ordinary generated map; landing: the night drop
+ *   mode=battle|landing|scenario   battle: an ordinary generated map; landing: the night drop;
+ *                         scenario: the scenario named by scenario= with its own seats (ns = its seat count)
  *   bot=hunter            the bot in every seat (hunter | duelHunter | master | god | dummy | freak)
  *   star=                 optional: one seat (rotating with the game index) played by this bot instead
  *   ns=4                  seat counts (battle: 2..6; landing: 3..6), comma separated
@@ -26,7 +27,7 @@
 import { runMatch } from '../src/ai/arena';
 import { createBot } from '../src/ai';
 import { cellCount, createMatch } from '../src/core/engine';
-import { buildScenario } from '../src/core/scenarios';
+import { buildScenario, type ScenarioId } from '../src/core/scenarios';
 import type { BotType, FieldSize, MatchSettings, MatchState, OrderComp } from '../src/core/types';
 
 const args = new Map<string, string>();
@@ -56,6 +57,7 @@ const even = get('even', '1') === '1';
 const knob = args.has('knob') ? Number(args.get('knob')) : undefined;
 const maxRounds = Number(get('maxRounds', '200'));
 const tag = get('tag', '');
+const scenario = get('scenario', 'olympus') as ScenarioId;
 
 function compOf(item: CompItem): { id: string; comp: OrderComp | 'off' | undefined } {
   if (item === 'off' || item === 'default') return { id: item, comp: item === 'off' ? 'off' : undefined };
@@ -91,7 +93,7 @@ const units: Unit[] = [];
 for (let gi = 0; gi < games; gi++)
   for (const n of ns)
     for (const size of sizes)
-      for (const sym of mode === 'landing' ? [false] : syms) for (const item of compsFor(n)) units.push({ n, size, sym, item, g: gi + offset });
+      for (const sym of mode === 'battle' ? syms : [false]) for (const item of compsFor(n)) units.push({ n, size, sym, item, g: gi + offset });
 
 // block=1: shard s plays a block of game indices over the whole grid (every grid point fills up evenly
 // even when the shards run one after another); otherwise the units are dealt out round-robin
@@ -107,6 +109,9 @@ for (const { n, size, sym, item, g } of mine) {
   let state: MatchState;
   if (mode === 'landing') {
     state = buildScenario('landing', seed, knob, types, { size, even, ...(comp !== undefined ? { orderComp: comp } : {}) });
+  } else if (mode === 'scenario') {
+    // another scenario with its own seats (seat 0 is the person's seat, with the knob), the same bot everywhere
+    state = buildScenario(scenario, seed, knob, types);
   } else {
     const settings: MatchSettings = {
       kind: duel ? 'duelTraining' : 'single',
@@ -136,6 +141,7 @@ for (const { n, size, sym, item, g } of mine) {
       mode,
       bot,
       ...(star ? { star, starSeat } : {}),
+      ...(mode === 'scenario' ? { scenario } : {}),
       n,
       size,
       sym,
