@@ -167,6 +167,11 @@ export function GameScreen({ launch }: { launch: Launch }) {
     const pz = ctrl.state.settings.puzzle;
     if (pz && !online?.remoteDriven && ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack') {
       ctrl.showHint(`${t(`puzzle_${pz}` as 'puzzle_siege')}: ${t(`puzzleDesc_${pz}` as 'puzzleDesc_siege')}`, undefined, 6000);
+    } else {
+      // the turn-order compensation is invisible on the board at the start: say it once
+      const c = ctrl.state.settings.orderComp;
+      const top = c && c !== 'off' ? Math.max(0, ...(c.bonus ?? [])) : 0;
+      if (top > 0 && ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack') ctrl.showHint(t('orderBonusHint', { b: top }), undefined, 5000);
     }
     if (isSaveable(ctrl.state) && !ctrl.state.ended) saveGame({ state: ctrl.state, initial: launch.initial });
     // test/debug hook
@@ -210,6 +215,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const scores = s.settings.players.map((_, i) => scoreOf(s, i));
   const totalScore = scores.reduce((a, b) => a + b, 0) || 1;
 
+  // turn-order compensation: the bonus each seat gets with its first reinforcement (round 0 only)
+  const comp = s.settings.orderComp && s.settings.orderComp !== 'off' ? s.settings.orderComp : null;
+  const orderBonus = (i: number) => (comp && s.turn === 0 ? (comp.bonus?.[i] ?? 0) : 0);
+  /** the seat has not received its bonus yet (it comes after its first attack phase) */
+  const bonusAhead = (i: number) => orderBonus(i) > 0 && (i > cur || (i === cur && s.phase === 'attack'));
+
   // ---- status line
   let phaseLabel = s.phase === 'attack' ? t('phaseAttack') : t('phasePower');
   let statusText: string;
@@ -220,7 +231,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   } else if (!local) {
     statusText = s.settings.players[cur] === 'remote' ? t('statusWaitRemote') : t('statusWait', { name: playerName(s.settings, cur) });
   } else if (s.phase === 'power') {
-    statusText = t('statusPower', { n: s.powerLeft });
+    statusText = orderBonus(cur) > 0 ? t('statusPowerBonus', { n: s.powerLeft, b: orderBonus(cur) }) : t('statusPower', { n: s.powerLeft });
   } else if (!anyAttackLeft(s)) {
     statusText = t('statusNoAttacks');
   } else if (s.selected >= 0 && s.field.cells[s.selected]?.owner === cur && s.field.cells[s.selected].power >= 2) {
@@ -318,6 +329,11 @@ export function GameScreen({ launch }: { launch: Launch }) {
                 {settings.colorblind ? <PlayerToken slot={i} size={12} shape /> : <span class="sw" />}
                 <span class="nm">{playerName(s.settings, i)}</span>
                 {!out && <span class="n">{cellCount(s, i)}</span>}
+                {!out && bonusAhead(i) && (
+                  <span class="bonus" title={t('orderBonusTitle', { b: orderBonus(i) })} data-testid="order-bonus">
+                    +{orderBonus(i)}
+                  </span>
+                )}
               </div>
             );
           })}
