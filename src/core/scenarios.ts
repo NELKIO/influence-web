@@ -529,8 +529,8 @@ export const TUNING: Record<ScenarioId, number> = {
 /** Knobs of a configurable scenario on its other sizes (TUNING holds the one of the default size). */
 export const SIZE_TUNING: Partial<Record<ScenarioId, Partial<Record<FieldSize, number>>>> = {
   // newer scenarios aim at Master in your seat winning about 55–65%; on XXL the drops are farther apart.
-  // Recalibrated with the turn-order compensation of the bots' squads (Master in your seat, 240 games
-  // per knob: L 6.75 → 62%, XL 6.25 → 61%, XXL 7 → 59%)
+  // Recalibrated with the turn-order compensation of the bots' squads (Master in your seat against the
+  // recommended line-up, 480 games per size: L 6.75 → 64%, XL 6.25 → 58%, XXL 7 → 61%)
   landing: { L: 6.75, XXL: 7 },
 };
 
