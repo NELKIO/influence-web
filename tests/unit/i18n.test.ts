@@ -26,7 +26,8 @@ function sources(dir: string): string[] {
 
 const code = sources(SRC).map((f) => ({ file: f.slice(SRC.length + 1), text: readFileSync(f, 'utf8') }));
 
-const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+/** {name} and the number of plural forms {n|one|few|many} (the count of forms differs by language) */
+const placeholders = (s: string) => [...new Set([...s.matchAll(/\{(\w+)(?:\|[^{}]*)?\}/g)].map((m) => m[1]))].sort();
 
 /** The first argument of every `t(` call (up to the first top-level comma or the closing paren). */
 function firstArgs(text: string): string[] {
@@ -79,7 +80,7 @@ describe('i18n dictionaries', () => {
 
   it('no stray braces (a typo in a placeholder)', () => {
     for (const [lang, d] of Object.entries(dicts)) {
-      const bad = Object.entries(d).filter(([, v]) => /[{}]/.test(v.replace(/\{\w+\}/g, '')));
+      const bad = Object.entries(d).filter(([, v]) => /[{}]/.test(v.replace(/\{\w+(?:\|[^{}|]+){2,3}\}|\{\w+\}/g, '')));
       expect(bad.map(([k]) => `${lang}.${k}`)).toEqual([]);
     }
   });

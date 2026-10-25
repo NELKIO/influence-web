@@ -446,23 +446,28 @@ describe('storage that throws', () => {
 
 // ---------------------------------------------------------------- garbage of the wrong shape
 
-// Shapes the loaders already survive. (null / strings / arrays / numbers in settings, stats and daily
-// do not load as defaults yet: see the bug report; those cases are kept outside the suite.)
 describe('valid JSON of the wrong shape', () => {
-  it.each(['5', '[]', 'true', '{}'])('settings %j: defaults', (v) => {
+  it.each(GARBAGE)('settings %j: defaults', (v) => {
     raw('settings', v);
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
   });
 
-  it.each(['null', '5', '[]', 'true', '{}'])('setup %j: defaults', (v) => {
+  it.each(GARBAGE)('setup %j: defaults', (v) => {
     raw('setup', v);
     expect(loadSetup()).toEqual(DEFAULT_SETUP);
   });
 
-  it('daily {}: no results, and a result can be added', () => {
-    raw('daily2', '{}');
+  it.each(GARBAGE)('stats %j: empty stats, and a record can be added', (v) => {
+    raw('stats', v);
+    expect(loadStats()).toEqual({ records: [], streak: 0, bestStreak: 0 });
+    expect(() => addRecord(rec())).not.toThrow();
+    expect(loadStats().records).toHaveLength(1);
+  });
+
+  it.each(GARBAGE)('daily %j: no results, and a result can be added', (v) => {
+    raw('daily2', v);
     expect(loadDaily()).toEqual({});
-    updateDaily('d', true, 4);
+    expect(() => updateDaily('d', true, 4)).not.toThrow();
     expect(loadDaily().d).toEqual({ attempts: 1, bestRounds: 4 });
   });
 

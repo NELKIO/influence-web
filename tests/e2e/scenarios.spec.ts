@@ -39,7 +39,7 @@ test('a scenario is selected, not started: seats are fixed, a bot level can be c
   await page.locator('.type-pick').first().getByRole('button', { name: 'Охотник' }).click();
 
   // the choice is remembered
-  await page.getByRole('button', { name: 'back' }).click();
+  await page.getByRole('button', { name: 'Назад' }).click();
   await openSetup(page);
   await expect(page.getByTestId('scenario-pick')).toContainText('Олимп');
   await page.locator('.steps button').nth(1).click();
@@ -187,9 +187,9 @@ test('night drop can be configured: size, unions and seats persist and reach the
   await page.getByTestId('scenario-unions').locator('.toggle').click();
   await expect(page.getByTestId('scenario-unions').locator('.toggle')).toHaveClass(/on/);
 
-  // the choices survive a reload
+  // the choices survive a reload (which keeps the setup screen open)
   await page.reload();
-  await openSetup(page);
+  await expect(page.locator('.puzzle-grid')).toBeVisible();
   await expect(page.getByTestId('scenario-pick')).toContainText('4 игрока');
   await expect(page.getByTestId('scenario-pick')).toContainText('Союзы');
   await expect(page.getByTestId('scenario-size').getByRole('radio', { name: 'Гигантская' })).toHaveAttribute('aria-checked', 'true');

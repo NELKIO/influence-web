@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { sfx } from '../../audio/sfx';
 import { IconBack } from './icons';
+import { t } from '../../i18n';
 
 export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
   return (
@@ -56,7 +57,7 @@ export function TopBar({ title, onBack, right }: { title: string; onBack?: () =>
       {onBack && (
         <button
           class="icon-btn"
-          aria-label="back"
+          aria-label={t('back')}
           onClick={() => {
             sfx.click();
             onBack();

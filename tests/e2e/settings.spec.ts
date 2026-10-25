@@ -48,8 +48,9 @@ test('every toggle and choice persists across a reload', async ({ page }) => {
     v: 2,
   });
 
+  // a reload keeps the settings screen open
   await page.reload();
-  await openSettings(page);
+  await expect(page.locator('.topbar h1')).toHaveText(/Настройки|Settings/);
   for (let i = 0; i < 7; i++) await expect(switches.nth(i)).toHaveAttribute('aria-checked', before[i] === 'true' ? 'false' : 'true');
   for (let g = 1; g < 4; g++) {
     const on = groups.nth(g).locator('[aria-checked="true"]');
@@ -75,7 +76,7 @@ test('switching RU and EN changes the visible texts and is remembered', async ({
   // no Cyrillic left on the settings screen (the numbers of the site counters aside)
   expect(await page.locator('.screen').innerText()).not.toMatch(/[А-Яа-яЁё]/);
 
-  await page.locator('.topbar').getByRole('button', { name: 'back' }).click();
+  await page.locator('.topbar').getByRole('button', { name: /^(Назад|Back)$/ }).click();
   await expect(page.locator('.play-btn .big')).toHaveText('New battle');
   await expect(page.locator('.mode-card', { hasText: 'Quick start' })).toBeVisible();
   expect(await page.locator('.menu-screen').innerText()).not.toMatch(/[А-Яа-яЁё]/);
@@ -88,7 +89,7 @@ test('switching RU and EN changes the visible texts and is remembered', async ({
   await page.locator('.screen [role="radiogroup"]').first().getByRole('radio', { name: 'RU' }).click();
   await expect(page.locator('.topbar h1')).toHaveText('Настройки');
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
-  await page.locator('.topbar').getByRole('button', { name: 'back' }).click();
+  await page.locator('.topbar').getByRole('button', { name: /^(Назад|Back)$/ }).click();
   await expect(page.locator('.play-btn .big')).toHaveText('Новая битва');
   await expectNoErrors(errors);
 });

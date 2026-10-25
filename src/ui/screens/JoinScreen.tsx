@@ -2,24 +2,24 @@ import { useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { navigate } from '../store';
 import { TopBar } from '../components/controls';
-import { normalizeCode } from '../../net';
+import { checkJoinCode, cleanJoinInput } from '../joinCode';
 import { sfx, unlockAudio } from '../../audio/sfx';
 
 /**
  * One box for every kind of online game: 4-character codes are duels, 5-character codes are
- * battle rooms. Invite links (#/duel/CODE, #/join/CODE) skip this screen.
+ * battle rooms. A pasted invite link works too (invite links opened directly skip this screen).
  */
 export function JoinScreen({ code: initial }: { code?: string }) {
-  const [code, setCode] = useState(initial ?? '');
+  const [code, setCode] = useState(cleanJoinInput(initial ?? ''));
   const [err, setErr] = useState('');
 
   const go = () => {
     unlockAudio();
     sfx.click();
-    const c = normalizeCode(code);
-    if (c.length === 4) navigate({ name: 'duels', join: c });
-    else if (c.length === 5) navigate({ name: 'battleRoom', join: c });
-    else setErr(t('joinBadLength'));
+    const c = checkJoinCode(code);
+    if (!c.ok) setErr(t(c.error === 'length' ? 'joinBadLength' : 'joinBadAlphabet'));
+    else if (c.kind === 'duel') navigate({ name: 'duels', join: c.code });
+    else navigate({ name: 'battleRoom', join: c.code });
   };
 
   return (
@@ -31,23 +31,34 @@ export function JoinScreen({ code: initial }: { code?: string }) {
           <input
             class="code-input"
             value={code}
-            maxLength={5}
             placeholder="ABCDE"
             autoCapitalize="characters"
             autoComplete="off"
             spellcheck={false}
             aria-label={t('duelCode')}
+            aria-describedby="join-hint"
             autoFocus
             onInput={(e) => {
+              const el = e.currentTarget as HTMLInputElement;
+              const next = cleanJoinInput(el.value);
+              // the box shows exactly what will be used, even when the state does not change
+              if (el.value !== next) el.value = next;
               setErr('');
-              setCode(normalizeCode((e.target as HTMLInputElement).value).slice(0, 5));
+              setCode(next);
             }}
             onKeyDown={(e) => e.key === 'Enter' && go()}
           />
-          <button class="btn primary" disabled={code.length < 4} onClick={go}>
+          <p id="join-hint" class="muted join-hint">
+            {t('joinHint')}
+          </p>
+          <button class="btn primary" disabled={!code} onClick={go}>
             {t('duelJoinBtn')}
           </button>
-          {err && <p style={{ color: 'var(--bad)', textAlign: 'center', margin: 0, fontWeight: 600 }}>{err}</p>}
+          {err && (
+            <p role="alert" style={{ color: 'var(--bad)', textAlign: 'center', margin: 0, fontWeight: 600 }}>
+              {err}
+            </p>
+          )}
         </div>
       </div>
     </div>

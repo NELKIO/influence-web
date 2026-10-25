@@ -1290,6 +1290,8 @@ export function buildScenario(id: ScenarioId, seed: number, knob?: number, playe
  * of match and, when the scenario is configurable, size and unions), or an ordinary generated map.
  */
 export function startMatch(settings: MatchSettings, seed = randomSeed()): MatchState {
+  // a match of one never ends (nobody is left to beat): refuse it rather than start it
+  if (!Array.isArray(settings.players) || settings.players.length < 2) throw new RangeError('a match needs at least 2 players');
   if (!isScenarioId(settings.puzzle)) return createMatch(settings, { seed });
   // a configurable scenario has equal seats, so "shuffle players" may decide who moves first
   const shuffle = !!settings.shuffle && !!SCENARIO_META[settings.puzzle].configurable;

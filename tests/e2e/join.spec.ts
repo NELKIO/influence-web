@@ -18,9 +18,13 @@ test('codes of the wrong length are refused with a message', async ({ page }) =>
   const errors = await fresh(page, {}, BC);
   await openJoin(page);
   await expect(joinBtn(page)).toBeDisabled();
+  await expect(page.getByText('Код из 4 символов — дуэль, из 5 — битва')).toBeVisible();
 
   await input(page).fill('ab');
-  await expect(joinBtn(page)).toBeDisabled();
+  await expect(joinBtn(page)).toBeEnabled();
+  await joinBtn(page).click();
+  await expect(page.getByText('Код должен быть из 4 или 5 символов')).toBeVisible();
+  await input(page).fill('ab');
   await input(page).press('Enter');
   await expect(page.getByText('Код должен быть из 4 или 5 символов')).toBeVisible();
   await expect(page.locator('.topbar h1')).toHaveText('Подключиться');
@@ -67,7 +71,36 @@ test('a battle code with letters that codes never use is refused', async ({ page
   await openJoin(page);
   await input(page).fill('O0I1Q');
   await joinBtn(page).click();
-  await expect(page.getByText('Комната не найдена')).toBeVisible();
+  await expect(page.getByText('Неверный код: используются буквы A–Z (без I, O) и цифры 2–9')).toBeVisible();
+  await expect(page.locator('.topbar h1')).toHaveText('Подключиться');
+  await expectNoErrors(errors);
+});
+
+// the bug: a 4-character code with letters codes never contain (0/O, 1/I) went to the duel lobby and
+// silently did nothing there
+test('a duel code with letters that codes never use is refused', async ({ page }) => {
+  const errors = await fresh(page, {}, BC);
+  await openJoin(page);
+  await input(page).fill('O0I1');
+  await joinBtn(page).click();
+  await expect(page.getByText('Неверный код: используются буквы A–Z (без I, O) и цифры 2–9')).toBeVisible();
+  await expect(page.locator('.topbar h1')).toHaveText('Подключиться');
+  await expectNoErrors(errors);
+});
+
+test('a pasted invite link and Cyrillic look-alikes give the code; the box shows what is used', async ({ page }) => {
+  const errors = await fresh(page, {}, BC);
+  await openJoin(page);
+  await input(page).fill('https://nelkio.github.io/influence-web/#/join/kx7mq');
+  await expect(input(page)).toHaveValue('KX7MQ');
+  // Russian keyboard layout: К, Х, М are the Latin K, X, M
+  await input(page).fill('');
+  await input(page).pressSequentially('кх7м');
+  await expect(input(page)).toHaveValue('KX7M');
+  // a sixth character does not show up in the box
+  await input(page).fill('');
+  await input(page).pressSequentially('kx7mqz');
+  await expect(input(page)).toHaveValue('KX7MQ');
   await expectNoErrors(errors);
 });
 

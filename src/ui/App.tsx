@@ -1,9 +1,12 @@
+import { Component, type ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { resumeAll, setDuelNotifier, slotSession, listSlots } from './duels';
 import { launchOnline } from './online';
 import { t } from '../i18n';
 import { sfx, buzz } from '../audio/sfx';
-import { navigate, useRoute } from './store';
+import { initRouter, navigate, useRoute } from './store';
+import { Modal } from './components/controls';
+import { resetGameData } from '../storage';
 import { MenuScreen } from './screens/MenuScreen';
 import { SetupScreen } from './screens/SetupScreen';
 import { GameScreen } from './screens/GameScreen';
@@ -14,14 +17,6 @@ import { DailyScreen } from './screens/DailyScreen';
 import { DuelsScreen } from './screens/DuelsScreen';
 import { JoinScreen } from './screens/JoinScreen';
 import { BattleRoomScreen } from './screens/BattleRoomScreen';
-
-/** Invite links: #/duel/CODE (4 characters) and #/join/CODE (5-character battle rooms) */
-function readInvite(): { kind: 'duel' | 'battle'; code: string } | null {
-  const d = /^#\/duel\/([A-Za-z0-9]{4})$/.exec(location.hash);
-  if (d) return { kind: 'duel', code: d[1].toUpperCase() };
-  const b = /^#\/join\/([A-Za-z0-9]{5})$/.exec(location.hash);
-  return b ? { kind: 'battle', code: b[1].toUpperCase() } : null;
-}
 
 function Notice() {
   const [n, setN] = useState<{ text: string; slot: string } | null>(null);
@@ -58,30 +53,82 @@ function Notice() {
   );
 }
 
+// the address decides the first screen (a reload keeps it); back and forward move between screens
+initRouter();
+
 export function App() {
   return (
-    <>
+    <ErrorBoundary>
       <Screens />
       <Notice />
-    </>
+    </ErrorBoundary>
   );
+}
+
+/**
+ * A screen that fails to render shows a way out instead of a blank page: back to the menu, or (when the
+ * saved data is what breaks it) a reset of the game's data.
+ */
+class ErrorBoundary extends Component<{ children: ComponentChildren }, { error: unknown; ask: boolean }> {
+  state = { error: null as unknown, ask: false };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error, ask: false };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Influence Web: a screen failed to render', error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div class="screen crash-screen" data-testid="crash">
+        <div class="screen-inner">
+          <div class="card crash-card">
+            <h1>{t('crashTitle')}</h1>
+            <p class="muted">{t('crashText')}</p>
+            <button
+              class="btn primary"
+              onClick={() => {
+                this.setState({ error: null, ask: false });
+                navigate({ name: 'menu' });
+              }}
+            >
+              {t('toMenu')}
+            </button>
+            <button class="btn ghost" onClick={() => this.setState({ ask: true })}>
+              {t('crashReset')}
+            </button>
+          </div>
+        </div>
+        {this.state.ask && (
+          <Modal onBackdrop={() => this.setState({ ask: false })}>
+            <h2>{t('crashReset')}</h2>
+            <p>{t('crashResetConfirm')}</p>
+            <div class="row">
+              <button class="btn ghost" onClick={() => this.setState({ ask: false })}>
+                {t('cancel')}
+              </button>
+              <button
+                class="btn red"
+                onClick={() => {
+                  resetGameData();
+                  location.replace(location.pathname + location.search);
+                }}
+              >
+                {t('resetDo')}
+              </button>
+            </div>
+          </Modal>
+        )}
+      </div>
+    );
+  }
 }
 
 function Screens() {
   const route = useRoute();
-
-  useEffect(() => {
-    const check = () => {
-      const inv = readInvite();
-      if (!inv) return;
-      history.replaceState(null, '', location.pathname + location.search);
-      if (inv.kind === 'duel') navigate({ name: 'duels', join: inv.code });
-      else navigate({ name: 'battleRoom', join: inv.code });
-    };
-    check();
-    window.addEventListener('hashchange', check);
-    return () => window.removeEventListener('hashchange', check);
-  }, []);
 
   switch (route.name) {
     case 'menu':

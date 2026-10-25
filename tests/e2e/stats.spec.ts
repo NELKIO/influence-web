@@ -14,7 +14,7 @@ test('statistics show a played match', async ({ page }) => {
   // nothing played yet
   await page.locator('.menu-links button', { hasText: 'Статистика' }).click();
   await expect(page.getByText('Сыграйте первую партию')).toBeVisible();
-  await page.locator('.topbar').getByRole('button', { name: 'back' }).click();
+  await page.locator('.topbar').getByRole('button', { name: 'Назад' }).click();
 
   await page.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
   await waitGame(page);

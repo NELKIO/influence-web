@@ -145,7 +145,10 @@ test('settings: language switch and persistence', async ({ page }) => {
   await page.getByText('Настройки').click();
   await page.getByRole('radio', { name: 'EN' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  // a reload keeps the screen (its address) and the language
   await page.reload();
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await page.goto('./');
   await expect(page.getByRole('button', { name: 'New battle' })).toBeVisible();
   await expectNoErrors(errors);
 });
