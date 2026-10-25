@@ -1,16 +1,36 @@
-// Offline support: network-first for pages, cache-first for hashed assets.
-const CACHE = 'infweb-v1';
+// Offline support: the whole app shell is stored at install, so the game works offline right
+// after the first visit. Pages are network-first (the cached page is the fallback), files are
+// cache-first (their names carry content hashes).
+//
+// The build (scripts/swPrecache.ts) fills in VERSION and PRECACHE: every script, worker chunk,
+// style, font and icon of that build. A new build changes this file, so the browser installs the
+// new worker, which takes over at once and deletes the caches of older builds.
+const VERSION = 'dev';
+const PRECACHE = [];
+const CACHE = `infweb-${VERSION}`;
+const PAGE = './';
+const SHELL = [...new Set([PAGE, './manifest.webmanifest', './icon-192.png', ...PRECACHE])];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './manifest.webmanifest', './icon-192.png'])));
+  // straight from the network: a stale HTTP cache must not end up in the new shell
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('infweb-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
   );
 });
+
+/** The app's own page (any hash or query), as opposed to sitemap.xml and the like. */
+function isAppPage(url) {
+  const scope = new URL(PAGE, self.registration.scope).pathname;
+  return url.pathname === scope || url.pathname === scope + 'index.html';
+}
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
@@ -21,16 +41,20 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('./', copy));
+          if (res.ok && isAppPage(url)) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(PAGE, copy));
+          }
           return res;
         })
-        .catch(() => caches.match('./')),
+        .catch(() => caches.open(CACHE).then((c) => c.match(PAGE, { ignoreVary: true })).then((hit) => hit || Response.error())),
     );
     return;
   }
+  // ignoreVary: the shell is stored without an Origin header, while module scripts, styles and
+  // fonts are requested with one (servers answer "Vary: Origin"); the names carry content hashes
   e.respondWith(
-    caches.match(req).then(
+    caches.match(req, { ignoreVary: true }).then(
       (hit) =>
         hit ||
         fetch(req).then((res) => {
