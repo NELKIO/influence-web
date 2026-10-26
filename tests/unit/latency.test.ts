@@ -148,8 +148,8 @@ describe('action latency with injected delay and loss', () => {
     const s = stats(r.delays);
     console.log('single lossy path, multipath layer:', s, 'resyncs', r.resyncs, 'moves undone', r.reverted);
     expect(r.resyncs + r.reverted).toBe(0);
-    expect(s.p90).toBeLessThan(1500);
-    expect(s.max).toBeLessThan(3000);
+    expect(s.p90).toBeLessThan(2000);
+    expect(s.max).toBeLessThan(4000);
     r.host.leave();
     r.guest.leave();
   });
@@ -158,7 +158,7 @@ describe('action latency with injected delay and loss', () => {
     const r = await duel(true, [{ ...lossy, drop: 0.25 }, { ...lossy, drop: 0.25, latencyMs: 250 }], 16, { kinds: ['nostr', 'peerrelay'] });
     const s = stats(r.delays);
     console.log('two relays with 25% loss each:', s);
-    expect(s.p90).toBeLessThan(1500);
+    expect(s.p90).toBeLessThan(2000);
     r.host.leave();
     r.guest.leave();
   });

@@ -23,10 +23,14 @@ on:
         required: false
         default: '15'
       link:
-        description: 'auto (WebRTC, relay fallback), relay or direct'
+        description: 'auto (all paths), relay (all relays), direct (WebRTC only), or one relay: peerrelay, nostr, mqtt'
         type: choice
-        options: [auto, relay, direct]
+        options: [auto, relay, direct, peerrelay, nostr, mqtt]
         default: auto
+      think_ms:
+        description: 'Duel: ms between moves (human pace); 0 = whole turns at once'
+        required: false
+        default: '0'
       guests:
         description: 'Battle: number of online seats (guests)'
         required: false
@@ -54,3 +58,4 @@ jobs:
           MINUTES: ${{ inputs.minutes }}
           LINK: ${{ inputs.link }}
           GUESTS: ${{ inputs.guests }}
+          THINK_MS: ${{ inputs.think_ms }}

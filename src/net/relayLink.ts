@@ -6,8 +6,8 @@
  * maps a name to whatever the service needs (a PeerJS id, a Nostr topic), derived from the room id, so
  * the room code itself never reaches the service.
  *
- * Everything on the bus is a batch of envelopes, AES-GCM encrypted with the room key (relayCrypto) and
- * chunked to the bus's frame size. Envelopes sent within `batchMs` to the same address share one
+ * Everything on the bus is a batch of envelopes, deflated when that helps, AES-GCM encrypted with the
+ * room key (relayCrypto) and chunked to the bus's frame size. Envelopes sent within `batchMs` to the same address share one
  * batch, so a burst of game messages costs one or a few bus messages.
  *
  * Link protocol (same semantics as a data channel): the guest dials until the host accepts; heartbeats
@@ -17,7 +17,7 @@
  */
 import { BaseMultiHost } from './hub';
 import { Emitter, type Unsubscribe } from './emitter';
-import { open, Reassembler, roomKeys, sealText, toFrames, DEFAULT_KDF_ITERATIONS, type RoomKeys } from './relayCrypto';
+import { openBytes, packText, Reassembler, roomKeys, sealBytes, toFrames, unpackText, DEFAULT_KDF_ITERATIONS, type RoomKeys } from './relayCrypto';
 import { randomId } from './room';
 import { netLog } from './netdebug';
 import type { RelayKind } from './mqttRelay';
@@ -40,6 +40,10 @@ export interface RelayBus {
   onFail(cb: (code: TransportErrorCode, message: string) => void): Unsubscribe;
   /** the service says the address `to` is not there (PeerJS EXPIRE); optional */
   onAbsent?(cb: (to: string) => void): Unsubscribe;
+  /** a small number telling the peer which servers we listen on (Nostr: a bitmask of relays); optional */
+  advert?(): number | undefined;
+  /** the peer at `to` listens on these servers (its advert) */
+  setPeerAdvert?(to: string, advert: number): void;
   close(): void;
 }
 
@@ -102,19 +106,21 @@ export interface RelayLinkOptions {
 
 const LINK_DEFAULTS: Required<Omit<RelayLinkOptions, 'log' | 'label'>> = {
   iterations: DEFAULT_KDF_ITERATIONS,
-  heartbeatMs: 5000,
-  deadAfterMs: 16000,
+  heartbeatMs: 8000,
+  deadAfterMs: 25000,
   dialRetryMs: 1500,
   maxDials: 10,
   maxAbsent: 2,
   batchMs: 15,
 };
 
-type Env =
+/** `u`: the sender's bus advert (which servers it listens on) */
+type Env = (
   | { k: 'dial'; f: string; s: string; r: string; a: number }
   | { k: 'accept'; f: string; s: string; a: number }
   | { k: 'busy' | 'hb' | 'bye'; f: string; s: string; r?: string }
-  | { k: 'msg'; f: string; s: string; r?: string; n: number; d: unknown };
+  | { k: 'msg'; f: string; s: string; r?: string; n: number; d: unknown }
+) & { u?: number };
 
 const isEnv = (x: unknown): x is Env => {
   const e = x as Partial<Env> | null;
@@ -189,7 +195,7 @@ class Wire {
     for (const [to, list] of this.out) {
       const text = `[${list.join(',')}]`;
       this.outQ.run(async () => {
-        const blob = await sealText(key, text);
+        const blob = await sealBytes(key, await packText(text));
         for (const f of toFrames(blob, bus.maxFrame, frameId())) bus.send(to, f);
       });
     }
@@ -208,7 +214,9 @@ class Wire {
     this.inQ.run(async () => {
       const blob = this.rebuild.push(frame);
       if (!blob) return;
-      const v = await open(key, blob);
+      const packet = await openBytes(key, blob);
+      if (!packet) return;
+      const v = await unpackText(packet);
       const list = Array.isArray(v) ? v : [v];
       for (const e of list) if (isEnv(e)) this.onEnv(e);
     });
@@ -343,11 +351,14 @@ export class RelayLinkGuest implements Transport {
   }
 
   private env(e: Env, now = false) {
+    const u = this.bus?.advert?.();
+    if (u !== undefined) e.u = u;
     this.wire.push('h', e, now);
   }
 
   private rx(env: Env) {
     if (this.closed) return;
+    if (typeof env.u === 'number') this.bus?.setPeerAdvert?.('h', env.u);
     switch (env.k) {
       case 'accept':
         if (this.isOpen || env.a !== this.attempt) return;
@@ -558,6 +569,7 @@ export class RelayLinkHost extends BaseMultiHost {
     const known = !!link && link.sid === env.s;
     const r = (env as { r?: string }).r;
     if (known && r) link!.name = r;
+    if (typeof env.u === 'number' && r) this.bus?.setPeerAdvert?.(r, env.u);
     switch (env.k) {
       case 'dial': {
         if (known && link!.a === env.a) {
@@ -599,6 +611,8 @@ export class RelayLinkHost extends BaseMultiHost {
 
   private sendTo(l: HostLink, env: Env, now = false): boolean {
     if (!this.bus) return false;
+    const u = this.bus.advert?.();
+    if (u !== undefined) env.u = u;
     l.lastTx = Date.now();
     this.wire.push(l.name, env, now);
     return this.bus.up;

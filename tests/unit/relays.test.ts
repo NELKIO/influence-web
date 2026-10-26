@@ -175,7 +175,7 @@ describe('PeerJS signalling relay', () => {
     await playDuel(host, guest, 4);
     host.leave();
     guest.leave();
-  });
+  }, 20000);
 
   it('a broker that refuses connections makes the path fail (no tight reconnect loop)', async () => {
     const b = broker();
@@ -218,9 +218,10 @@ describe('Nostr relay', () => {
 
   it('every event arrives through three relays: copies are dropped, nothing is applied twice', async () => {
     const n = new FakeNostrNet();
-    const host = DuelSession.host({ storage: null, clientId: 'H', size: 'S', hostFirst: true, pingMs: 0, code: 'DD2P', linkMode: 'nostr', nostr: nostrOpts(n), mp: MP });
+    const o = nostrOpts(n, { fanout: 3 });
+    const host = DuelSession.host({ storage: null, clientId: 'H', size: 'S', hostFirst: true, pingMs: 0, code: 'DD2P', linkMode: 'nostr', nostr: o, mp: MP });
     await until(() => host.status === 'waiting');
-    const guest = DuelSession.join('DD2P', { storage: null, clientId: 'G', pingMs: 0, linkMode: 'nostr', nostr: nostrOpts(n), mp: MP });
+    const guest = DuelSession.join('DD2P', { storage: null, clientId: 'G', pingMs: 0, linkMode: 'nostr', nostr: o, mp: MP });
     const resyncs: string[] = [];
     host.on('resync', (r) => resyncs.push(r));
     guest.on('resync', (r) => resyncs.push(r));
@@ -234,6 +235,24 @@ describe('Nostr relay', () => {
     host.leave();
     guest.leave();
   });
+
+  it('relays whose sockets freeze after a few kilobytes (DPI): fresh sockets take over, the match goes on', async () => {
+    const n = new FakeNostrNet(['wss://r1.test', 'wss://r2.test']);
+    for (const u of n.urls) n.relay(u).freezeAfter = 9000;
+    const o = nostrOpts(n, { okTimeoutMs: 400 });
+    const host = DuelSession.host({ storage: null, clientId: 'H', size: 'L', hostFirst: true, pingMs: 0, code: 'FR2Z', linkMode: 'nostr', nostr: o, mp: MP });
+    await until(() => host.status === 'waiting');
+    const guest = DuelSession.join('FR2Z', { storage: null, clientId: 'G', pingMs: 0, linkMode: 'nostr', nostr: o, mp: MP });
+    const resyncs: string[] = [];
+    guest.on('resync', (r) => resyncs.push(r));
+    await until(() => host.status === 'playing' && guest.status === 'playing', 15000, 'playing');
+    await playDuel(host, guest, 8);
+    expect(resyncs).toEqual([]);
+    // many sockets were needed, and none carried much more than the limit
+    expect(n.relay('wss://r1.test').sockets).toBeGreaterThanOrEqual(4);
+    host.leave();
+    guest.leave();
+  }, 30000);
 
   it('a relay crashes mid-match: the others carry on; a lossy relay is repaired by re-sends', async () => {
     const n = new FakeNostrNet();

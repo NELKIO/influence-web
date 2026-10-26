@@ -19,8 +19,12 @@
  *   MINUTES   host: keep the room open this long (new match after each end); guest: give up after this long
  *   ROUNDS    guest: rounds to play before finishing successfully (default 12)
  *   GUESTS    battle host: number of online seats (default 1)
+ *   THINK_MS  duel: one move per this many ms (human pace); default 0 = whole turns at once
  *   HEADED=1  show the browser
  *   PROXY     e.g. socks5://127.0.0.1:1081: route the page's TCP traffic through a proxy
+ *
+ * The page runs with ?netdebug=1; the end of the run prints how often each net log event happened
+ * (path switches, Nostr socket hops / freezes, re-sends) and the latencies.
  *
  * Every turn both sides log the round, current seat, action seq and state hash. The protocol itself
  * compares hashes (duel acks / battle per-action hashes) and re-syncs on a difference; the guest exits
@@ -69,7 +73,7 @@ if (!base) {
   await server.listen();
   base = `http://127.0.0.1:${port}/influence-web/`;
 }
-const url = `${base}${base.includes('?') ? '&' : '?'}${LINK !== 'auto' ? `transport=${LINK}` : 'x=1'}`;
+const url = `${base}${base.includes('?') ? '&' : '?'}${LINK !== 'auto' ? `transport=${LINK}` : 'x=1'}&netdebug=1`;
 say(`${KIND} room ${CODE}, link ${LINK}, page ${url}`);
 
 // PROXY=socks5://127.0.0.1:1081: the page's TCP traffic (signalling, relays) goes through that proxy
@@ -87,9 +91,9 @@ await page.waitForFunction(() => !!window.__infwebNet, null, { timeout: 60_000 }
 
 /** in-page agent: creates the session and plays */
 await page.evaluate(
-  ({ role, kind, code, guests }) => {
+  ({ role, kind, code, guests, think }) => {
     const N = window.__infwebNet;
-    const X = (window.__x = { events: [], resyncs: 0, fatal: null, turn: -1, ended: null, link: null, matches: 0, rounds: 0, rtts: [], reqs: [] });
+    const X = (window.__x = { events: [], resyncs: 0, fatal: null, turn: -1, ended: null, link: null, matches: 0, rounds: 0, rtts: [], reqs: [], lrtts: [], handoffs: [], endAt: 0 });
     const ev = (type, data) => X.events.push({ type, at: Date.now(), ...data });
     const chance = (a, d) => (a <= 1 ? 0 : d === 0 ? 1 : a - d <= -2 ? 0 : a - d === -1 ? 0.25 : a - d === 0 ? 0.5 : a - d === 1 ? 0.75 : 1);
     /** greedy candidate attacks for `seat`, best first */
@@ -120,7 +124,7 @@ await page.evaluate(
       const make = () =>
         role === 'host'
           ? N.DuelSession.host({ code, storage: null, size: 'M', name: 'xnet-host', hostFirst: true })
-          : N.DuelSession.join(code, { storage: null, name: 'xnet-guest' });
+          : N.DuelSession.join(code, { storage: null, name: 'xnet-guest', clientId: `xnet-guest-${code}` }); // one guest id per room: runs can repeat
       const s = make();
       X.session = s;
       s.onState((st) => logTurn(st, s.seq, N.stateHash(st)));
@@ -141,20 +145,35 @@ await page.evaluate(
         // keep the room going: both sides ask for a rematch
         setTimeout(() => s.requestRematch(), 1000);
       });
+      // turn handoff: our endTurn → the opponent's first move arrives (≈ round trip + its 0-400 ms tick)
+      s.on('remoteAction', () => {
+        if (X.endAt) X.handoffs.push(Date.now() - X.endAt);
+        X.endAt = 0;
+      });
       let lastRtt = null;
+      let lastLrtt = null;
       setInterval(() => {
         X.link = s.link;
         if (s.rtt !== null && s.rtt !== lastRtt) X.rtts.push((lastRtt = s.rtt));
+        if (s.linkRtt !== null && s.linkRtt !== lastLrtt) X.lrtts.push((lastLrtt = s.linkRtt));
         const st = s.state;
         if (!st) return;
         logTurn(st, s.seq, N.stateHash(st));
         if (!s.canAct) return;
+        if (think > 0) {
+          // human pace: one move per `think` ms
+          if (Date.now() - (X.lastAct ?? 0) < think) return;
+          X.lastAct = Date.now();
+          const mv = moves(s.state, s.localSlot).find((m) => typeof s.attack(m.from, m.to) === 'object');
+          if (!mv && s.endTurn()) X.endAt = Date.now();
+          return;
+        }
         for (let i = 0; i < 30 && s.canAct; i++) {
           const mv = moves(s.state, s.localSlot).find((m) => typeof s.attack(m.from, m.to) === 'object');
           if (!mv) break;
         }
-        if (s.canAct) s.endTurn();
-      }, 400);
+        if (s.canAct && s.endTurn()) X.endAt = Date.now();
+      }, think > 0 ? 100 : 400);
       return;
     }
 
@@ -258,7 +277,7 @@ await page.evaluate(
       }
     }, 400);
   },
-  { role: ROLE, kind: KIND, code: CODE, guests: GUESTS },
+  { role: ROLE, kind: KIND, code: CODE, guests: GUESTS, think: Number(process.env.THINK_MS ?? 0) },
 );
 
 const stats = (a) => {
@@ -272,6 +291,7 @@ let exitCode = 0;
 const deadline = t0 + MINUTES * 60_000;
 let started = false;
 let lastX = null;
+let dumps = 0;
 for (;;) {
   await new Promise((r) => setTimeout(r, 1500));
   const x = await page.evaluate(() => ({ ...window.__x, session: undefined, events: window.__x.events }));
@@ -282,6 +302,10 @@ for (;;) {
   }
   shown = x.events.length;
   lastX = x;
+  if (process.env.NETDUMP && ++dumps % 6 === 0) {
+    const full = await page.evaluate(() => window.__netlog ?? []).catch(() => []);
+    (await import('node:fs')).writeFileSync(process.env.NETDUMP, full.map((e) => JSON.stringify(e)).join('\n'));
+  }
   if (x.fatal && (ROLE === 'guest' || !started)) {
     say('FAIL fatal error', x.fatal);
     exitCode = 1;
@@ -306,7 +330,18 @@ for (;;) {
     break;
   }
 }
-if (lastX) say(`latency: ping rtt ${stats(lastX.rtts)}; battle requests ${stats(lastX.reqs)}`);
+const netlog = await page.evaluate(() => (window.__netlog ?? []).map((e) => e.ev + (e.try ? (e.fast ? '-fast' : '-retry') : ''))).catch(() => []);
+if (process.env.NETDUMP) {
+  const full = await page.evaluate(() => window.__netlog ?? []).catch(() => []);
+  (await import('node:fs')).writeFileSync(process.env.NETDUMP, full.map((e) => JSON.stringify(e)).join('\n'));
+}
+const counts = {};
+for (const e of netlog) counts[e] = (counts[e] ?? 0) + 1;
+say(`net log: ${JSON.stringify(counts)}`);
+if (lastX)
+  say(
+    `latency: link rtt ${stats(lastX.lrtts)}; game ping rtt ${stats(lastX.rtts)}; turn handoff ${stats(lastX.handoffs)}; battle requests ${stats(lastX.reqs)}`,
+  );
 await page.evaluate(() => {
   const s = window.__x?.session;
   if (!s) return;

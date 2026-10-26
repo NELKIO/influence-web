@@ -16,8 +16,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: REAL_P2P=1 npx playwright test duel-online battle-online --project=desktop
-      # duel + battle between separate browsers over the real network: auto link (WebRTC, relay
-      # fallback) and the MQTT relay forced with ?transport=relay
+      # duel + battle between separate browsers over the real network: auto (every path at once) and
+      # each relay forced alone (?transport=nostr / peerrelay / mqtt)
       - run: RELAY_E2E=1 npx playwright test relay --project=desktop
         if: success() || failure()
       - if: failure()

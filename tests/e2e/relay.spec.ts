@@ -1,11 +1,14 @@
 import { chromium, expect, test, type Browser, type Page } from '@playwright/test';
 
 // Online play between separate browser contexts over the real network, WITHOUT ?transport=bc:
-// - "auto": WebRTC first, MQTT relay fallback (behind a VPN / strict NAT this must end up on the relay);
-// - "relay": ?transport=relay forces the relay (checks it on networks where WebRTC would work too).
-// Needs internet access (public MQTT brokers, PeerJS broker). Run with RELAY_E2E=1.
+// - "auto": every path at once (WebRTC, PeerJS relay, Nostr, MQTT; behind a VPN / strict NAT the game
+//   ends up on a relay);
+// - "nostr" / "peerrelay" / "mqtt": ?transport=<kind> forces that relay alone.
+// Needs internet access (public relays, PeerJS broker). Run with RELAY_E2E=1; RELAY_MODES=nostr,peerrelay
+// picks the modes (default: all four).
 
 const ENABLED = !!process.env.RELAY_E2E;
+const MODES = (process.env.RELAY_MODES ?? 'auto,nostr,peerrelay,mqtt').split(',') as ('auto' | 'nostr' | 'peerrelay' | 'mqtt')[];
 
 async function setup(page: Page, url: string, setupPrefs?: unknown) {
   await page.route('**/abacus.jasoncameron.dev/**', (r) =>
@@ -163,7 +166,7 @@ async function battle(browser: Browser, base: string, expectRelay: boolean) {
   await playRounds([host, g1, g2], 5);
 }
 
-for (const mode of ['auto', 'relay'] as const) {
+for (const mode of MODES) {
   test.describe(`real network, ${mode} link`, () => {
     test.skip(() => !ENABLED, 'set RELAY_E2E=1 (needs internet access)');
 
@@ -172,7 +175,7 @@ for (const mode of ['auto', 'relay'] as const) {
       test.setTimeout(300_000);
       const browser = await chromium.launch();
       try {
-        await duel(browser, mode === 'relay' ? `${baseURL}?transport=relay` : baseURL!, mode === 'relay' || !!process.env.EXPECT_RELAY);
+        await duel(browser, mode !== 'auto' ? `${baseURL}?transport=${mode}` : baseURL!, mode !== 'auto' || !!process.env.EXPECT_RELAY);
       } finally {
         await browser.close();
       }
@@ -183,7 +186,7 @@ for (const mode of ['auto', 'relay'] as const) {
       test.setTimeout(300_000);
       const browser = await chromium.launch();
       try {
-        await battle(browser, mode === 'relay' ? `${baseURL}?transport=relay` : baseURL!, mode === 'relay' || !!process.env.EXPECT_RELAY);
+        await battle(browser, mode !== 'auto' ? `${baseURL}?transport=${mode}` : baseURL!, mode !== 'auto' || !!process.env.EXPECT_RELAY);
       } finally {
         await browser.close();
       }

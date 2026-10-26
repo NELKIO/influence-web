@@ -1140,7 +1140,16 @@ export class DuelSession {
   private startPing() {
     this.stopPing();
     const ms = this.opts.pingMs ?? 5000;
-    if (ms > 0) this.pingTimer = setInterval(() => this.send({ t: 'ping', ts: Date.now() }), ms);
+    if (ms <= 0) return;
+    let last = 0;
+    this.pingTimer = setInterval(() => {
+      // over a relay every message is a message on a public service: ping 4× less often there
+      // (the link layer measures its own round trip anyway)
+      const now = Date.now();
+      if (this.link === 'relay' && now - last < ms * 4) return;
+      last = now;
+      this.send({ t: 'ping', ts: now });
+    }, ms);
   }
 
   private stopPing() {

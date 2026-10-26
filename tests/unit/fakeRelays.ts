@@ -21,6 +21,15 @@ export class FakeWs implements WsLike {
   onerror: ((ev: unknown) => void) | null = null;
   /** largest message this socket sent */
   maxSent = 0;
+  /** freeze after this many bytes in both directions together (null: never), like DPI that stalls TLS flows */
+  budget: number | null = null;
+  used = 0;
+  frozen = false;
+  private spend(n: number): boolean {
+    this.used += n;
+    if (this.budget !== null && this.used > this.budget) this.frozen = true;
+    return !this.frozen;
+  }
   constructor(
     readonly url: string,
     private server: { onClientMessage(ws: FakeWs, data: string): void; onClientClose(ws: FakeWs): void },
@@ -45,6 +54,7 @@ export class FakeWs implements WsLike {
   }
   /** server → client */
   deliver(data: string) {
+    if (!this.spend(data.length)) return;
     setTimeout(() => {
       if (this.readyState === 1) this.onmessage?.({ data });
     }, this.latency());
@@ -62,6 +72,7 @@ export class FakeWs implements WsLike {
   send(data: string): void {
     if (this.readyState !== 1) throw new Error('not open');
     this.maxSent = Math.max(this.maxSent, data.length);
+    if (!this.spend(data.length)) return;
     const s = this.server;
     // like a real socket, data sent before close() still reaches the server
     setTimeout(() => {
@@ -198,6 +209,10 @@ export class FakeNostrRelay {
   restricted = false;
   /** silently lose this share of the events it should forward */
   dropRate = 0;
+  /** every socket freezes after this many bytes (null: never) */
+  freezeAfter: number | null = null;
+  /** sockets accepted so far */
+  sockets = 0;
   latencyMs = 3;
   subs: Sub[] = [];
   clients = new Set<FakeWs>();
@@ -206,6 +221,8 @@ export class FakeNostrRelay {
 
   connect(ws: FakeWs) {
     if (!this.up) return ws.refuse();
+    this.sockets++;
+    ws.budget = this.freezeAfter;
     this.clients.add(ws);
     ws.accept();
   }

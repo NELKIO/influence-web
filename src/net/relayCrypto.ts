@@ -166,3 +166,65 @@ export function fromB64(s: string): Uint8Array | null {
     return null;
   }
 }
+
+// ---------------------------------------------------------------- compressed packets
+
+/** IV + AES-GCM ciphertext of raw bytes. */
+export async function sealBytes(key: CryptoKey, bytes: Uint8Array): Promise<Uint8Array> {
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv }, key, bytes as BufferSource));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv, 0);
+  out.set(ct, 12);
+  return out;
+}
+
+/** Plain bytes of a sealed blob; null if it is not ours. */
+export async function openBytes(key: CryptoKey, blob: Uint8Array): Promise<Uint8Array | null> {
+  if (blob.length < 13) return null;
+  try {
+    return new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv: blob.slice(0, 12) }, key, blob.slice(12)));
+  } catch {
+    return null;
+  }
+}
+
+async function pipeBytes(bytes: Uint8Array, stream: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> }): Promise<Uint8Array> {
+  const out = new Response(new Blob([bytes as BlobPart]).stream().pipeThrough(stream));
+  return new Uint8Array(await out.arrayBuffer());
+}
+
+/**
+ * A JSON text as a packet: [1, ...deflate-raw] when that is smaller (game states shrink 3-6×), else
+ * [0, ...utf8]. Small packets matter on networks that freeze a connection after a few kilobytes.
+ */
+export async function packText(text: string): Promise<Uint8Array> {
+  const raw = enc.encode(text);
+  if (raw.length > 200 && typeof CompressionStream !== 'undefined') {
+    try {
+      const z = await pipeBytes(raw, new CompressionStream('deflate-raw'));
+      if (z.length + 1 < raw.length) {
+        const out = new Uint8Array(z.length + 1);
+        out[0] = 1;
+        out.set(z, 1);
+        return out;
+      }
+    } catch {
+      /* send it uncompressed */
+    }
+  }
+  const out = new Uint8Array(raw.length + 1);
+  out.set(raw, 1);
+  return out;
+}
+
+/** The JSON value of a packet; null if malformed. */
+export async function unpackText(p: Uint8Array): Promise<unknown> {
+  try {
+    if (p[0] === 0) return JSON.parse(dec.decode(p.subarray(1)));
+    if (p[0] === 1 && typeof DecompressionStream !== 'undefined') return JSON.parse(dec.decode(await pipeBytes(p.subarray(1), new DecompressionStream('deflate-raw'))));
+  } catch {
+    /* fall through */
+  }
+  return null;
+}

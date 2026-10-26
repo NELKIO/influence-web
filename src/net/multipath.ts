@@ -50,21 +50,31 @@ export interface MpOptions {
   /** the direct path counts as unhealthy without inbound traffic for this long */
   directStaleMs?: number;
   helloRetryMs?: number;
+  /** ack delay for messages that came on the direct path */
   ackDelayMs?: number;
+  /** ack delay for messages that came on a relay (several acks share one relay message) */
+  relayAckDelayMs?: number;
   minRtoMs?: number;
+  /** re-send timeout floor while relays carry the game */
+  minRelayRtoMs?: number;
   maxRtoMs?: number;
+  /** a hole in the received sequence is reported (fast re-send) once it has lasted this long */
+  holeMs?: number;
   /** owner's timer period */
   tickMs?: number;
 }
 
 const MP_DEFAULTS: Required<Omit<MpOptions, 'helloProbe'>> = {
   directPingMs: 2000,
-  relayPingMs: 2500,
-  idlePingMs: 15000,
+  relayPingMs: 15000,
+  idlePingMs: 30000,
   directStaleMs: 5000,
   helloRetryMs: 1000,
   ackDelayMs: 20,
+  relayAckDelayMs: 200,
   minRtoMs: 250,
+  minRelayRtoMs: 700,
+  holeMs: 150,
   maxRtoMs: 4000,
   tickMs: 50,
 };
@@ -112,6 +122,8 @@ export class MpPeer {
   private unacked = new Map<number, Pending>();
   private rxNext = 1;
   private rxBuf = new Map<number, Record<string, unknown>>();
+  /** when the oldest message now waiting behind a hole arrived (0: no hole) */
+  private holeSince = 0;
   private ackDue = new Set<PathKind>();
   private ackTimer: ReturnType<typeof setTimeout> | null = null;
   private rtts = new Map<PathKind, number>();
@@ -249,10 +261,13 @@ export class MpPeer {
     const a = this.rxNext - 1;
     const c: Omit<Ctl, '_i' | '_p'> = { _mp: 'k', a };
     if (this.rxBuf.size) {
-      const top = Math.max(...this.rxBuf.keys());
-      const m: number[] = [];
-      for (let s = this.rxNext; s < top && m.length < 32; s++) if (!this.rxBuf.has(s)) m.push(s);
-      c.m = m;
+      // report holes only once they have lasted a while: relays reorder messages a little all the time
+      if (this.holeSince && Date.now() - this.holeSince >= this.o.holeMs) {
+        const top = Math.max(...this.rxBuf.keys());
+        const m: number[] = [];
+        for (let s = this.rxNext; s < top && m.length < 32; s++) if (!this.rxBuf.has(s)) m.push(s);
+        c.m = m;
+      }
     }
     const open = new Set(this.io.open());
     let sent = false;
@@ -270,7 +285,10 @@ export class MpPeer {
   receive(kind: PathKind, raw: unknown) {
     if (this.stopped) return;
     const now = Date.now();
+    const quietFor = now - (this.lastRx.get(kind) ?? now);
     this.lastRx.set(kind, now);
+    // the path speaks again after a pause: what waits for a (backed-off) re-send goes now
+    if (quietFor > 1000 && this.unacked.size && this.peerSid && !this.legacy) this.kick(kind, now);
     if (!isObj(raw)) return this.legacyIn(raw);
     if (typeof raw._mp === 'string') return this.onCtl(kind, raw as unknown as Ctl, now);
     if (typeof raw._i !== 'string' || typeof raw._s !== 'number') return this.legacyIn(raw);
@@ -285,10 +303,13 @@ export class MpPeer {
     const s = raw._s;
     this.ackDue.add(kind);
     if (!this.ackTimer)
-      this.ackTimer = setTimeout(() => {
-        this.ackTimer = null;
-        if (!this.stopped && this.ackDue.size) this.sendAck();
-      }, this.o.ackDelayMs);
+      this.ackTimer = setTimeout(
+        () => {
+          this.ackTimer = null;
+          if (!this.stopped && this.ackDue.size) this.sendAck();
+        },
+        kind === 'direct' ? this.o.ackDelayMs : this.o.relayAckDelayMs,
+      );
     if (s < this.rxNext || this.rxBuf.has(s)) {
       netLog('rx', { peer: this.label, seq: s, path: kind, dup: true });
       return;
@@ -299,6 +320,7 @@ export class MpPeer {
     delete raw._a;
     this.rxBuf.set(s, raw);
     if (this.rxBuf.size > 4000) this.rxBuf.delete(this.rxBuf.keys().next().value!);
+    if (s !== this.rxNext && !this.holeSince) this.holeSince = now;
     netLog('rx', { peer: this.label, seq: s, path: kind, gap: s !== this.rxNext });
     while (this.rxBuf.has(this.rxNext) && !this.stopped) {
       const m = this.rxBuf.get(this.rxNext)!;
@@ -306,6 +328,8 @@ export class MpPeer {
       this.rxNext++;
       this.io.deliver('_w' in m ? m._w : m);
     }
+    if (!this.rxBuf.size) this.holeSince = 0;
+    else if (s === this.rxNext - 1 || !this.holeSince) this.holeSince = now;
   }
 
   private legacyIn(raw: unknown) {
@@ -370,6 +394,18 @@ export class MpPeer {
     }
   }
 
+  /** re-send now, on `kind`, the unacked messages whose last send is older than one RTO */
+  private kick(kind: PathKind, now: number) {
+    const rto = this.rto();
+    for (const [s, p] of this.unacked) {
+      if (now - p.last < rto) continue;
+      p.tries++;
+      p.last = now;
+      this.io.send(kind, this.rewire(p, s));
+      netLog('tx', { peer: this.label, seq: s, paths: [kind], try: p.tries, kick: true });
+    }
+  }
+
   /** the peer reported holes: send those messages again at once on every open path */
   private fastRetransmit(missing: unknown[], now: number) {
     const gap = Math.max(40, (this.srtt ?? 200) * 0.5);
@@ -406,8 +442,10 @@ export class MpPeer {
   }
 
   private rto(): number {
-    if (this.srtt === null) return Math.max(this.o.minRtoMs, Math.min(this.o.maxRtoMs, (this.bestRtt() ?? 600) * 1.5 + 200));
-    return Math.max(this.o.minRtoMs, Math.min(this.o.maxRtoMs, this.srtt + Math.max(100, 4 * this.rttvar)));
+    // relays deliver less evenly than a data channel: a higher floor avoids needless re-sends
+    const floor = this.best().includes('direct') ? this.o.minRtoMs : this.o.minRelayRtoMs;
+    if (this.srtt === null) return Math.max(floor, Math.min(this.o.maxRtoMs, (this.bestRtt() ?? 600) * 1.5 + 200));
+    return Math.max(floor, Math.min(this.o.maxRtoMs, this.srtt + Math.max(this.srtt * 0.5, 4 * this.rttvar)));
   }
 
   // ------------------------------------------------------------ timer

@@ -275,6 +275,7 @@ export class BattleHost {
   private closed = false;
   /** guests whose page is hidden */
   private hiddenCids = new Set<string>();
+  private ticks = 0;
   /** our own page is hidden */
   private hidden = pageHidden();
 
@@ -668,9 +669,13 @@ export class BattleHost {
       this.divergentAt = diverged ? this.seq : -1;
     }
     const h = this.shadow ? battleHash(this.shadow) : '';
-    // also to links that have not said hello yet: a guest whose hello got lost says it again
-    for (const cid of new Set([...this.helloed, ...this.transport.clients]))
+    // also to links that have not said hello yet: a guest whose hello got lost says it again;
+    // a guest on a relay gets every third tick only (each one is a message on a public service)
+    const tick = ++this.ticks;
+    for (const cid of new Set([...this.helloed, ...this.transport.clients])) {
+      if (this.transport.linkOf?.(cid) === 'relay' && tick % 3 !== 0) continue;
       this.transport.send(cid, { t: 'bTick', matchId: this.matchId, seq: this.seq, h });
+    }
   }
 
   /** Close the connection, keep the saved room (it can be resumed). */
@@ -1453,7 +1458,9 @@ export class BattleGuest {
         this.silenceTimer = null;
         return;
       }
-      if (!this.connected || this.silent || Date.now() - this.lastHeard <= this.silenceMs) return;
+      // the host ticks 3× less often over a relay
+      const limit = this.link === 'relay' ? this.silenceMs * 3 : this.silenceMs;
+      if (!this.connected || this.silent || Date.now() - this.lastHeard <= limit) return;
       this.silent = true;
       this.em.emit('connection', false);
     }, Math.min(1000, this.silenceMs));
