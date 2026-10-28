@@ -6,7 +6,7 @@ test('after losing, the bots left on the board can be watched to the end; the re
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'S', players: ['human', 'hunter', 'hunter'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'S', players: ['human', 'hunter', 'hunter'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();
@@ -53,7 +53,7 @@ test('nothing to watch when a single bot is left', async ({ page }) => {
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'S', players: ['human', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'S', players: ['human', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();

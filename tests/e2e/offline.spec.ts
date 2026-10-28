@@ -24,7 +24,7 @@ test('after the first visit the whole game works offline, bots (web workers) inc
   expect(cached).toContain('/influence-web/manifest.webmanifest');
 
   // a short duel with Master, so the first bot move needs its worker
-  await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'master'] })));
+  await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'master'], shuffle: false, rev: 2 })));
   const failed: string[] = [];
   const fromWorker: string[] = [];
   page.on('requestfailed', (r) => {

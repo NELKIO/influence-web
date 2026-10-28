@@ -130,7 +130,7 @@ test('watching the bots at instant speed has no speed button (it would do nothin
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'S', players: ['human', 'hunter', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'S', players: ['human', 'hunter', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();

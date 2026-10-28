@@ -129,6 +129,9 @@ export interface SetupPrefs {
   scenarioConfig: Partial<Record<ScenarioId, ScenarioConfig>>;
 }
 
+/** Revision of the saved setup (2: shuffling players on by default). */
+const SETUP_REV = 2;
+
 export const DEFAULT_SETUP: SetupPrefs = {
   size: 'M',
   players: ['human', 'hunter', 'master', 'hunter'],
@@ -136,7 +139,7 @@ export const DEFAULT_SETUP: SetupPrefs = {
   symmetry: true,
   crowded: false,
   unions: false,
-  shuffle: false,
+  shuffle: true,
   scenario: null,
   scenarioSeats: {},
   scenarioConfig: {},
@@ -168,6 +171,8 @@ export function loadSetup(): SetupPrefs {
   for (const k of ['darkness', 'symmetry', 'crowded', 'unions', 'shuffle'] as const) {
     if (typeof saved[k] === 'boolean') s[k] = saved[k] as boolean;
   }
+  // shuffling became the default in setup revision 2: an older save held 'off' only because it was the default then
+  if (!(typeof saved.rev === 'number' && saved.rev >= SETUP_REV)) s.shuffle = DEFAULT_SETUP.shuffle;
   s.scenario = isScenarioId(saved.scenario) ? saved.scenario : null;
   const savedSeats = isObj(saved.scenarioSeats) ? saved.scenarioSeats : {};
   const savedConfig = (isObj(saved.scenarioConfig) ? saved.scenarioConfig : {}) as Record<string, ScenarioConfig | null>;
@@ -209,7 +214,7 @@ export function setupPlayers(s: SetupPrefs): PlayerType[] {
 }
 
 export function saveSetup(s: SetupPrefs) {
-  write('setup', s);
+  write('setup', { ...s, rev: SETUP_REV });
 }
 
 export function setupToSettings(s: SetupPrefs): MatchSettings {

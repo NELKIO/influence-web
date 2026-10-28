@@ -6,7 +6,7 @@ test('night drop alone against bots: give up, see the whole map, watch the bots 
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'M', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, scenario: 'landing', scenarioSeats: { landing: ['human', 'hunter', 'hunter', 'hunter'] } }),
+      JSON.stringify({ size: 'M', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2, scenario: 'landing', scenarioSeats: { landing: ['human', 'hunter', 'hunter', 'hunter'] } }),
     ),
   );
   await page.reload();

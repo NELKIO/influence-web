@@ -114,7 +114,7 @@ test.describe('browser history', () => {
 
   test('back from a match is its menu button: the match is saved and offered', async ({ page }) => {
     const errors = await fresh(page);
-    await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'] })));
+    await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'], shuffle: false, rev: 2 })));
     await page.reload();
     await page.locator('.play-btn', { hasText: 'Новая битва' }).click();
     await page.getByRole('button', { name: 'В бой' }).first().click();
@@ -136,7 +136,7 @@ test.describe('browser history', () => {
 
 test.describe('the saved match is not lost silently', () => {
   async function withSavedMatch(page: Page) {
-    await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'] })));
+    await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'], shuffle: false, rev: 2 })));
     await page.reload();
     await page.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
     await waitGame(page);
@@ -169,7 +169,7 @@ test.describe('the saved match is not lost silently', () => {
 
   test('quick start asks too; with nothing saved nobody asks', async ({ page }) => {
     const errors = await fresh(page);
-    await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'] })));
+    await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'], shuffle: false, rev: 2 })));
     await page.reload();
     await page.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
     await waitGame(page);
@@ -182,7 +182,7 @@ test.describe('the saved match is not lost silently', () => {
 
 test('cancelling the duel training question keeps who moves first', async ({ page }) => {
   const errors = await fresh(page);
-  await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'] })));
+  await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'], shuffle: false, rev: 2 })));
   await page.reload();
   await page.locator('.mode-card', { hasText: 'Быстрый старт' }).click();
   await waitGame(page);
@@ -213,7 +213,7 @@ test('with a person in a seat the medal box says only that no medal is given', a
 
 test('English: one opponent, the page title follows the language', async ({ page }) => {
   const errors = await fresh(page, { lang: 'en' });
-  await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'] })));
+  await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'dummy'], shuffle: false, rev: 2 })));
   await page.reload();
   await expect(page.locator('.mode-card', { hasText: 'Quick start' })).toContainText('1 opponent');
   await expect(page.locator('.mode-card', { hasText: 'Quick start' })).not.toContainText('opponents');

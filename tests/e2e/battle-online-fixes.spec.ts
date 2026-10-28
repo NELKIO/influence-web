@@ -21,7 +21,7 @@ async function setup(page: Page, url: string, o: { setupPrefs?: unknown; name?: 
   await page.goto(url);
 }
 
-const SETUP = { size: 'S', players: ['human', 'online', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false };
+const SETUP = { size: 'S', players: ['human', 'online', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 };
 
 async function openRoom(host: Page): Promise<string> {
   await host.bringToFront();

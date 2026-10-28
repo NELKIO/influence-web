@@ -50,7 +50,7 @@ async function moveIfMine(p: Page): Promise<boolean> {
   });
 }
 
-const HOST_SETUP = { size: 'S', players: ['human', 'online', 'hunter', 'online'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false };
+const HOST_SETUP = { size: 'S', players: ['human', 'online', 'hunter', 'online'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 };
 
 async function playBattle(host: Page, g1: Page, g2: Page, base: string) {
   // background tabs get no animation frames, so bring a tab to the front before clicking in it

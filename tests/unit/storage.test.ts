@@ -130,7 +130,15 @@ describe('battle setup', () => {
     expect(s.scenario).toBeNull();
     expect(s.scenarioSeats).toEqual({});
     expect(s.scenarioConfig).toEqual({});
-    expect(s.shuffle).toBe(false);
+    expect(s.shuffle).toBe(true);
+  });
+
+  it('shuffling is on by default, also for a setup saved before it was; turned off since, it stays off', () => {
+    expect(DEFAULT_SETUP.shuffle).toBe(true);
+    raw('setup', JSON.stringify({ ...DEFAULT_SETUP, shuffle: false }));
+    expect(loadSetup().shuffle).toBe(true);
+    saveSetup({ ...DEFAULT_SETUP, shuffle: false });
+    expect(loadSetup().shuffle).toBe(false);
   });
 
   it('drops a retired scenario and bad seat lists', () => {

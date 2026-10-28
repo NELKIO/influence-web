@@ -15,6 +15,8 @@ export async function fresh(page: Page, settings: Record<string, unknown> = {}, 
     if (!sessionStorage.getItem('init')) {
       localStorage.clear();
       localStorage.setItem('infweb.settings', JSON.stringify({ lang: 'ru', speed: 'instant', ...s }));
+      // tests count on a fixed turn order: you move first unless a test shuffles the seats itself
+      localStorage.setItem('infweb.setup', JSON.stringify({ shuffle: false, rev: 2 }));
       sessionStorage.setItem('init', '1');
     }
   }, settings);

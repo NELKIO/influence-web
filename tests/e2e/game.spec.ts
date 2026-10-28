@@ -58,7 +58,7 @@ test('hot-seat: hand-over screen between two humans', async ({ page }) => {
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'S', players: ['human', 'human', 'dummy'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'S', players: ['human', 'human', 'dummy'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();
@@ -158,7 +158,7 @@ test('end-turn button: real taps, confirmation only when attacks remain', async 
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'S', players: ['human', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'S', players: ['human', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();
@@ -201,7 +201,7 @@ test('hot-seat in darkness: hand-over appears after power is placed by tapping c
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'S', players: ['human', 'human'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'S', players: ['human', 'human'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();
@@ -244,7 +244,7 @@ test('camera stays put while selecting cells, hovering and confirming', async ({
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'M', players: ['human', 'hunter', 'dummy', 'freak'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'M', players: ['human', 'hunter', 'dummy', 'freak'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();

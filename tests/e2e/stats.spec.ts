@@ -6,7 +6,7 @@ test('statistics show a played match', async ({ page }) => {
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'S', players: ['human', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'S', players: ['human', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();

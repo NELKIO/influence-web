@@ -267,7 +267,7 @@ test('night drop hot-seat: each person keeps their own explored land, the hand-o
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'M', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, scenario: 'landing', scenarioSeats: { landing: ['human', 'human', 'dummy', 'dummy', 'dummy', 'dummy'] } }),
+      JSON.stringify({ size: 'M', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2, scenario: 'landing', scenarioSeats: { landing: ['human', 'human', 'dummy', 'dummy', 'dummy', 'dummy'] } }),
     ),
   );
   await page.reload();

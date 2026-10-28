@@ -125,7 +125,7 @@ async function duel(browser: Browser, base: string, expectRelay: boolean) {
   await expect(guest.locator('.result-title')).toHaveText(/Поражение/, { timeout: 30_000 });
 }
 
-const HOST_SETUP = { size: 'S', players: ['human', 'online', 'hunter', 'online'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false };
+const HOST_SETUP = { size: 'S', players: ['human', 'online', 'hunter', 'online'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 };
 
 async function battle(browser: Browser, base: string, expectRelay: boolean) {
   const [host, g1, g2] = await Promise.all([0, 1, 2].map(async () => (await browser.newContext()).newPage()));

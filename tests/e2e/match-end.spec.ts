@@ -6,7 +6,7 @@ test('darkness lifts at the end: the result can be put aside to look at the whol
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'S', players: ['human', 'hunter'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'S', players: ['human', 'hunter'], darkness: true, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();

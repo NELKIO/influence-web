@@ -6,7 +6,7 @@ test('the turn-order bonus is shown: badges for later seats, a start hint, gone 
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'M', players: ['human', 'hunter', 'hunter', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'M', players: ['human', 'hunter', 'hunter', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();
@@ -30,7 +30,7 @@ test('two players get no bonus badge (they start with 5 and 7)', async ({ page }
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'M', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'M', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();

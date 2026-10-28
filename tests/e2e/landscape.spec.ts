@@ -22,7 +22,7 @@ test('phone landscape: the board renders and the end button works by touch', asy
   await page.evaluate(() =>
     localStorage.setItem(
       'infweb.setup',
-      JSON.stringify({ size: 'M', players: ['human', 'dummy', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false }),
+      JSON.stringify({ size: 'M', players: ['human', 'dummy', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 }),
     ),
   );
   await page.reload();

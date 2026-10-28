@@ -18,7 +18,7 @@ describe('setup with a scenario', () => {
     let s = loadSetup();
     expect(setupPlayers(s)).toEqual(SCENARIO_META.landing.players);
     const settings = setupToSettings(s);
-    expect(settings).toMatchObject({ puzzle: 'landing', size: 'XL', darkness: true, symmetry: false, shuffle: false });
+    expect(settings).toMatchObject({ puzzle: 'landing', size: 'XL', darkness: true, symmetry: false, shuffle: true });
     const st = startMatch(settings, 5);
     expect(st.settings.puzzle).toBe('landing');
     expect(st.field.cells.length).toBeGreaterThan(150);
@@ -27,6 +27,8 @@ describe('setup with a scenario', () => {
     s = loadSetup();
     expect(setupPlayers(s)).toEqual(['human', 'master', 'god']);
     expect(setupToSettings(s).unions).toBe(true);
+    // a scenario with seats of its own is never shuffled
+    expect(setupToSettings(s).shuffle).toBe(false);
   });
 
   it('drops unknown scenarios and seat lists that do not fit', () => {

@@ -60,7 +60,7 @@ async function moveIfMine(p: Page): Promise<boolean> {
   });
 }
 
-const HOST_SETUP = { size: 'S', players: ['human', 'online', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false };
+const HOST_SETUP = { size: 'S', players: ['human', 'online', 'dummy'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 };
 
 /** Host opens a room, the guest joins by link, the host starts. Returns the room code. */
 async function openBattle(host: Page, guest: Page, base: string): Promise<string> {
@@ -186,7 +186,7 @@ test('guest who conceded leaves: quick start plays a local game; after a reload 
   await expect.poll(async () => (await board(host))?.out[1], { timeout: 20_000 }).toBe(true);
   // the guest's own quick start is a game against bots (tabs of one browser share the setup)
   await guest.evaluate(() =>
-    localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false })),
+    localStorage.setItem('infweb.setup', JSON.stringify({ size: 'S', players: ['human', 'hunter'], darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, rev: 2 })),
   );
   await toMenu(guest);
   await expect(guest.getByRole('button', { name: /Вернуться в онлайн-битву/ })).toBeVisible();
