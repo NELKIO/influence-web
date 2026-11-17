@@ -22,14 +22,15 @@
  * guest that missed a few gets them re-sent; otherwise it gets a full `bSync`.
  */
 import { isPersonType } from '../core/engine';
-import type { AttackRefusal, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
+import type { AttackRefusal, ConcedeChoice, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
 
 /**
  * 2: the engine gives later seats a first-reinforcement bonus (turn-order compensation); older clients would desync.
  * 3: multipath links (direct + relays together, own reliability layer) and presence (bPresence, WireSeat.hidden).
  * 4: a concession can transfer the seat's cells to a chosen opponent.
+ * 5: GOD takeover and random division of territory.
  */
-export const BATTLE_PROTOCOL_VERSION = 4;
+export const BATTLE_PROTOCOL_VERSION = 5;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =
@@ -38,7 +39,7 @@ export type BattleAction =
   | { t: 'power'; cell: number; amount: number }
   | { t: 'endTurn' }
   /** Transfer to a living seat; omitted in an undirected legacy concession. */
-  | { t: 'concede'; to?: number }
+  | { t: 'concede'; to?: ConcedeChoice }
   /** seat kinds changed (fillWithBots); players are from the host's perspective */
   | { t: 'settings'; players: PlayerType[] }
   /** the host ended the match by other means (e.g. accepted an early-finish offer) */
@@ -59,7 +60,7 @@ export type BattleRequest =
   | { t: 'autoPower' }
   /** from the attack phase this also ends the attack; leftover power is auto-distributed first */
   | { t: 'endTurn' }
-  | { t: 'concede'; to?: number };
+  | { t: 'concede'; to?: ConcedeChoice };
 
 export type RequestRefusal =
   | 'notYourTurn'
@@ -233,6 +234,9 @@ function isState(x: unknown): x is MatchState {
 const isRoster = (x: unknown): x is WireSeat[] =>
   Array.isArray(x) && x.every((s) => isObj(s) && isInt(s.seat) && isStr(s.kind) && typeof s.connected === 'boolean');
 
+const isConcedeChoice = (x: unknown): x is ConcedeChoice | undefined =>
+  x === undefined || x === 'god' || x === 'split' || (isInt(x) && x >= 0 && x < 6);
+
 export function isBattleAction(x: unknown): x is BattleAction {
   if (!isObj(x)) return false;
   switch (x.t) {
@@ -244,7 +248,7 @@ export function isBattleAction(x: unknown): x is BattleAction {
     case 'endTurn':
       return true;
     case 'concede':
-      return x.to === undefined || (isInt(x.to) && x.to >= 0 && x.to < 6);
+      return isConcedeChoice(x.to);
     case 'settings':
       return isPlayers(x.players);
     case 'end':
@@ -266,7 +270,7 @@ export function isBattleRequest(x: unknown): x is BattleRequest {
     case 'endTurn':
       return true;
     case 'concede':
-      return x.to === undefined || (isInt(x.to) && x.to >= 0 && x.to < 6);
+      return isConcedeChoice(x.to);
     default:
       return false;
   }
@@ -355,6 +359,8 @@ export function battleHash(state: MatchState): string {
   mix(state.powerLeft);
   for (const p of state.settings.players) mixStr(isPersonType(p) ? 'P' : p);
   for (const o of state.outAt) mix(o + 1);
+  for (const p of state.godTakeovers ?? []) mix(p + 1);
+  mix(state.settings.spectate ?? 0);
   const e = state.ended;
   mix(e ? 1 : 0);
   if (e) {

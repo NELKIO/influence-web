@@ -95,6 +95,33 @@ async function toMenu(p: Page) {
   await expect(p.getByRole('button', { name: /Быстрый старт/ })).toBeVisible();
 }
 
+test('an online guest can give their seat to a GOD run by the host and keep watching', async ({ context, baseURL }) => {
+  const base = `${baseURL}?transport=bc`;
+  const host = await context.newPage();
+  const guest = await context.newPage();
+  await setup(host, base, HOST_SETUP);
+  await setup(guest, base);
+  await openBattle(host, guest, base);
+  const seat = (await board(guest))!.me;
+  await guest.bringToFront();
+  await guest.getByRole('button', { name: 'Пауза' }).click();
+  const surrender = guest.getByRole('button', { name: 'Сдаться', exact: true });
+  await surrender.click();
+  await guest.getByRole('radio', { name: 'Передать новому БОГУ' }).check();
+  await surrender.click();
+  await expect(guest.getByTestId('watching')).toBeVisible();
+  expect((await board(guest))!.me).toBe(-1);
+  expect((await board(guest))!.out[seat]).toBe(false);
+  await host.bringToFront();
+  await host.evaluate(() => {
+    const ctrl = (window as any).__infweb.ctrl;
+    ctrl.endButton(true);
+    if (ctrl.isLocalTurn) ctrl.endButton(true);
+  });
+  await expect.poll(async () => (await board(guest))!.t, { timeout: 20000 }).toBeGreaterThan(0);
+  expect((await board(guest))!.c).toBe(0);
+});
+
 test('the reported bug: host concedes, goes to the menu, quick start opens a new room (not the old match)', async ({ context, baseURL }) => {
   test.setTimeout(120_000);
   const base = `${baseURL}?transport=bc`;

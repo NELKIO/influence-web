@@ -51,7 +51,7 @@ function makeBinding(session: DuelSession): OnlineBinding {
       session.endTurn();
     },
     concede: (_slot, to) => {
-      session.concede(to === session.remoteSlot);
+      session.concede(to === 'split' || to === session.remoteSlot);
     },
     canAct: () => session.canAct,
   };

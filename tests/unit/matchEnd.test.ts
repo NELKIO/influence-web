@@ -31,6 +31,46 @@ function saturate(s: MatchState, owners: number[], shares: number[]) {
 }
 
 describe('conceding', () => {
+  it('deals shuffled cells almost equally among only live opponents, preserving their power and the battle dice', () => {
+    const s = match(['human', 'human', 'hunter', 'master', 'dummy']);
+    saturate(s, [0, 1, 2, 3], [0.4, 0.2, 0.2, 0.2]);
+    const before = structuredClone(s);
+    const replay = structuredClone(s);
+    expect(concede(s, 0, 'split')).toBe(true);
+    expect(concede(replay, 0, 'split')).toBe(true);
+    expect(s).toEqual(replay);
+    expect(s.rng).toEqual(before.rng);
+    const counts = [0, 0, 0];
+    s.field.cells.forEach((c, i) => {
+      const old = before.field.cells[i];
+      if (old.owner !== 0) expect(c).toEqual(old);
+      else {
+        expect([1, 2, 3]).toContain(c.owner);
+        expect(c.power).toBe(old.power);
+        counts[c.owner - 1]++;
+      }
+    });
+    expect(Math.min(...counts)).toBeGreaterThan(0);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+    expect(s).toMatchObject({ current: 1, viewer: 1, ended: null });
+    expect(s.outAt[0]).toBe(s.turn);
+  });
+
+  it('a new GOD inherits the exact position, turn and unspent power, and the last human becomes a spectator', () => {
+    const s = match(['human', 'hunter']);
+    const before = structuredClone(s.field.cells);
+    s.phase = 'power';
+    s.powerLeft = 5;
+    expect(concede(s, 0, 'god')).toBe(true);
+    expect(s.field.cells).toEqual(before);
+    expect(s.godTakeovers).toEqual([0]);
+    expect(s.settings.players).toEqual(['god', 'hunter']);
+    expect(s.settings.spectate).toBe(80);
+    expect(s).toMatchObject({ current: 0, viewer: -1, phase: 'power', powerLeft: 5, ended: null });
+    expect(s.outAt[0]).toBe(-1);
+    expect(concede(s, 0, 'god')).toBe(false);
+  });
+
   it('hands only the surrendering seat’s cells to the chosen opponent with their strength intact', () => {
     const s = match(['human', 'hunter', 'human', 'master']);
     s.field.cells.find(c => c.owner === -1)!.owner = 0;

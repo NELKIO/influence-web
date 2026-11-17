@@ -34,7 +34,7 @@
 import * as E from '../core/engine';
 import { randomSeed } from '../core/rng';
 import { startMatch } from '../core/scenarios';
-import type { BotType, FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
+import type { BotType, ConcedeChoice, FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
 import { BroadcastBattleGuest, BroadcastBattleHost } from './broadcastBattle';
 import { useBroadcastTransport } from './broadcast';
 import {
@@ -240,6 +240,12 @@ export class BattleHost {
   readonly name: string;
   code: string;
   status: BattleStatus = 'connecting';
+  /** Seats that this device played, including any it handed over to a GOD. */
+  get personSeats(): number[] {
+    const taken = this.state?.godTakeovers ?? [];
+    return this.players.flatMap((p, i) => p === 'human' || (taken.includes(i) && !this.seats[i]?.clientId) ? [i] : []);
+  }
+
   /** the room is registered on the broker (guests can reach it) */
   ready = false;
   /** authoritative state (null until start). The host UI's controller works on this very object. */
@@ -631,6 +637,7 @@ export class BattleHost {
           break;
       }
     }
+    if (req.t === 'concede' && req.to === 'god') this.emitRoster();
     for (const a of done) this.em.emit('applied', a, a.a.t === 'attack' ? fight : null);
     if (done.length) this.em.emit('state', st);
     this.checkpoint();
@@ -1103,7 +1110,7 @@ interface SavedGuest {
   settings: MatchSettings | null;
   /** a concede asked for while offline, still to be delivered */
   concede?: boolean;
-  concedeTo?: number;
+  concedeTo?: ConcedeChoice;
   savedAt: number;
 }
 
@@ -1253,7 +1260,7 @@ export class BattleGuest {
   get roster(): RosterEntry[] {
     return this.wire.map((w) => ({
       seat: w.seat,
-      kind: w.seat === this.seat ? 'human' : E.isPersonType(w.kind) ? 'remote' : w.kind,
+      kind: E.isPersonType(w.kind) ? (w.seat === this.seat ? 'human' : 'remote') : w.kind,
       name: w.name,
       connected: w.connected,
       taken: w.taken,
@@ -1288,7 +1295,7 @@ export class BattleGuest {
   }
 
   get isMyTurn(): boolean {
-    return !!this.state && !this.state.ended && this.seat >= 0 && this.state.current === this.seat;
+    return !!this.state && !this.state.ended && this.state.current === this.seat && E.isHuman(this.state, this.seat);
   }
 
   /** requests for the own seat can be sent right now */
@@ -1343,6 +1350,7 @@ export class BattleGuest {
     const no = (reason: RequestRefusal | string) => Promise.resolve<RequestResult>({ ok: false, reason });
     if (this.closed) return no('closed');
     if (!st || this.status !== 'playing' || st.ended) return no('notPlaying');
+    if (!E.isHuman(st, this.seat)) return no('notYourSeat');
     if (req.t === 'concede') {
       // a concede is never lost: offline it waits for the link (and survives a reload), and it does
       // not time out — the host answers it when it gets it

@@ -5,6 +5,7 @@ import {
   NEUTRAL,
   SIZES,
   type AttackRefusal,
+  type ConcedeChoice,
   type Field,
   type FightEvent,
   type MatchEnd,
@@ -646,23 +647,39 @@ export function finishEarly(state: MatchState, offer: StuckOffer): void {
 }
 
 /**
- * Surrender to a live opponent, preserving each cell's strength. A plain concession without a
- * recipient keeps the old rules (also used by existing saves). Invalid requests leave the board alone.
+ * Leave the match: give away cells at full strength, hand the seat to a GOD, or concede as before.
+ * The split is a shuffled deal like crowded starts; peers replay it without using their battle dice.
  */
-export function concede(state: MatchState, loser: number, recipient?: number): boolean {
+export function concede(state: MatchState, loser: number, recipient?: ConcedeChoice): boolean {
   const alive = alivePlayers(state);
   if (state.ended || !alive.includes(loser)) return false;
-  if (recipient !== undefined && (recipient === loser || !alive.includes(recipient))) return false;
   const others = alive.filter((p) => p !== loser);
+  if (recipient === 'god') {
+    const { settings } = state;
+    if (settings.kind === 'duelOnline' || !isPersonType(settings.players[loser]) || !others.length) return false;
+    state.settings = { ...settings, players: settings.players.map((p, i) => i === loser ? 'god' : p) };
+    state.godTakeovers = [...(state.godTakeovers ?? []), loser];
+    if (canSpectate(state)) state.settings.spectate = state.turn + 80;
+    if (state.viewer === loser) state.viewer = nextHumanAfter(state, loser);
+    if (state.current === loser) state.selected = -1;
+    return true;
+  }
+  if (recipient === 'split' ? !others.length : recipient !== undefined && !others.includes(recipient)) return false;
   if (recipient === undefined && others.length <= 1) {
     const winner = others[0] ?? -1;
     state.ended = { winner, humanWon: winner >= 0 && isHuman(state, winner), reason: 'concede', turn: state.turn };
     return true;
   }
-  for (const c of state.field.cells) {
-    if (c.owner !== loser) continue;
-    c.owner = recipient ?? NEUTRAL;
-    if (recipient === undefined) c.power = 0;
+  if (recipient === 'split') {
+    const rng = new Rng((state.seed ^ Math.imul(state.turn + 1, 0x9e3779b9) ^ Math.imul(loser + 1, 0x85ebca6b)) >>> 0);
+    const seats = rng.shuffle(others);
+    rng.shuffle(cellsOf(state, loser)).forEach((cell, i) => { state.field.cells[cell].owner = seats[i % seats.length]; });
+  } else {
+    for (const c of state.field.cells) {
+      if (c.owner !== loser) continue;
+      c.owner = recipient ?? NEUTRAL;
+      if (recipient === undefined) c.power = 0;
+    }
   }
   state.outAt[loser] = state.turn;
   if (recipient !== undefined) {

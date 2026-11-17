@@ -210,6 +210,37 @@ describe('a concede while offline', () => {
     expectAllSame(r);
   });
 
+  it.each(['god', 'split'] as const)('replays a %s concession across reconnect and reload', async (to) => {
+    const r = await room({ players: ['human', 'online', 'online', 'dummy'], seed: 32 });
+    r.host.start();
+    await r.hub.flush();
+    const guest = r.guests[0];
+    const seat = guest.g.seat;
+    const board = structuredClone(r.host.state!.field.cells);
+    r.hub.disconnect(guest.cid);
+    await r.hub.flush();
+    void guest.g.request({ t: 'concede', to });
+    guest.g.dispose();
+    guest.g = BattleGuest.resume(guest.storage, { transport: r.hub.guest(guest.cid), helloRetryMs: 0 })!;
+    await r.hub.flush();
+    expect(guest.g.concedePending).toBe(false);
+    expect(guest.g.state!.ended).toBeNull();
+    expectAllSame(r);
+    if (to === 'god') {
+      expect(r.host.state!.field.cells).toEqual(board);
+      expect(r.host.personSeats).toEqual([0]);
+      expect(guest.g.state!.settings.players[seat]).toBe('god');
+      expect(guest.g.state!.godTakeovers).toEqual([seat]);
+      expect(await guest.g.request({ t: 'endTurn' })).toMatchObject({ ok: false, reason: 'notYourSeat' });
+      expect(r.host.act(0, { t: 'concede', to: 'god' }).ok).toBe(true);
+      await r.hub.flush();
+      expect(r.host.personSeats).toEqual([0]);
+      expectAllSame(r);
+    } else {
+      expect(E.isAlive(r.host.state!, seat)).toBe(false);
+    }
+  });
+
   it('a concede sent online does not time out silently', async () => {
     fakeTimers();
     const r = await room({ players: ['human', 'online', 'dummy'], seed: 23 });

@@ -29,6 +29,8 @@ export type BotType = 'freak' | 'dummy' | 'hunter' | 'master' | 'god' | 'duelHun
  * 'online' = a seat taken by a guest in a battle room (as seen by the host).
  */
 export type PlayerType = 'human' | 'remote' | 'online' | BotType;
+/** Recipient seat or a special way to leave the match; undefined means no transfer. */
+export type ConcedeChoice = number | 'god' | 'split';
 
 /** Used for unions ordering (lower tries first). */
 export const DIFFICULTY: Record<PlayerType, number> = {
@@ -167,6 +169,8 @@ export interface MatchState {
   chronicle: Chronicle;
   /** per slot: eliminated at round (or -1) */
   outAt: number[];
+  /** Human seats handed to a GOD; the seats themselves are still in play. */
+  godTakeovers?: number[];
   /** order of elimination, for placing */
   ended: null | MatchEnd;
   startedAt: number;

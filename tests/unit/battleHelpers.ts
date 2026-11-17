@@ -244,8 +244,7 @@ export function expectAllSame(room: Room, label = ''): void {
     // localisation: own seat human, other persons remote, bots unchanged
     gs.settings.players.forEach((p, i) => {
       const hp = hs.settings.players[i];
-      if (i === g.seat) expect(p).toBe('human');
-      else if (E.isPersonType(hp)) expect(p).toBe('remote');
+      if (E.isPersonType(hp)) expect(p).toBe(i === g.seat ? 'human' : 'remote');
       else expect(p).toBe(hp);
     });
   }

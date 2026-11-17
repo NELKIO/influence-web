@@ -7,7 +7,7 @@ import { getSettings, navigate, updateSettings, useSettings, type Launch, type R
 import { playerName } from '../names';
 import { playerColor } from '../theme';
 import { alivePlayers, anyAttackLeft, canSpectate, cellCount, isPersonType, scoreOf, spectateCopy } from '../../core/engine';
-import type { MatchState } from '../../core/types';
+import type { ConcedeChoice, MatchState } from '../../core/types';
 import { countGame } from '../../sitestats';
 import { addRecord, awardMedal, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
 import { matchMedal, type MedalTier } from '../../medals';
@@ -19,6 +19,8 @@ import { Modal } from '../components/controls';
 import {
   IconSkip,
   IconFlag,
+  IconBot,
+  IconShare,
   IconHome,
   IconPause,
   IconPlay,
@@ -72,7 +74,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const [hudTop, setHudTop] = useState(90);
   const [dontAsk, setDontAsk] = useState(false);
   const [concedingSeat, setConcedingSeat] = useState<number | null>(null);
-  const [recipient, setRecipient] = useState(-1);
+  const [recipient, setRecipient] = useState<ConcedeChoice>(-1);
   /** the result window is put aside to look at the final board (the fog has lifted by then) */
   const [viewingBoard, setViewingBoard] = useState(false);
   /** a scenario medal this match has just earned (or turned to gold) */
@@ -96,7 +98,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
       onEnd: (s) => {
         if (isSaveable(s)) saveGame(null);
         // watching the bots fight on changes nothing: the real result was recorded when the people lost
-        if (!s.settings.spectate && !online?.ownsResult?.(s)) setNewMedal(recordResult(s));
+        if (!s.settings.spectate && !online?.ownsResult?.(s)) setNewMedal(recordResult(s, s.godTakeovers ? launch.initial.settings.players : s.settings.players));
       },
     });
   }, [launch]);
@@ -226,8 +228,11 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const mySeat = ctrl.localHumanSlot();
   const enemies = alive.filter(p => p !== mySeat);
   const askConcede = concedingSeat !== null && mySeat === concedingSeat;
-  const targetGone = recipient >= 0 && !enemies.includes(recipient);
-  const canConcede = !s.ended && askConcede && !targetGone;
+  const canUseGod = s.settings.kind !== 'duelOnline';
+  const targetGone = typeof recipient === 'number' && recipient >= 0 && !enemies.includes(recipient);
+  const canConcede = !s.ended && askConcede && !targetGone && (recipient !== 'god' || canUseGod);
+  const choices: ConcedeChoice[] = [-1, ...(canUseGod ? ['god' as const] : []), 'split', ...enemies];
+  const choiceDesc = targetGone ? 'concedeTargetGone' : recipient === -1 ? 'concedeWithoutTransfer' : recipient === 'god' ? 'concedeGodDesc' : recipient === 'split' ? 'concedeSplitDesc' : 'concedeText';
   // giving up alone against two or more bots: the map opens and the bots can be watched afterwards
   const concedeLeavesBots =
     !online &&
@@ -476,17 +481,18 @@ export function GameScreen({ launch }: { launch: Launch }) {
           <h2>{t('concedeConfirm')}</h2>
           <fieldset class="concede-choices">
             <legend>{t('concedeTo')}</legend>
-            {[-1, ...enemies].map((i) => (
+            {choices.map((i) => (
               <label class="concede-choice" key={i}>
                 <input type="radio" name="concede-to" value={i} checked={recipient === i} onChange={() => setRecipient(i)} />
-                {i < 0 ? <IconFlag width={20} height={20} class="muted" /> : <PlayerToken slot={i} size={20} shape={settings.colorblind} />}
-                <span class="concede-choice-name">{i < 0 ? t('concedeToNobody') : playerName(s.settings, i)}</span>
-                {i >= 0 && <span class="muted">№{i + 1}</span>}
+                {i === 'god' ? <IconBot width={20} height={20} class="muted" /> : i === 'split' ? <IconShare width={20} height={20} class="muted" /> :
+                  i < 0 ? <IconFlag width={20} height={20} class="muted" /> : <PlayerToken slot={i} size={20} shape={settings.colorblind} />}
+                <span class="concede-choice-name">{i === 'god' ? t('concedeGod') : i === 'split' ? t('concedeSplit') : i < 0 ? t('concedeToNobody') : playerName(s.settings, i)}</span>
+                {typeof i === 'number' && i >= 0 && <span class="muted">№{i + 1}</span>}
               </label>
             ))}
           </fieldset>
-          <p>{t(targetGone ? 'concedeTargetGone' : recipient < 0 ? 'concedeWithoutTransfer' : 'concedeText')}</p>
-          {concedeLeavesBots && <p class="muted" style={{ marginTop: -6 }}>{t('concedeWatchNote')}</p>}
+          <p>{t(choiceDesc)}</p>
+          {recipient !== 'god' && concedeLeavesBots && <p class="muted" style={{ marginTop: -6 }}>{t('concedeWatchNote')}</p>}
           <div class="row">
             <button class="btn ghost" onClick={() => setConcedingSeat(null)}>
               {t('cancel')}
@@ -497,8 +503,17 @@ export function GameScreen({ launch }: { launch: Launch }) {
               onClick={() => {
                 if (!canConcede) return;
                 setConcedingSeat(null);
-                ctrl.concedeMatch(recipient >= 0 ? recipient : undefined);
-                if (recipient >= 0 && concedeLeavesBots && ctrl.state.ended) watchBots();
+                const choice = recipient === -1 ? undefined : recipient;
+                const before = ctrl.state.settings;
+                ctrl.concedeMatch(choice);
+                const after = ctrl.state;
+                if (!online && choice === 'god' && !before.spectate && after.settings.spectate) {
+                  // The person lost now, not when the bots finish their continuation.
+                  saveGame(null);
+                  recordResult({ ...after, settings: before, ended: { winner: -1, humanWon: false, reason: 'concede', turn: after.turn } }, launch.initial.settings.players);
+                } else if (choice !== undefined && concedeLeavesBots && after.ended) {
+                  watchBots();
+                }
               }}
             >
               {t('concede')}
@@ -788,16 +803,16 @@ function ResultEmblem({ color, win, plain }: { color: string; win: boolean; plai
 }
 
 /** Stats, the map of the day and scenario medals; returns a medal earned just now. */
-function recordResult(s: MatchState): MedalTier | null {
+function recordResult(s: MatchState, players = s.settings.players): MedalTier | null {
   if (isSaveable(s)) countGame(); // online games are counted by the host, not once per player
-  const humans = s.settings.players.filter((p) => p === 'human').length;
-  const me = s.settings.players.findIndex((p) => p === 'human');
+  const humans = players.filter((p) => p === 'human').length;
+  const me = players.findIndex((p) => p === 'human');
   const win = humans > 1 ? false : !!s.ended?.humanWon;
   addRecord({
     at: Date.now(),
     kind: s.settings.kind,
     size: s.settings.size,
-    opponents: s.settings.players.filter((_, i) => i !== me),
+    opponents: players.filter((_, i) => i !== me),
     humans,
     // a draw (people level at an early finish) is not a win; with several people the streak is not touched
     win,

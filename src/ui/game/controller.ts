@@ -22,7 +22,7 @@ import {
   winChance,
   type StuckOffer,
 } from '../../core/engine';
-import type { FightEvent, MatchState, UnionEvent } from '../../core/types';
+import type { ConcedeChoice, FightEvent, MatchState, UnionEvent } from '../../core/types';
 import type { Bot } from '../../ai/types';
 import { createBot } from '../../ai';
 import { sfx, buzz } from '../../audio/sfx';
@@ -62,7 +62,7 @@ export interface MatchDriver {
   addPower(cell: number, amount: number): number;
   autoPower(): Map<number, number>;
   finishTurn(): void;
-  concede(slot: number, to?: number): void;
+  concede(slot: number, to?: ConcedeChoice): void;
   /** true when the local device may act for state.current */
   canAct(): boolean;
 }
@@ -144,12 +144,7 @@ export class GameController {
     this.driver = { ...this.localDriver(), ...(opts.driver ?? {}) };
     this.fx = opts.background ? SILENT_SFX : sfx;
     this.vibrate = opts.background ? () => {} : buzz;
-    // a guest of an online battle only replays what the host sends: no bots run here
-    if (!opts.remoteDriven) {
-      opts.state.settings.players.forEach((p, slot) => {
-        if (p !== 'human' && p !== 'remote' && p !== 'online') this.bots.set(slot, createBot(p));
-      });
-    }
+    this.ensureBots();
   }
 
   private localDriver(): MatchDriver {
@@ -192,11 +187,15 @@ export class GameController {
 
   /** Create bots for seats that became bots (e.g. an online seat handed over to a bot). */
   refreshBots() {
+    this.ensureBots();
+    this.afterChange();
+  }
+
+  private ensureBots() {
     if (this.opts.remoteDriven) return;
     this.state.settings.players.forEach((p, slot) => {
       if (p !== 'human' && p !== 'remote' && p !== 'online' && !this.bots.has(slot)) this.bots.set(slot, createBot(p));
     });
-    this.afterChange();
   }
 
   // ------------------------------------------------------------ wiring
@@ -220,6 +219,7 @@ export class GameController {
   replaceState(state: MatchState) {
     this.state = state;
     this.epoch++;
+    this.ensureBots();
     // a match that is still on (or a new one) ends under our eyes: its end is reported
     if (!state.ended) this.overAtLaunch = false;
     this.emit();
@@ -510,9 +510,9 @@ export class GameController {
    * The local person gives up. With other seats still in play the match goes on without them (the
    * driver decides: engine rules locally, the host in an online battle); it ends only by the usual rules.
    */
-  concedeMatch(to?: number) {
+  concedeMatch(to?: ConcedeChoice) {
     const slot = this.localHumanSlot();
-    if (slot < 0 || (to !== undefined && (to < 0 || to === slot || !isAlive(this.state, to)))) return;
+    if (slot < 0 || (typeof to === 'number' && (to < 0 || to === slot || !isAlive(this.state, to)))) return;
     const viewer = this.state.viewer;
     this.driver.concede(slot, to);
     // whatever a bot was about to do was planned on the board before the seat left
@@ -522,6 +522,7 @@ export class GameController {
     this.overlay = { kind: 'none' };
     // the person who gave up was looking at the board: the next one gets the device first
     this.fixViewer(viewer);
+    this.ensureBots();
     this.saveAndEmit();
     this.afterChange();
   }

@@ -10,11 +10,11 @@
 import * as E from '../core/engine';
 import { Rng } from '../core/rng';
 import { isScenarioId, SCENARIO_META } from '../core/scenarios';
-import type { FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType, UnionEvent } from '../core/types';
+import type { ConcedeChoice, FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType, UnionEvent } from '../core/types';
 import type { BattleAction } from './battleProtocol';
 
 /** Remove `seat` from the match (see the module doc). Returns false if nothing changed. */
-export function concedeSeat(state: MatchState, seat: number, recipient?: number): boolean {
+export function concedeSeat(state: MatchState, seat: number, recipient?: ConcedeChoice): boolean {
   if (recipient !== undefined) return E.concede(state, seat, recipient);
   if (state.ended || seat < 0 || seat >= state.settings.players.length || !E.isAlive(state, seat)) return false;
   for (const c of state.field.cells) {
@@ -38,7 +38,7 @@ export function concedeSeat(state: MatchState, seat: number, recipient?: number)
 
 /** Player kinds as seen by the guest in `seat`: own seat 'human', other persons 'remote', bots unchanged. */
 export function localizePlayers(players: PlayerType[], seat: number): PlayerType[] {
-  return players.map((p, i) => (i === seat ? 'human' : E.isPersonType(p) ? 'remote' : p));
+  return players.map((p, i) => E.isPersonType(p) ? (i === seat ? 'human' : 'remote') : p);
 }
 
 function localEnd(end: MatchEnd, players: PlayerType[]): MatchEnd {

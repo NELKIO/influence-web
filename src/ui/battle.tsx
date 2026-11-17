@@ -105,12 +105,11 @@ function setActive(a: { host?: BattleHost; guest?: BattleGuest }) {
 }
 
 /** the seats this device's person plays in `st` (host: its 'human' seats; guest: its own seat) */
-function mySeats(room: BattleHost | BattleGuest, st: MatchState): number[] {
-  if (room instanceof BattleGuest) return room.seat >= 0 ? [room.seat] : [];
-  const seats: number[] = [];
-  st.settings.players.forEach((p, i) => p === 'human' && seats.push(i));
-  return seats;
+function mySeats(room: BattleHost | BattleGuest): number[] {
+  return room instanceof BattleGuest ? (room.seat >= 0 ? [room.seat] : []) : room.personSeats;
 }
+
+const personStillIn = (st: MatchState, seat: number) => isAlive(st, seat) && !st.godTakeovers?.includes(seat);
 
 /**
  * Every seat of this device's person is out of the match: record their loss (with the place they went
@@ -118,15 +117,15 @@ function mySeats(room: BattleHost | BattleGuest, st: MatchState): number[] {
  */
 function seatOut(room: BattleHost | BattleGuest, st: MatchState | null = room.state): boolean {
   if (!st || !room.matchId) return false;
-  const seats = mySeats(room, st);
-  if (!seats.length || seats.some((s) => isAlive(st, s))) return false;
+  const seats = mySeats(room);
+  if (!seats.length || seats.some((s) => personStillIn(st, s))) return false;
   recordOnlineLoss(`battle:${room.matchId}:${seats.join(',')}`, st, seats);
   return true;
 }
 
 /** the person still has a seat in the match (not conceded, not knocked out) */
 function stillIn(room: BattleHost | BattleGuest, st: MatchState): boolean {
-  return mySeats(room, st).some((s) => isAlive(st, s));
+  return mySeats(room).some((s) => personStillIn(st, s));
 }
 
 /**
@@ -292,7 +291,7 @@ function guestBinding(guest: BattleGuest): OnlineBinding {
   let endSentFor = '';
   const maybeEndTurn = (st: MatchState) => {
     const key = `${st.turn}:${st.current}`;
-    if (st.ended || st.current !== guest.seat || st.phase !== 'power' || st.powerLeft > 0 || endSentFor === key) return;
+    if (!guest.isMyTurn || st.phase !== 'power' || st.powerLeft > 0 || endSentFor === key) return;
     endSentFor = key;
     void guest.request({ t: 'endTurn' });
   };
@@ -526,7 +525,7 @@ function GuestHud({ guest, ctrl }: { guest: BattleGuest; ctrl: GameController })
         </div>
       )}
       <TurnHidden roster={roster} st={st} />
-      {guest.seat >= 0 && !isAlive(st, guest.seat) && <Watching />}
+      {guest.seat >= 0 && !stillIn(guest, st) && <Watching />}
       <LinkLine roster={roster} />
     </>
   );
