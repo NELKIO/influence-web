@@ -12,7 +12,7 @@ import { createLoopbackHub } from '../../src/net/hub';
 import { MultiPathGuest, MultiPathHost } from '../../src/net/multipath';
 import { createNostrGuest, NOSTR_KIND, type NostrOptions } from '../../src/net/nostrRelay';
 import { createPeerRelayGuest, createPeerRelayHost, PEER_RELAY_MARK, type PeerRelayOptions } from '../../src/net/peerSignalRelay';
-import { stateHash } from '../../src/net/protocol';
+import { PROTOCOL_VERSION, stateHash } from '../../src/net/protocol';
 import { FakeNostrNet, FakePeerBroker } from './fakeRelays';
 import { nextScriptedAttack, playScriptedTurn } from './netHelpers';
 
@@ -342,7 +342,7 @@ describe('multipath', () => {
     // the probe hello an old page would see is a valid v1-shaped hello carrying the new version
     const probe = got.find((m) => (m as { _mp?: string })._mp === 'h') as { t: string; v: number };
     expect(probe.t).toBe('hello');
-    expect(probe.v).toBe(2);
+    expect(probe.v).toBe(PROTOCOL_VERSION);
     old.close();
     host.leave();
   });

@@ -27,8 +27,9 @@ import type { AttackRefusal, MatchEnd, MatchSettings, MatchState, PlayerType } f
 /**
  * 2: the engine gives later seats a first-reinforcement bonus (turn-order compensation); older clients would desync.
  * 3: multipath links (direct + relays together, own reliability layer) and presence (bPresence, WireSeat.hidden).
+ * 4: a concession can transfer the seat's cells to a chosen opponent.
  */
-export const BATTLE_PROTOCOL_VERSION = 3;
+export const BATTLE_PROTOCOL_VERSION = 4;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =
@@ -36,8 +37,8 @@ export type BattleAction =
   | { t: 'endAttack' }
   | { t: 'power'; cell: number; amount: number }
   | { t: 'endTurn' }
-  /** the seat gives up: its cells turn neutral (see battleRules.concedeSeat) */
-  | { t: 'concede' }
+  /** Transfer to a living seat; omitted in an undirected legacy concession. */
+  | { t: 'concede'; to?: number }
   /** seat kinds changed (fillWithBots); players are from the host's perspective */
   | { t: 'settings'; players: PlayerType[] }
   /** the host ended the match by other means (e.g. accepted an early-finish offer) */
@@ -58,7 +59,7 @@ export type BattleRequest =
   | { t: 'autoPower' }
   /** from the attack phase this also ends the attack; leftover power is auto-distributed first */
   | { t: 'endTurn' }
-  | { t: 'concede' };
+  | { t: 'concede'; to?: number };
 
 export type RequestRefusal =
   | 'notYourTurn'
@@ -241,8 +242,9 @@ export function isBattleAction(x: unknown): x is BattleAction {
       return isInt(x.cell) && isInt(x.amount) && x.amount > 0;
     case 'endAttack':
     case 'endTurn':
-    case 'concede':
       return true;
+    case 'concede':
+      return x.to === undefined || (isInt(x.to) && x.to >= 0 && x.to < 6);
     case 'settings':
       return isPlayers(x.players);
     case 'end':
@@ -262,8 +264,9 @@ export function isBattleRequest(x: unknown): x is BattleRequest {
     case 'endAttack':
     case 'autoPower':
     case 'endTurn':
-    case 'concede':
       return true;
+    case 'concede':
+      return x.to === undefined || (isInt(x.to) && x.to >= 0 && x.to < 6);
     default:
       return false;
   }

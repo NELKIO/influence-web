@@ -28,7 +28,7 @@
  * ('replaced') when it comes back. `awaySince(seat)` tells how long a guest has been offline; an away
  * guest's turn is skipped automatically once it has been offline for `awaySkipMs` (default 90 s), so a
  * match never hangs on a guest who vanished on its turn (a skip, not a bot: the guest may come back).
- * Concede: see battleRules.concedeSeat (the seat's cells turn neutral; the match goes on). A guest's
+ * Concede: see battleRules.concedeSeat (the chosen opponent inherits the territory). A guest's
  * concede is never dropped: offline it waits for the link (and survives a reload) and it never times out.
  */
 import * as E from '../core/engine';
@@ -591,8 +591,8 @@ export class BattleHost {
       if (x) done.push(x);
     };
     if (req.t === 'concede') {
-      if (!concedeSeat(st, seat)) return { ok: false, reason: 'notAlive' };
-      push({ t: 'concede' });
+      if (!concedeSeat(st, seat, req.to)) return { ok: false, reason: 'notAlive' };
+      push(req);
     } else {
       if (st.current !== seat) return { ok: false, reason: 'notYourTurn' };
       switch (req.t) {
@@ -1103,6 +1103,7 @@ interface SavedGuest {
   settings: MatchSettings | null;
   /** a concede asked for while offline, still to be delivered */
   concede?: boolean;
+  concedeTo?: number;
   savedAt: number;
 }
 
@@ -1228,7 +1229,7 @@ export class BattleGuest {
       if (this.state) {
         this.status = this.state.ended ? 'ended' : 'playing';
         if (this.state.ended) this.endNotified = this.endKey();
-        else if (saved.concede) this.queue({ t: 'concede' }, () => {});
+        else if (saved.concede) this.queue({ t: 'concede', to: saved.concedeTo }, () => {});
       }
     }
     this.unsubs.push(
@@ -1655,6 +1656,7 @@ export class BattleGuest {
 
   private persist() {
     if (this.closed || !this.storage) return;
+    const pending = Array.from(this.pending.values(), p => p.req).find(r => r.t === 'concede');
     const saved: SavedGuest = {
       v: 1,
       code: this.code,
@@ -1666,7 +1668,8 @@ export class BattleGuest {
       seq: this.seq,
       roster: this.wire,
       settings: this.settings,
-      concede: this.concedePending || undefined,
+      concede: pending ? true : undefined,
+      concedeTo: pending?.to,
       savedAt: Date.now(),
     };
     writeJson(this.storage, BATTLE_GUEST_KEY, saved);

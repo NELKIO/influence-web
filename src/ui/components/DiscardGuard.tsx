@@ -1,3 +1,4 @@
+import { createPortal } from 'preact/compat';
 import { useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { loadSavedGame } from '../../storage';
@@ -15,7 +16,8 @@ export function useDiscardGuard() {
     if (!saved || keep?.(saved)) fn();
     else setPending(() => fn);
   };
-  const modal = pending ? (
+  // The setup screen can be scrolled to its footer; anchor the backdrop to the viewport instead.
+  const modal = pending ? createPortal(
     <Modal onBackdrop={() => setPending(null)}>
       <h2>{t('unfinishedGame')}</h2>
       <p>{t('unfinishedLost')}</p>
@@ -34,7 +36,7 @@ export function useDiscardGuard() {
           {t('startNew')}
         </button>
       </div>
-    </Modal>
+    </Modal>, document.body,
   ) : null;
   return { guard, modal };
 }

@@ -17,8 +17,8 @@
  */
 import type { MatchEnd, MatchState } from '../core/types';
 
-/** 2: multipath links (direct + relays together, own reliability layer) and presence messages */
-export const PROTOCOL_VERSION = 2;
+/** 3: surrender transfers all remaining territory to the opponent on both devices. */
+export const PROTOCOL_VERSION = 3;
 
 export type DuelAction =
   | { t: 'attack'; from: number; to: number; win: boolean }

@@ -147,6 +147,21 @@ test.describe('the saved match is not lost silently', () => {
   }
   const savedSeed = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('infweb.game') || 'null')?.state.seed);
 
+  test('discard confirmation covers the bottom of a scrolled setup screen', async ({ page }) => {
+    await fresh(page);
+    const seed = await withSavedMatch(page);
+    await page.setViewportSize({ width: 380, height: 480 });
+    await page.locator('.play-btn', { hasText: 'Новая битва' }).click();
+    const start = page.getByRole('button', { name: 'В бой', exact: true });
+    await start.scrollIntoViewIfNeeded();
+    expect(await page.locator('.screen').evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+    await start.click();
+    await expect(page.locator('.modal')).toBeVisible();
+    expect(await page.evaluate(() => [1, innerHeight - 2].every(y => document.elementFromPoint(2, y)?.classList.contains('overlay')))).toBe(true);
+    await page.getByRole('button', { name: 'Отмена' }).click();
+    expect(await savedSeed(page)).toBe(seed);
+  });
+
   test('statistics → scenarios → start asks first; opening the setup does not', async ({ page }) => {
     const errors = await fresh(page);
     const seed = await withSavedMatch(page);

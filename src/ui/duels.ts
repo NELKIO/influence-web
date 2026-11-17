@@ -13,6 +13,7 @@ import { DuelSession, getClientId, type KVStorage } from '../net';
 import { BroadcastTransport, useBroadcastTransport } from '../net/broadcast';
 import { randomId } from '../net/room';
 import { cleanPlayerName, loadSettings } from '../storage';
+import { countGame } from '../sitestats';
 import { recordOnlineLoss, recordOnlineResult, wasRecorded } from './onlineRecord';
 
 export const MAX_DUELS = 5;
@@ -135,6 +136,7 @@ function watch(id: string, s: DuelSession) {
       if (info.mine && viewing !== id) notify?.('turn', id);
     }),
     s.onEnd((ev) => {
+      if (s.role === 'host') countGame();
       changed();
       if (viewing === id) return; // the game screen records it
       // ended while elsewhere (e.g. the opponent's concede arrived): the result counts all the same

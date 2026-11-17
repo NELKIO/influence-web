@@ -539,7 +539,7 @@ export class DuelSession {
   concede(): boolean {
     const st = this.state;
     if (!st || st.ended || !this.matchId) return false;
-    E.concede(st, this.localSlot);
+    E.concede(st, this.localSlot, this.remoteSlot);
     this.sendGame({ t: 'concede', matchId: this.matchId });
     this.afterChange();
     return true;
@@ -1032,6 +1032,9 @@ export class DuelSession {
       // already over: keep ours, unless we are the guest and the host's verdict differs
       const same = st.ended.winner === end.winner && st.ended.reason === end.reason;
       if (same || this.role === 'host') return;
+    }
+    if (!st.ended && end.reason === 'concede' && (end.winner === 0 || end.winner === 1)) {
+      E.concede(st, 1 - end.winner, end.winner);
     }
     st.ended = { ...end, humanWon: end.winner === this.localSlot };
     this.afterChange();

@@ -14,7 +14,8 @@ import type { FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType, Union
 import type { BattleAction } from './battleProtocol';
 
 /** Remove `seat` from the match (see the module doc). Returns false if nothing changed. */
-export function concedeSeat(state: MatchState, seat: number): boolean {
+export function concedeSeat(state: MatchState, seat: number, recipient?: number): boolean {
+  if (recipient !== undefined) return E.concede(state, seat, recipient);
   if (state.ended || seat < 0 || seat >= state.settings.players.length || !E.isAlive(state, seat)) return false;
   for (const c of state.field.cells) {
     if (c.owner === seat) {
@@ -90,7 +91,7 @@ export function applyBattleAction(state: MatchState, seat: number, a: BattleActi
     return { ok: true };
   }
   if (state.ended) return bad('match ended');
-  if (a.t === 'concede') return concedeSeat(state, seat) ? { ok: true } : bad('concede: seat not alive');
+  if (a.t === 'concede') return concedeSeat(state, seat, a.to) ? { ok: true } : bad('concede: seat not alive');
   if (seat !== state.current) return bad(`${a.t} by seat ${seat}, current is ${state.current}`);
   switch (a.t) {
     case 'attack': {

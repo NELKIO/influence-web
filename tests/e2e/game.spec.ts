@@ -282,6 +282,25 @@ test('camera stays put while selecting cells, hovering and confirming', async ({
   await expectNoErrors(errors);
 });
 
+test('counter outage keeps only previously observed values; retries just the missing counter', async ({ page }) => {
+  await fresh(page);
+  await page.evaluate(() => localStorage.setItem('infweb.siteCounter.games', JSON.stringify({ value: 94, at: Date.now() - 10000 })));
+  const reads = { opens: 0, visitors: 0, games: 0 };
+  await page.route('**/abacus.jasoncameron.dev/get/**', async route => {
+    const key = route.request().url().split('/').pop() as keyof typeof reads;
+    reads[key]++;
+    if (key === 'games' && reads.games === 1) return route.abort();
+    return route.fulfill({ json: { value: { games: 96, opens: 315, visitors: 42 }[key] } });
+  });
+  await page.locator('.menu-links button', { hasText: 'Настройки' }).click();
+  const counts = page.getByTestId('site-stats').locator('b');
+  await expect(counts).toHaveText(['315', '42', '94']);
+  await expect(page.getByTestId('site-stats-down')).toBeVisible();
+  await expect(counts).toHaveText(['315', '42', '96'], { timeout: 12000 });
+  await expect(page.getByTestId('site-stats-down')).toHaveCount(0);
+  expect(reads).toEqual({ opens: 1, visitors: 1, games: 2 });
+});
+
 test('settings show anonymous site counters; nothing is counted outside the real site', async ({ page }) => {
   const hits: string[] = [];
   const errors = await fresh(page);

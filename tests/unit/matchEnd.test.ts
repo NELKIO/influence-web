@@ -31,6 +31,33 @@ function saturate(s: MatchState, owners: number[], shares: number[]) {
 }
 
 describe('conceding', () => {
+  it('hands only the surrendering seat’s cells to the chosen opponent with their strength intact', () => {
+    const s = match(['human', 'hunter', 'human', 'master']);
+    s.field.cells.find(c => c.owner === -1)!.owner = 0;
+    const before = structuredClone(s.field.cells);
+    s.phase = 'power';
+    s.powerLeft = 6;
+    expect(concede(s, 0, 2)).toBe(true);
+    expect(s.field.cells).toEqual(before.map(c => c.owner === 0 ? { ...c, owner: 2 } : c));
+    expect(s).toMatchObject({ current: 1, viewer: 2, phase: 'attack', powerLeft: 0, ended: null });
+    expect(s.outAt[0]).toBe(s.turn);
+    for (const [from, to] of [[0, 2], [2, 0], [2, 2], [2, -1], [2, 6]]) {
+      const snapshot = structuredClone(s);
+      expect(concede(s, from, to)).toBe(false);
+      expect(s).toEqual(snapshot);
+    }
+  });
+
+  it('can surrender off-turn to a bot; in a duel the sole recipient wins immediately', () => {
+    const s = match(['human', 'hunter', 'human']);
+    expect(concede(s, 2, 1)).toBe(true);
+    expect(s.current).toBe(0);
+    const n = cellCount(s, 1) + cellCount(s, 0);
+    expect(concede(s, 0, 1)).toBe(true);
+    expect(cellCount(s, 1)).toBe(n);
+    expect(s.ended).toMatchObject({ reason: 'concede', winner: 1 });
+  });
+
   it('one of two people on a device gives up while bots are alive: the match goes on for the other person', () => {
     const s = match(['human', 'hunter', 'human', 'master']);
     concede(s, 0);

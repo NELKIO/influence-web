@@ -27,6 +27,7 @@ import { t } from '../i18n';
 import { buzz, sfx } from '../audio/sfx';
 import { playerColor } from './theme';
 import { cleanPlayerName } from '../storage';
+import { countGame } from '../sitestats';
 import { recordOnlineLoss } from './onlineRecord';
 import { LinkBadge, useWelcomeBack } from './online';
 
@@ -98,6 +99,7 @@ function setActive(a: { host?: BattleHost; guest?: BattleGuest }) {
   const room = a.host ?? a.guest;
   if (!room) return;
   // the person's seat goes out (concede, knocked out): their loss is recorded now, wherever they are
+  if (a.host) roomOffs.push(a.host.onEnd(countGame));
   roomOffs.push(room.onState(() => seatOut(room)));
   seatOut(room);
 }
@@ -247,8 +249,8 @@ function hostBinding(host: BattleHost): OnlineBinding {
       seatOut(host);
     },
     driver: {
-      concede: (slot) => {
-        host.act(slot, { t: 'concede' });
+      concede: (slot, to) => {
+        host.act(slot, { t: 'concede', to });
       },
     },
     ownsResult: (s) => seatOut(host, s),
@@ -285,6 +287,7 @@ function hostBinding(host: BattleHost): OnlineBinding {
 }
 
 function guestBinding(guest: BattleGuest): OnlineBinding {
+  let ctrlForNotice: GameController | null = null;
   // once the last power point of our turn is placed, tell the host the turn is over
   let endSentFor = '';
   const maybeEndTurn = (st: MatchState) => {
@@ -315,14 +318,18 @@ function guestBinding(guest: BattleGuest): OnlineBinding {
       finishTurn: () => {
         if (guest.state?.phase === 'power') void guest.request({ t: 'endTurn' });
       },
-      concede: () => {
-        // offline the concede waits for the link (RoomHud says so); it is never dropped
-        void guest.request({ t: 'concede' });
+      concede: (_slot, to) => {
+        // Offline the request keeps the selected seat, never a substitute.
+        void guest.request({ t: 'concede', to }).then(result => {
+          if (!result.ok && result.reason === 'notAlive' && guest.state && stillIn(guest, guest.state))
+            ctrlForNotice?.showHint(t('concedeTargetGone'));
+        });
       },
       canAct: () => guest.canAct,
     },
     ownsResult: (s) => seatOut(guest, s),
     bind(ctrl: GameController) {
+      ctrlForNotice = ctrl;
       let wasMine = guest.isMyTurn;
       startHint(ctrl, guest.matchId, guest.seat);
       const offs = [
@@ -352,7 +359,7 @@ function guestBinding(guest: BattleGuest): OnlineBinding {
         guest.onStatus(() => ctrl.replaceState(ctrl.state)),
       ];
       if (guest.state && guest.state !== ctrl.state) ctrl.replaceState(guest.state);
-      return () => offs.forEach((f) => f());
+      return () => { ctrlForNotice = null; offs.forEach((f) => f()); };
     },
     Extra: ({ ctrl }) => <GuestHud guest={guest} ctrl={ctrl} />,
     exitTo: { name: 'menu' },

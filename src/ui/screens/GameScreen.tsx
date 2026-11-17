@@ -71,7 +71,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const [canZoom, setCanZoom] = useState(false);
   const [hudTop, setHudTop] = useState(90);
   const [dontAsk, setDontAsk] = useState(false);
-  const [askConcede, setAskConcede] = useState(false);
+  const [concedingSeat, setConcedingSeat] = useState<number | null>(null);
+  const [recipient, setRecipient] = useState(-1);
   /** the result window is put aside to look at the final board (the fog has lifted by then) */
   const [viewingBoard, setViewingBoard] = useState(false);
   /** a scenario medal this match has just earned (or turned to gold) */
@@ -108,6 +109,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const ovKind = ctrl.overlay.kind;
   // "don't ask again" starts unticked every time a confirmation opens (it applies only on confirm)
   useEffect(() => {
+    if (ovKind !== 'pause') setConcedingSeat(null);
     if (ovKind === 'confirmAuto' || ovKind === 'confirmEndAttack') setDontAsk(false);
   }, [ovKind]);
 
@@ -221,6 +223,10 @@ export function GameScreen({ launch }: { launch: Launch }) {
   /** the seat has not received its bonus yet (it comes after its first attack phase) */
   const bonusAhead = (i: number) => orderBonus(i) > 0 && (i > cur || (i === cur && s.phase === 'attack'));
 
+  const mySeat = ctrl.localHumanSlot();
+  const enemies = alive.filter(p => p !== mySeat);
+  const askConcede = concedingSeat !== null && mySeat === concedingSeat;
+  const canGive = !s.ended && askConcede && enemies.includes(recipient);
   // giving up alone against two or more bots: the map opens and the bots can be watched afterwards
   const concedeLeavesBots =
     !online &&
@@ -465,19 +471,27 @@ export function GameScreen({ launch }: { launch: Launch }) {
       {ov.kind === 'handover' && <Handover ctrl={ctrl} next={ov.next} colorblind={settings.colorblind} />}
 
       {ov.kind === 'pause' && askConcede && (
-        <Modal onBackdrop={() => setAskConcede(false)}>
+        <Modal onBackdrop={() => setConcedingSeat(null)}>
           <h2>{t('concedeConfirm')}</h2>
+          <label htmlFor="concede-to">{t('concedeTo')}</label>
+          <select id="concede-to" class="btn ghost" value={canGive ? recipient : ''} onChange={e => setRecipient(Number(e.currentTarget.value))}>
+            {!canGive && <option value="" disabled>{t('concedeTargetGone')}</option>}
+            {enemies.map(i => <option key={i} value={i}>{playerName(s.settings, i)} · №{i + 1}</option>)}
+          </select>
           <p>{t('concedeText')}</p>
           {concedeLeavesBots && <p class="muted" style={{ marginTop: -6 }}>{t('concedeWatchNote')}</p>}
           <div class="row">
-            <button class="btn ghost" onClick={() => setAskConcede(false)}>
+            <button class="btn ghost" onClick={() => setConcedingSeat(null)}>
               {t('cancel')}
             </button>
             <button
               class="btn red"
+              disabled={!canGive}
               onClick={() => {
-                setAskConcede(false);
-                ctrl.concedeMatch();
+                if (!canGive) return;
+                setConcedingSeat(null);
+                ctrl.concedeMatch(recipient);
+                if (concedeLeavesBots && ctrl.state.ended) watchBots();
               }}
             >
               {t('concede')}
@@ -502,7 +516,10 @@ export function GameScreen({ launch }: { launch: Launch }) {
           {!s.ended && !s.settings.spectate && ctrl.localHumanSlot() >= 0 && (
             <button
               class="btn red"
-              onClick={() => setAskConcede(true)}
+              onClick={() => {
+                setRecipient(enemies[0] ?? -1);
+                setConcedingSeat(mySeat);
+              }}
             >
               <IconFlag width={18} height={18} /> {t('concede')}
             </button>
@@ -765,7 +782,7 @@ function ResultEmblem({ color, win, plain }: { color: string; win: boolean; plai
 
 /** Stats, the map of the day and scenario medals; returns a medal earned just now. */
 function recordResult(s: MatchState): MedalTier | null {
-  countGame();
+  if (isSaveable(s)) countGame(); // online games are counted by the host, not once per player
   const humans = s.settings.players.filter((p) => p === 'human').length;
   const me = s.settings.players.findIndex((p) => p === 'human');
   const win = humans > 1 ? false : !!s.ended?.humanWon;

@@ -646,30 +646,36 @@ export function finishEarly(state: MatchState, offer: StuckOffer): void {
 }
 
 /**
- * `loser` gives up. Against a single opponent the match ends at once with the board as it is. With
- * more seats alive the seat leaves: its cells turn neutral and the others play on until the usual end
- * rules apply (one seat left wins; no person left means the bots won).
+ * Surrender to a live opponent, preserving each cell's strength. A plain concession without a
+ * recipient keeps the old rules (also used by existing saves). Invalid requests leave the board alone.
  */
-export function concede(state: MatchState, loser: number): void {
-  if (state.ended || !isAlive(state, loser)) return;
-  const others = alivePlayers(state).filter((p) => p !== loser);
-  if (others.length <= 1) {
+export function concede(state: MatchState, loser: number, recipient?: number): boolean {
+  const alive = alivePlayers(state);
+  if (state.ended || !alive.includes(loser)) return false;
+  if (recipient !== undefined && (recipient === loser || !alive.includes(recipient))) return false;
+  const others = alive.filter((p) => p !== loser);
+  if (recipient === undefined && others.length <= 1) {
     const winner = others[0] ?? -1;
     state.ended = { winner, humanWon: winner >= 0 && isHuman(state, winner), reason: 'concede', turn: state.turn };
-    return;
+    return true;
   }
   for (const c of state.field.cells) {
-    if (c.owner === loser) {
-      c.owner = NEUTRAL;
-      c.power = 0;
-    }
+    if (c.owner !== loser) continue;
+    c.owner = recipient ?? NEUTRAL;
+    if (recipient === undefined) c.power = 0;
   }
   state.outAt[loser] = state.turn;
+  if (recipient !== undefined) {
+    explore(state);
+    // Online spectators stay in the same room; the host runs the remaining bots.
+    if (state.settings.kind === 'battleOnline' && canSpectate(state)) state.settings.spectate = state.turn + 80;
+  }
   checkEnd(state);
   const end = state.ended as MatchEnd | null;
   if (end) {
     state.ended = { ...end, reason: 'concede' };
-    return;
+    state.selected = -1;
+    return true;
   }
   if (state.viewer === loser) {
     const next = nextHumanAfter(state, loser);
@@ -677,6 +683,7 @@ export function concede(state: MatchState, loser: number): void {
   }
   if (state.current === loser) finishTurn(state);
   else if (state.selected >= 0 && state.field.cells[state.selected].owner !== state.current) state.selected = -1;
+  return true;
 }
 
 // ---------------------------------------------------------------- darkness

@@ -359,6 +359,8 @@ describe('online duel over loopback', () => {
       ['guest', true, 'concede'],
     ]);
     expect(d.guest.state!.ended!.winner).toBe(d.guest.localSlot);
+    expect(d.guest.state!.field.cells).toEqual(d.host.state!.field.cells);
+    expect(d.guest.state!.field.cells.some(c => c.owner === d.host.localSlot)).toBe(false);
     expect(d.host.status).toBe('ended');
     expect(d.guest.status).toBe('ended');
     expect(d.guest.attack(0, 1)).toBe('notYourTurn');

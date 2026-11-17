@@ -1,7 +1,7 @@
 import { t } from '../../i18n';
 import { navigate, updateSettings, useSettings } from '../store';
 import { useEffect, useState } from 'preact/hooks';
-import { readCounters, type SiteCounter } from '../../sitestats';
+import { counterKeys, lastKnownCounter, readCounter, type SiteCounter } from '../../sitestats';
 import { getLang } from '../../i18n';
 import { Modal, Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { cleanPlayerName, PLAYER_NAME_MAX, resetAllData, type GameSpeed, type Palette } from '../../storage';
@@ -143,35 +143,51 @@ export function SettingsScreen() {
   );
 }
 
+/** Pauses between reads of the site counters while the service does not answer, ms. */
+const SITE_RETRY_MS = [3_000, 6_000, 12_000, 20_000, 30_000];
+
 /** Anonymous counters of the whole site (all players together). */
 function SiteStats() {
-  const [values, setValues] = useState<Record<SiteCounter, number | null> | null>(null);
+  const [status, setStatus] = useState<Partial<Record<SiteCounter, 'ok' | 'retry'>>>({});
   useEffect(() => {
     let alive = true;
-    void readCounters().then((v) => alive && setValues(v));
-    return () => {
-      alive = false;
-    };
+    const timers: Partial<Record<SiteCounter, ReturnType<typeof setTimeout>>> = {};
+    async function refresh(k: SiteCounter, attempt: number) {
+      const v = await readCounter(k);
+      if (!alive) return;
+      setStatus(prev => ({ ...prev, [k]: v === null ? 'retry' : 'ok' }));
+      if (v === null) timers[k] = setTimeout(() => void refresh(k, attempt + 1), SITE_RETRY_MS[Math.min(attempt, SITE_RETRY_MS.length - 1)]);
+    }
+    counterKeys.forEach(k => void refresh(k, 0));
+    return () => { alive = false; Object.values(timers).forEach(clearTimeout); };
   }, []);
-  const fmt = (n: number | null | undefined) =>
-    values === null ? '…' : n === null || n === undefined ? '—' : n.toLocaleString(getLang() === 'ru' ? 'ru-RU' : 'en-US');
+  const fmt = (k: SiteCounter) => {
+    const cached = lastKnownCounter(k);
+    return cached ? cached.value.toLocaleString(getLang() === 'ru' ? 'ru-RU' : 'en-US') : status[k] ? '—' : '…';
+  };
+  const down = counterKeys.some(k => status[k] === 'retry');
   return (
     <>
       <div class="section-title">{t('siteStats')}</div>
       <div class="big-stats" data-testid="site-stats">
         <div>
-          <b>{fmt(values?.opens)}</b>
+          <b>{fmt('opens')}</b>
           <span>{t('siteOpens')}</span>
         </div>
         <div>
-          <b>{fmt(values?.visitors)}</b>
+          <b>{fmt('visitors')}</b>
           <span>{t('siteVisitors')}</span>
         </div>
         <div>
-          <b>{fmt(values?.games)}</b>
+          <b>{fmt('games')}</b>
           <span>{t('siteGames')}</span>
         </div>
       </div>
+      {down && (
+        <p class="muted" data-testid="site-stats-down" style={{ fontSize: 12, lineHeight: 1.5, margin: '0 4px 6px', textAlign: 'center' }}>
+          {t('siteStatsDown')}
+        </p>
+      )}
       <p class="muted" style={{ fontSize: 12, lineHeight: 1.5, margin: '0 4px', textAlign: 'center' }}>
         {t('siteStatsNote')}
       </p>

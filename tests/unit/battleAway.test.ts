@@ -178,7 +178,8 @@ describe('a concede while offline', () => {
     const seat = g.g.seat;
     r.hub.disconnect(g.cid);
     await r.hub.flush();
-    void g.g.request({ t: 'concede' });
+    const lands = E.cellsOf(r.host.state!, seat);
+    void g.g.request({ t: 'concede', to: 0 });
     g.g.dispose();
     expect(BattleGuest.saved(g.storage)?.out).toBe(false);
     const again = BattleGuest.resume(g.storage, { transport: r.hub.guest(g.cid), helloRetryMs: 0 })!;
@@ -187,6 +188,25 @@ describe('a concede while offline', () => {
     await r.hub.flush();
     expect(E.isAlive(r.host.state!, seat)).toBe(false);
     expect(again.concedePending).toBe(false);
+    expect(lands.length).toBeGreaterThan(0);
+    expect(lands.every(i => r.host.state!.field.cells[i].owner === 0)).toBe(true);
+    expectAllSame(r);
+  });
+
+  it('refuses the transfer if the selected opponent went out while the guest was offline', async () => {
+    const r = await room({ players: ['human', 'online', 'online', 'dummy'], seed: 22 });
+    r.host.start();
+    await r.hub.flush();
+    const g = r.guests[0];
+    const target = r.guests[1].g.seat;
+    r.hub.disconnect(g.cid);
+    await r.hub.flush();
+    const pending = g.g.request({ t: 'concede', to: target });
+    expect(r.host.act(target, { t: 'concede', to: 0 }).ok).toBe(true);
+    r.hub.connect(g.cid);
+    await r.hub.flush();
+    expect(await pending).toMatchObject({ ok: false, reason: 'notAlive' });
+    expect(E.isAlive(r.host.state!, g.g.seat)).toBe(true);
     expectAllSame(r);
   });
 

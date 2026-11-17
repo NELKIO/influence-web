@@ -8,7 +8,6 @@
 import { alivePlayers } from '../core/engine';
 import type { MatchState } from '../core/types';
 import { addRecord } from '../storage';
-import { countGame } from '../sitestats';
 
 const KEY = 'infweb.onlineRecorded';
 const KEEP = 200;
@@ -41,7 +40,6 @@ function remember(key: string) {
 export function recordOnlineResult(key: string, state: MatchState, seats: number[], win: boolean, place?: number): boolean {
   if (!seats.length || wasRecorded(key)) return false;
   remember(key);
-  countGame();
   const others = alivePlayers(state).filter((p) => !seats.includes(p));
   addRecord({
     at: Date.now(),

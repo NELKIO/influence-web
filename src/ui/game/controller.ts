@@ -62,7 +62,7 @@ export interface MatchDriver {
   addPower(cell: number, amount: number): number;
   autoPower(): Map<number, number>;
   finishTurn(): void;
-  concede(slot: number): void;
+  concede(slot: number, to?: number): void;
   /** true when the local device may act for state.current */
   canAct(): boolean;
 }
@@ -181,7 +181,7 @@ export class GameController {
         finishTurn(this.state);
         this.report(seat, { t: 'endTurn' });
       },
-      concede: (slot) => concede(this.state, slot),
+      concede: (slot, to) => concede(this.state, slot, to),
       canAct: () => isHuman(this.state, this.state.current),
     };
   }
@@ -510,11 +510,11 @@ export class GameController {
    * The local person gives up. With other seats still in play the match goes on without them (the
    * driver decides: engine rules locally, the host in an online battle); it ends only by the usual rules.
    */
-  concedeMatch() {
+  concedeMatch(to?: number) {
     const slot = this.localHumanSlot();
-    if (slot < 0) return;
+    if (slot < 0 || (to !== undefined && (to < 0 || to === slot || !isAlive(this.state, to)))) return;
     const viewer = this.state.viewer;
-    this.driver.concede(slot);
+    this.driver.concede(slot, to);
     // whatever a bot was about to do was planned on the board before the seat left
     this.epoch++;
     this.botFrom = this.botTo = -1;
