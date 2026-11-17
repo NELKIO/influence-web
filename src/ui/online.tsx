@@ -50,8 +50,8 @@ function makeBinding(session: DuelSession): OnlineBinding {
     finishTurn: () => {
       session.endTurn();
     },
-    concede: () => {
-      session.concede();
+    concede: (_slot, to) => {
+      session.concede(to === session.remoteSlot);
     },
     canAct: () => session.canAct,
   };

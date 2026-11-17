@@ -345,36 +345,40 @@ describe('online duel over loopback', () => {
     expect(errs).toEqual(['version']);
   });
 
-  it('concede ends the match for both sides', async () => {
+  it.each([false, true])('concede ends on both sides (transfer: %s)', async (transfer) => {
     const d = await makeDuo();
     playScriptedTurn(d.host);
     await d.link.flush();
+    const before = structuredClone(d.host.state!.field.cells);
     const ends: [string, boolean, string][] = [];
     d.host.onEnd((e) => ends.push(['host', e.won, e.reason]));
     d.guest.onEnd((e) => ends.push(['guest', e.won, e.reason]));
-    expect(d.host.concede()).toBe(true); // allowed even when it's not our turn
+    expect(d.host.concede(transfer)).toBe(true); // allowed even when it's not our turn
     await d.link.flush();
     expect(ends).toEqual([
       ['host', false, 'concede'],
       ['guest', true, 'concede'],
     ]);
     expect(d.guest.state!.ended!.winner).toBe(d.guest.localSlot);
-    expect(d.guest.state!.field.cells).toEqual(d.host.state!.field.cells);
-    expect(d.guest.state!.field.cells.some(c => c.owner === d.host.localSlot)).toBe(false);
+    const expected = before.map(c => transfer && c.owner === d.host.localSlot ? { ...c, owner: d.guest.localSlot } : c);
+    expect(d.host.state!.field.cells).toEqual(expected);
+    expect(d.guest.state!.field.cells).toEqual(expected);
     expect(d.host.status).toBe('ended');
     expect(d.guest.status).toBe('ended');
     expect(d.guest.attack(0, 1)).toBe('notYourTurn');
     expect(d.host.concede()).toBe(false);
   });
 
-  it('a concede made offline is delivered on reconnect', async () => {
+  it.each([false, true])('delivers an offline concede on reconnect (transfer: %s)', async (transfer) => {
     const d = await makeDuo();
+    const before = structuredClone(d.host.state!.field.cells);
     d.link.disconnect();
-    d.guest.concede();
+    expect(d.guest.concede(transfer)).toBe(true);
     expect(d.host.state!.ended).toBe(null);
     d.link.connect();
     await d.link.flush();
     expect(d.host.state!.ended).toMatchObject({ reason: 'concede', winner: d.host.localSlot, humanWon: true });
+    expect(d.host.state!.field.cells).toEqual(before.map(c => transfer && c.owner === d.guest.localSlot ? { ...c, owner: d.host.localSlot } : c));
     expect(d.host.status).toBe('ended');
   });
 

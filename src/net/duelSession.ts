@@ -536,11 +536,12 @@ export class DuelSession {
   }
 
   /** Give up the current match (allowed at any time). */
-  concede(): boolean {
+  concede(transfer = false): boolean {
     const st = this.state;
-    if (!st || st.ended || !this.matchId) return false;
-    E.concede(st, this.localSlot, this.remoteSlot);
-    this.sendGame({ t: 'concede', matchId: this.matchId });
+    if (!st || st.ended || !this.matchId || !E.concede(st, this.localSlot, transfer ? this.remoteSlot : undefined)) return false;
+    const end = st.ended as MatchEnd | null;
+    if (end && transfer) end.territoriesTransferred = true;
+    this.sendGame({ t: 'concede', matchId: this.matchId, ...(transfer ? { transfer: true } : {}) });
     this.afterChange();
     return true;
   }
@@ -711,7 +712,10 @@ export class DuelSession {
         return this.onAck(msg.seq, msg.hash);
       case 'concede':
         if (msg.matchId === this.matchId && this.state)
-          this.adoptEnd({ winner: this.localSlot, humanWon: true, reason: 'concede', turn: this.state.turn });
+          this.adoptEnd({
+            winner: this.localSlot, humanWon: true, reason: 'concede', turn: this.state.turn,
+            ...(msg.transfer ? { territoriesTransferred: true } : {}),
+          });
         return;
       case 'timeout':
         if (msg.matchId === this.matchId && this.state)
@@ -1033,7 +1037,7 @@ export class DuelSession {
       const same = st.ended.winner === end.winner && st.ended.reason === end.reason;
       if (same || this.role === 'host') return;
     }
-    if (!st.ended && end.reason === 'concede' && (end.winner === 0 || end.winner === 1)) {
+    if (!st.ended && end.reason === 'concede' && end.territoriesTransferred === true && (end.winner === 0 || end.winner === 1)) {
       E.concede(st, 1 - end.winner, end.winner);
     }
     st.ended = { ...end, humanWon: end.winner === this.localSlot };

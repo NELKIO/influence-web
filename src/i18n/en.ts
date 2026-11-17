@@ -24,6 +24,8 @@ export const en: typeof ru = {
   confirmEndAttackNone: 'Nothing can attack any more — moving on to power-up.',
   concedeWatchNote: 'Then the whole map opens and you can watch the bots play it out without you.',
   concedeTo: 'Who gets your territories?',
+  concedeToNobody: 'Do not transfer territories',
+  concedeWithoutTransfer: 'You will leave the match without giving your cells to an opponent.',
   concedeTargetGone: 'That opponent is out. Choose another.',
   concedeText: 'Your cells and their full strength will go to this opponent. You will no longer compete for victory.',
   resetDo: 'Delete',

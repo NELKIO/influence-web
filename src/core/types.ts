@@ -180,6 +180,8 @@ export interface MatchEnd {
   /** an early finish with the first place shared by people: a draw (winner -1, not a defeat) */
   draw?: boolean;
   reason: 'elimination' | 'early' | 'concede' | 'timeout' | 'cap';
+  /** A duel concession that transfers the loser's cells, also replayed on reconnect. */
+  territoriesTransferred?: true;
   turn: number;
 }
 

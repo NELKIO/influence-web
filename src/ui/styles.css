@@ -1291,10 +1291,62 @@ button {
 }
 
 /* Keep the surrender confirmation reachable on short landscape viewports. */
-.modal:has(#concede-to) {
+.modal:has(.concede-choices) {
   max-height: 100%;
   min-height: 0;
   overflow-y: auto;
+}
+
+.concede-choices {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.concede-choices legend {
+  margin: 0 0 6px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.concede-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.concede-choice + .concede-choice { margin-top: 4px; }
+.concede-choice:hover { background: var(--surface-3); }
+.concede-choice:has(:checked) {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.concede-choice:has(:focus-visible) { outline: 2px solid var(--accent); }
+.concede-choice-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.concede-choice input {
+  appearance: none;
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  cursor: inherit;
+}
+.concede-choice input:checked {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 4px, transparent 4.5px);
 }
 
 .modal h2 {

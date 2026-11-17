@@ -226,7 +226,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const mySeat = ctrl.localHumanSlot();
   const enemies = alive.filter(p => p !== mySeat);
   const askConcede = concedingSeat !== null && mySeat === concedingSeat;
-  const canGive = !s.ended && askConcede && enemies.includes(recipient);
+  const targetGone = recipient >= 0 && !enemies.includes(recipient);
+  const canConcede = !s.ended && askConcede && !targetGone;
   // giving up alone against two or more bots: the map opens and the bots can be watched afterwards
   const concedeLeavesBots =
     !online &&
@@ -473,12 +474,18 @@ export function GameScreen({ launch }: { launch: Launch }) {
       {ov.kind === 'pause' && askConcede && (
         <Modal onBackdrop={() => setConcedingSeat(null)}>
           <h2>{t('concedeConfirm')}</h2>
-          <label htmlFor="concede-to">{t('concedeTo')}</label>
-          <select id="concede-to" class="btn ghost" value={canGive ? recipient : ''} onChange={e => setRecipient(Number(e.currentTarget.value))}>
-            {!canGive && <option value="" disabled>{t('concedeTargetGone')}</option>}
-            {enemies.map(i => <option key={i} value={i}>{playerName(s.settings, i)} · №{i + 1}</option>)}
-          </select>
-          <p>{t('concedeText')}</p>
+          <fieldset class="concede-choices">
+            <legend>{t('concedeTo')}</legend>
+            {[-1, ...enemies].map((i) => (
+              <label class="concede-choice" key={i}>
+                <input type="radio" name="concede-to" value={i} checked={recipient === i} onChange={() => setRecipient(i)} />
+                {i < 0 ? <IconFlag width={20} height={20} class="muted" /> : <PlayerToken slot={i} size={20} shape={settings.colorblind} />}
+                <span class="concede-choice-name">{i < 0 ? t('concedeToNobody') : playerName(s.settings, i)}</span>
+                {i >= 0 && <span class="muted">№{i + 1}</span>}
+              </label>
+            ))}
+          </fieldset>
+          <p>{t(targetGone ? 'concedeTargetGone' : recipient < 0 ? 'concedeWithoutTransfer' : 'concedeText')}</p>
           {concedeLeavesBots && <p class="muted" style={{ marginTop: -6 }}>{t('concedeWatchNote')}</p>}
           <div class="row">
             <button class="btn ghost" onClick={() => setConcedingSeat(null)}>
@@ -486,12 +493,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
             </button>
             <button
               class="btn red"
-              disabled={!canGive}
+              disabled={!canConcede}
               onClick={() => {
-                if (!canGive) return;
+                if (!canConcede) return;
                 setConcedingSeat(null);
-                ctrl.concedeMatch(recipient);
-                if (concedeLeavesBots && ctrl.state.ended) watchBots();
+                ctrl.concedeMatch(recipient >= 0 ? recipient : undefined);
+                if (recipient >= 0 && concedeLeavesBots && ctrl.state.ended) watchBots();
               }}
             >
               {t('concede')}
@@ -517,7 +524,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
             <button
               class="btn red"
               onClick={() => {
-                setRecipient(enemies[0] ?? -1);
+                setRecipient(-1);
                 setConcedingSeat(mySeat);
               }}
             >

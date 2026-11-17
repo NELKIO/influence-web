@@ -17,8 +17,8 @@
  */
 import type { MatchEnd, MatchState } from '../core/types';
 
-/** 3: surrender transfers all remaining territory to the opponent on both devices. */
-export const PROTOCOL_VERSION = 3;
+/** 4: a duel concession transfers territory only when explicitly requested. */
+export const PROTOCOL_VERSION = 4;
 
 export type DuelAction =
   | { t: 'attack'; from: number; to: number; win: boolean }
@@ -87,6 +87,7 @@ export interface AckMsg {
 export interface ConcedeMsg {
   t: 'concede';
   matchId: string;
+  transfer?: true;
 }
 
 /** The sender claims a win because the opponent stayed silent past turnTime + grace. */
@@ -207,7 +208,7 @@ export function parseMessage(x: unknown): NetMessage | null {
       case 'ack':
         return isInt(x.seq) && isStr(x.hash);
       case 'concede':
-        return isStr(x.matchId);
+        return isStr(x.matchId) && (x.transfer === undefined || x.transfer === true);
       case 'timeout':
         return isStr(x.matchId) && isInt(x.seq);
       case 'rematch':
