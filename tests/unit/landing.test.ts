@@ -175,9 +175,9 @@ describe('night drop: medals of a configurable scenario', () => {
   });
 
   it('a fixed scenario still compares seat by seat and needs every seat', () => {
-    const olympus = SCENARIO_META.olympus.players;
-    expect(seatsMedal('olympus', olympus)).toBe('medal');
-    expect(seatsMedal('olympus', olympus.slice(0, 4))).toBe('weaker');
+    const twofronts = SCENARIO_META.twofronts.players;
+    expect(seatsMedal('twofronts', twofronts)).toBe('medal');
+    expect(seatsMedal('twofronts', twofronts.slice(0, 2))).toBe('weaker');
   });
 });
 
@@ -219,7 +219,7 @@ describe('night drop: set-up prefs', () => {
       JSON.stringify({
         ...DEFAULT_SETUP,
         scenario: 'landing',
-        scenarioSeats: { landing: ['human', 'god'], olympus: ['human', 'god', 'god'] },
+        scenarioSeats: { landing: ['human', 'god'], siege: ['human', 'god', 'god'] },
         scenarioConfig: { landing: { size: 'S', unions: 'yes' }, titans: { size: 'XXL', unions: false }, nope: { size: 'L' } },
       }),
     );

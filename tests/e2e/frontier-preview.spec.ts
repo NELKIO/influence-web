@@ -9,9 +9,11 @@ test('gallery leads with Night Drop and the new maps, hiding both scout maps', a
   const order = await cards.evaluateAll(nodes => nodes.map(n => n.getAttribute('data-scenario')));
   expect(order[0]).toBe('landing');
   expect(new Set(order.slice(1, 5))).toEqual(new Set(['moonvale', 'fireflies', 'crossroads', 'highlands']));
-  expect(new Set(order.slice(1, 9))).toEqual(new Set([
-    'moonvale', 'fireflies', 'crossroads', 'highlands', 'colonies', 'farshore', 'sparks', 'pinwheel',
-  ]));
+  // the gallery has two sections: maps that change each launch first, then the fixed puzzles, which the
+  // new fixed maps lead
+  const fixed = await page.locator('.puzzle-grid [data-scenario][data-section="fixed"]').evaluateAll(nodes => nodes.map(n => n.getAttribute('data-scenario')));
+  expect(new Set(fixed.slice(0, 2))).toEqual(new Set(['farshore', 'pinwheel']));
+  for (const id of ['colonies', 'sparks']) expect(order.indexOf(id)).toBeLessThan(order.indexOf(fixed[0]!));
   expect(order).not.toContain('thermopylae');
   await expect(page.locator('[data-scenario="colonies"]')).toContainText('Колонии');
   for (const id of ['moonvale', 'fireflies']) {
@@ -98,6 +100,59 @@ test('generated frontier mode is opt-in and starts the three points from its map
     return { scenario: s.settings.puzzle ?? null, marks: s.objectives };
   });
   expect(actual).toEqual({ scenario: null, marks });
+  await expectNoErrors(errors);
+});
+
+test('frontier sliders set the points and the win requirement of the match that starts', async ({ page }) => {
+  const errors = await fresh(page);
+  await page.getByRole('button', { name: 'Новая битва' }).click();
+  const modes = page.locator('.steps button').nth(2);
+  const points = page.locator('.map-preview [data-objective]');
+  const count = page.getByRole('slider', { name: 'Контрольные точки' });
+  const need = page.getByRole('slider', { name: 'Нужно для победы' });
+  await modes.click();
+  // the sliders belong to the switched-on mode only
+  await expect(count).toHaveCount(0);
+  await page.getByRole('switch', { name: 'Победа по рубежам', exact: true }).click();
+  await expect(count).toHaveValue('3');
+  await expect(need).toHaveValue('2');
+  await expect(need).toHaveAttribute('max', '3');
+  // the requirement follows the majority of the count
+  await count.fill('6');
+  await expect(need).toHaveValue('4');
+  await expect(need).toHaveAttribute('max', '6');
+  await count.fill('9');
+  await expect(need).toHaveValue('5');
+  await expect(page.getByText('Рубежей на карте: 9. Захватите 5')).toBeVisible();
+  // a chosen requirement stays, and is cut when the count drops below it
+  await need.fill('8');
+  await count.fill('7');
+  await expect(need).toHaveValue('7');
+  await count.fill('5');
+  await expect(need).toHaveValue('5');
+  await need.fill('2');
+  await count.fill('8');
+  await expect(need).toHaveValue('2');
+  // keyboard works like any range
+  await need.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(need).toHaveValue('3');
+  await page.reload();
+  await modes.click();
+  await expect(count).toHaveValue('8');
+  await expect(need).toHaveValue('3');
+  await page.locator('.steps button').nth(0).click();
+  await expect(points).toHaveCount(8);
+  const marks = await points.evaluateAll(nodes => nodes.map(n => Number(n.getAttribute('data-objective'))));
+  await page.getByRole('button', { name: /^В бой/ }).first().click();
+  await waitGame(page);
+  const actual = await page.evaluate(() => {
+    const s = (window as any).__infweb.ctrl.state;
+    return { marks: s.objectives, n: s.settings.frontierPointCount, k: s.settings.frontierWinCount };
+  });
+  expect(actual).toEqual({ marks, n: 8, k: 3 });
+  await expect(page.getByTestId('objective-hud')).toContainText('0/8');
+  await expect(page.getByTestId('objective-hud')).toContainText('удержите 3');
   await expectNoErrors(errors);
 });
 

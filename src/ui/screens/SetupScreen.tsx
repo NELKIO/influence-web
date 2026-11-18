@@ -1,3 +1,4 @@
+import { Fragment } from 'preact';
 import { useMemo, useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
@@ -5,11 +6,13 @@ import { loadMedals, loadSetup, saveGame, saveSetup, scenarioOptions, setupPlaye
 import { seatsMedal, type MedalTier } from '../../medals';
 import { hashString, randomSeed } from '../../core/rng';
 import { buildScenario, SCENARIO_META, SCENARIOS, startMatch, type ScenarioConfig, type ScenarioId } from '../../core/scenarios';
+import { objectiveWinCount } from '../../core/objectives';
 import { prepareHost } from '../battle';
 import { previewBattleMatch } from '../../net/battleRules';
 import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../core/types';
 import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
-import { IconLock, IconMoon, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
+import { IconLock, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
+import { CardTags, GoalLine, goalText, metaRules, Pips, RuleChip, RulesList, ruleKeys, TagLegend, type RuleKey } from '../components/ScenarioInfo';
 import { SecretMap } from '../components/MiniMap';
 import { DarknessRow, ExperimentalModes } from '../components/ExperimentalModes';
 import { Medal } from '../components/Medal';
@@ -26,6 +29,17 @@ function ScenarioMap({ id, field, objectives, maxHeight }: { id: ScenarioId; fie
   const m = SCENARIO_META[id];
   return <SecretMap field={field} darkness={m.darkness} blind={m.blind} objectives={objectives} maxHeight={maxHeight} />;
 }
+
+/** Gallery sections: scenarios that change from launch to launch (or let you set them up) come first. */
+const flexible = (id: ScenarioId) => !!(SCENARIO_META[id].varied || SCENARIO_META[id].configurable);
+const GALLERY = [
+  { key: 'varied', title: 'galleryVaried', desc: 'galleryVariedDesc', ids: SCENARIOS.filter(flexible) },
+  { key: 'fixed', title: 'galleryFixed', desc: 'galleryFixedDesc', ids: SCENARIOS.filter((id) => !flexible(id)) },
+] as const;
+/** the icons some gallery card shows, for the legend */
+const LEGEND_KEYS = (['varied', 'blind', 'darkness', 'objectives', 'crowded', 'unions'] as RuleKey[]).filter((k) =>
+  SCENARIOS.some((id) => metaRules(SCENARIO_META[id]).includes(k)),
+);
 
 const medalLabel = (tier: MedalTier | null) => t(tier === 'gold' ? 'medalGoldTitle' : tier ? 'medalTitle' : 'medalNone');
 
@@ -72,7 +86,7 @@ export function SetupScreen() {
         ? previewBattleMatch({ ...settings, kind: 'battleOnline' }, mapSeed).state
         : startMatch(settings, mapSeed);
     },
-    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.frontierMode, prefs.shuffle, players.join(','), opts?.size],
+    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.frontierMode, prefs.frontierPoints, prefs.frontierWin, prefs.shuffle, players.join(','), opts?.size],
   );
 
   const reroll = () => setMapSeed(old => {
@@ -93,6 +107,15 @@ export function SetupScreen() {
   const persons = players.filter((p) => p === 'human' || p === 'online').length;
   const hasOnline = players.includes('online');
   const { guard, modal } = useDiscardGuard();
+
+  // the goal and the special rules of the chosen scenario (the preview is the match that will start)
+  const goal = goalText(meta?.objectives ? { k: objectiveWinCount(preview), n: preview.objectives?.length ?? 3 } : null);
+  const flags = meta ? { varied: meta.varied, blind: meta.blind, darkness: meta.darkness, objectives: meta.objectives, crowded: meta.crowded } : {};
+  // on the card: unions as they will be played (they need a single person)
+  const pickRules = ruleKeys({ ...flags, unions: !!opts?.unions && persons < 2 });
+  // in the modes step: the fixed rules; unions a scenario lets you switch are a choice, not a rule
+  const unionsChoice = !!conf?.modes.includes('unions');
+  const stepRules = ruleKeys({ ...flags, unions: !unionsChoice && !!meta?.unions });
 
   const start = () => {
     sfx.click();
@@ -149,8 +172,6 @@ export function SetupScreen() {
   const minSeats = meta ? (conf?.seats[0] ?? players.length) : 2;
   const maxSeats = meta ? (conf?.seats[1] ?? players.length) : 6;
 
-  const locked = (on: boolean) => <Toggle on={on} onChange={() => {}} disabled />;
-
   return (
     <div class="screen">
       <div class="screen-inner">
@@ -168,10 +189,15 @@ export function SetupScreen() {
           <>
             {scenario && meta ? (
               <div class="card scenario-pick" data-testid="scenario-pick">
-                <ScenarioMap id={scenario} field={preview.field} objectives={preview.objectives} maxHeight={220} />
+                {/* keyed by the seed: a new map (even a hidden one) comes in visibly */}
+                <div class="pick-map" key={mapSeed}>
+                  <ScenarioMap id={scenario} field={preview.field} objectives={preview.objectives} maxHeight={220} />
+                </div>
                 <div class="scenario-head">
                   <div class="grow">
-                    <div class="kicker">{t('scenarioKicker')}</div>
+                    <div class="kicker">
+                      {t('scenarioKicker')} <Pips level={meta.level} />
+                    </div>
                     <div class="name">{t(`puzzle_${scenario}` as 'puzzle_siege')}</div>
                   </div>
                   <button class="scenario-clear" aria-label={t('scenarioClear')} onClick={clearScenario}>
@@ -179,14 +205,20 @@ export function SetupScreen() {
                   </button>
                 </div>
                 <div class="desc">{t(`puzzleDesc_${scenario}` as 'puzzleDesc_siege')}</div>
-                {preview.objectives && (
-                  <button class="btn small" onClick={() => {
-                    sfx.click();
-                    reroll();
-                  }}>
-                    <IconRestart width={16} height={16} /> {t('reroll')}
-                  </button>
-                )}
+                <GoalLine text={goal} />
+                <div class="chips">
+                  <span class="chip">
+                    <IconUsers width={14} height={14} /> {playersLabel(players.length)}
+                  </span>
+                  {meta.blind ? (
+                    <span class="chip">{t('scenarioUncharted')}</span>
+                  ) : (
+                    <span class="chip">{t('mapCells', { n: preview.field.cells.length })}</span>
+                  )}
+                  {pickRules.map((k) => (
+                    <RuleChip key={k} k={k} />
+                  ))}
+                </div>
                 {conf && opts && conf.sizes.length > 1 && (
                   <div class="scenario-size" data-testid="scenario-size">
                     <Seg
@@ -197,22 +229,18 @@ export function SetupScreen() {
                     />
                   </div>
                 )}
-                <div class="chips">
-                  <span class="chip">
-                    <IconUsers width={14} height={14} /> {playersLabel(players.length)}
-                  </span>
-                  {meta.darkness && (
-                    <span class="chip dark">
-                      <IconMoon width={13} height={13} /> {t('darkness')}
-                    </span>
-                  )}
-                  {meta.blind ? (
-                    <span class="chip">{t('scenarioUncharted')}</span>
-                  ) : (
-                    <span class="chip">{t('mapCells', { n: preview.field.cells.length })}</span>
-                  )}
-                  {opts?.unions && persons < 2 && <span class="chip">{t('unions')}</span>}
-                </div>
+                {meta.varied && (
+                  <button
+                    class="btn small reroll-btn"
+                    data-testid="scenario-reroll"
+                    onClick={() => {
+                      sfx.click();
+                      reroll();
+                    }}
+                  >
+                    <IconRestart width={16} height={16} /> {t(meta.blind ? 'rerollBlind' : 'reroll')}
+                  </button>
+                )}
                 <MedalStatus have={medals[scenario]?.tier ?? null} seats={seatsMedal(scenario, players)} free={!!conf} />
               </div>
             ) : (
@@ -275,26 +303,34 @@ export function SetupScreen() {
             <p class="lead" style={{ marginTop: -4 }}>
               {t('puzzlesDesc')}
             </p>
+            <TagLegend keys={LEGEND_KEYS} />
             <div class="puzzle-grid">
-              {SCENARIOS.map((id) => {
-                const m = SCENARIO_META[id];
-                const on = id === scenario;
-                const tier = medals[id]?.tier ?? null;
-                return (
-                  <button key={id} class={`puzzle-card ${on ? 'on' : ''}`} aria-pressed={on} data-scenario={id} onClick={() => pickScenario(id)}>
-                    <ScenarioMap id={id} field={samples[id].field} objectives={samples[id].objectives} maxHeight={84} />
-                    <span class="medal-badge" data-medal={tier ?? 'none'} title={medalLabel(tier)}>
-                      <Medal tier={tier} size={22} label={medalLabel(tier)} />
-                    </span>
-                    <span class="name">{t(`puzzle_${id}` as 'puzzle_siege')}</span>
-                    <span class="meta">
-                      <IconUsers width={12} height={12} />
-                      {m.configurable ? `${m.configurable.seats[0]}–${m.configurable.seats[1]}` : m.players.length}
-                      {m.darkness && <IconMoon width={12} height={12} aria-label={t('darkness')} />}
-                    </span>
-                  </button>
-                );
-              })}
+              {GALLERY.filter((g) => g.ids.length > 0).map((g) => (
+                <Fragment key={g.key}>
+                  <div class="puzzle-section" data-section={g.key}>
+                    <span class="t">{t(g.title)}</span>
+                    <span class="d">{t(g.desc)}</span>
+                  </div>
+                  {g.ids.map((id) => {
+                    const m = SCENARIO_META[id];
+                    const on = id === scenario;
+                    const tier = medals[id]?.tier ?? null;
+                    return (
+                      <button key={id} class={`puzzle-card ${on ? 'on' : ''}`} aria-pressed={on} data-scenario={id} data-section={g.key} onClick={() => pickScenario(id)}>
+                        <span class="card-level">
+                          <Pips level={m.level} />
+                        </span>
+                        <ScenarioMap id={id} field={samples[id].field} objectives={samples[id].objectives} maxHeight={84} />
+                        <span class="medal-badge" data-medal={tier ?? 'none'} title={medalLabel(tier)}>
+                          <Medal tier={tier} size={22} label={medalLabel(tier)} />
+                        </span>
+                        <span class="name">{t(`puzzle_${id}` as 'puzzle_siege')}</span>
+                        <CardTags meta={m} />
+                      </button>
+                    );
+                  })}
+                </Fragment>
+              ))}
             </div>
           </>
         )}
@@ -389,37 +425,17 @@ export function SetupScreen() {
         {step === 2 &&
           (meta ? (
             <>
-              <div class="locked-note">
-                <IconLock width={14} height={14} />{' '}
-                {t(conf ? 'scenarioModesFree' : 'scenarioModesNote', { name: t(`puzzle_${scenario}` as 'puzzle_siege') })}
-              </div>
-              <div class="list locked">
-                <SettingRow title={t('darkness')} desc={t('darknessDesc')}>
-                  {locked(!!meta.darkness)}
-                </SettingRow>
-                {meta.blind && (
-                  <SettingRow title={t('scenarioUncharted')} desc={t('blindDesc')}>
-                    {locked(true)}
-                  </SettingRow>
-                )}
-                <SettingRow title={t('symmetry')} desc={t('symmetryDesc2')}>
-                  {locked(false)}
-                </SettingRow>
-                <SettingRow title={t('crowded')} desc={t('crowdedDesc')}>
-                  {locked(!!meta.crowded)}
-                </SettingRow>
-                {!conf?.modes.includes('unions') && (
-                  <SettingRow title={t('unions')} desc={persons > 1 && meta.unions ? t('unionsNeedOneHuman') : t('unionsDesc')}>
-                    {locked(!!meta.unions)}
-                  </SettingRow>
-                )}
-              </div>
-              {conf?.modes.includes('unions') && (
-                <div class="list" data-testid="scenario-unions">
-                  <SettingRow title={t('unions')} desc={persons > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
-                    <Toggle on={persons < 2 && !!opts?.unions} disabled={persons > 1} onChange={(v) => configure({ unions: v })} />
-                  </SettingRow>
-                </div>
+              <div class="section-title">{t('scenarioRules')}</div>
+              <RulesList keys={stepRules} goal={goal} notes={persons > 1 ? { unions: t('unionsNeedOneHuman') } : {}} />
+              {unionsChoice && (
+                <>
+                  <div class="section-title">{t('scenarioYourChoice')}</div>
+                  <div class="list" data-testid="scenario-unions">
+                    <SettingRow title={t('unions')} desc={persons > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
+                      <Toggle on={persons < 2 && !!opts?.unions} disabled={persons > 1} onChange={(v) => configure({ unions: v })} />
+                    </SettingRow>
+                  </div>
+                </>
               )}
             </>
           ) : (

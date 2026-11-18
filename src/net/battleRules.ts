@@ -73,7 +73,7 @@ export function shuffledSeatOrder(settings: MatchSettings, seed: number): number
 
 export function previewBattleMatch(settings: MatchSettings, seed: number): { order: number[]; state: MatchState } {
   const order = shuffledSeatOrder(settings, seed);
-  const state = startMatch({ ...settings, players: order.map(i => settings.players[i]), shuffle: false }, seed);
+  const state = startMatch({ ...settings, shuffle: false }, seed, order);
   state.settings.shuffle = settings.shuffle;
   return { order, state };
 }

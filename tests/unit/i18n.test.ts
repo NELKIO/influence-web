@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { ru } from '../../src/i18n/ru';
 import { en } from '../../src/i18n/en';
 import { t, setLang, plural } from '../../src/i18n';
-import { BATTLE_SCENARIOS, CLASSIC_SCENARIOS, SCENARIOS, SCENARIO_META } from '../../src/core/scenarios';
+import { BATTLE_SCENARIOS, CLASSIC_SCENARIOS, DAILY_LEGACY_DESC, SCENARIOS, SCENARIO_META } from '../../src/core/scenarios';
 import { SIZES } from '../../src/core/types';
 import { PALETTES } from '../../src/ui/theme';
 import { SPEED_MS } from '../../src/storage';
@@ -151,6 +151,7 @@ describe('keys used in the code', () => {
   const families: Record<string, string[]> = {
     puzzle_: allScenarios,
     puzzleDesc_: allScenarios,
+    puzzleDescDaily_: [...DAILY_LEGACY_DESC],
     player_: playerTypes,
     desc_: seatTypes,
     size: Object.keys(SIZES),

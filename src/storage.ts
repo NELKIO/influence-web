@@ -1,10 +1,12 @@
 import { matchDarkness, readDarkness, type DarknessOptions } from './core/darknessOptions';
 import { validSignalFireCells } from './core/signalFires';
-import { validObjectiveFields } from './core/objectives';
+import { FRONTIER_MAX_POINTS, FRONTIER_MIN_POINTS, validObjectiveFields } from './core/objectives';
 import type { Lang } from './i18n';
 import { SIZE_ORDER, type FieldSize, type MatchKind, type MatchSettings, type MatchState, type PlayerType } from './core/types';
 import { isScenarioId, scenarioSetup, SCENARIO_META, seatsFit, type ScenarioConfig, type ScenarioId } from './core/scenarios';
 import { betterMedal, isTier, type MedalTier } from './medals';
+
+const FRONTIER_DEFAULT_POINTS = 3;
 
 const PREFIX = 'infweb.';
 
@@ -122,6 +124,10 @@ export interface SetupPrefs extends DarknessOptions {
   symmetry: boolean;
   crowded: boolean;
   frontierMode: boolean;
+  /** control points of a frontier battle */
+  frontierPoints: number;
+  /** points to hold for the win; null follows the majority of frontierPoints */
+  frontierWin: number | null;
   unions: boolean;
   shuffle: boolean;
   /** a scenario fixes the map, the seats and the modes (null: an ordinary map with the settings above) */
@@ -144,6 +150,8 @@ export const DEFAULT_SETUP: SetupPrefs = {
   symmetry: true,
   crowded: false,
   frontierMode: false,
+  frontierPoints: FRONTIER_DEFAULT_POINTS,
+  frontierWin: null,
   unions: false,
   shuffle: true,
   scenario: null,
@@ -178,6 +186,10 @@ export function loadSetup(): SetupPrefs {
   for (const k of ['symmetry', 'crowded', 'frontierMode', 'unions', 'shuffle'] as const) {
     if (typeof saved[k] === 'boolean') s[k] = saved[k] as boolean;
   }
+  if (Number.isInteger(saved.frontierPoints) && (saved.frontierPoints as number) >= FRONTIER_MIN_POINTS && (saved.frontierPoints as number) <= FRONTIER_MAX_POINTS) {
+    s.frontierPoints = saved.frontierPoints as number;
+  }
+  s.frontierWin = Number.isInteger(saved.frontierWin) ? frontierWinChoice(s.frontierPoints, saved.frontierWin as number) : null;
   // shuffling became the default in setup revision 2: an older save held 'off' only because it was the default then
   if (!(typeof saved.rev === 'number' && saved.rev >= SETUP_REV)) s.shuffle = DEFAULT_SETUP.shuffle;
   s.scenario = isScenarioId(saved.scenario) ? saved.scenario : null;
@@ -203,6 +215,20 @@ export function loadSetup(): SetupPrefs {
   }
   s.scenarioConfig = config;
   return s;
+}
+
+/** The majority of n points: floor(n/2) + 1. */
+export const frontierMajority = (points: number) => Math.floor(points / 2) + 1;
+
+/** A chosen win requirement for n points: clamped to 1..n; null when it is the majority (it then follows the point count). */
+export function frontierWinChoice(points: number, win: number): number | null {
+  const v = Math.min(points, Math.max(1, Math.round(win)));
+  return v === frontierMajority(points) ? null : v;
+}
+
+/** Points a frontier battle of this setup needs held for the win. */
+export function frontierWinOf(s: Pick<SetupPrefs, 'frontierPoints' | 'frontierWin'>): number {
+  return s.frontierWin === null ? frontierMajority(s.frontierPoints) : Math.min(s.frontierPoints, s.frontierWin);
 }
 
 /** Seat types of a scenario: the player's choice, or the recommended ones. */
@@ -250,7 +276,7 @@ export function setupToSettings(s: SetupPrefs): MatchSettings {
     ...matchDarkness(s),
     symmetry: s.symmetry,
     crowded: s.crowded,
-    ...(s.frontierMode ? { frontierMode: true } : {}),
+    ...(s.frontierMode ? { frontierMode: true, frontierPointCount: s.frontierPoints, frontierWinCount: frontierWinOf(s) } : {}),
     unions: s.unions,
     shuffle: s.shuffle,
     duelRules: false,

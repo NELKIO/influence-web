@@ -19,6 +19,59 @@ export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChang
   );
 }
 
+/** A range slider in the setting-list style: a title, the value on the right, and the track underneath. */
+export function Slider({
+  title,
+  value,
+  min,
+  max,
+  onChange,
+  valueText,
+  hint,
+}: {
+  title: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  /** what the value reads as, for the badge and screen readers */
+  valueText?: string;
+  hint?: string;
+}) {
+  const span = Math.max(1, max - min);
+  return (
+    <label class="list-item slider-row">
+      <div class="slider-head">
+        <span class="title">{title}</span>
+        <span class="slider-value">{valueText ?? value}</span>
+      </div>
+      <input
+        type="range"
+        class="slider"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        disabled={min === max}
+        aria-valuetext={valueText ?? String(value)}
+        style={{ '--fill': `${((value - min) / span) * 100}%` }}
+        onInput={(e) => {
+          const v = Number((e.currentTarget as HTMLInputElement).value);
+          if (v !== value) {
+            sfx.click();
+            onChange(v);
+          }
+        }}
+      />
+      <div class="slider-scale" aria-hidden="true">
+        <span>{min}</span>
+        {hint && <span class="slider-hint">{hint}</span>}
+        <span>{max}</span>
+      </div>
+    </label>
+  );
+}
+
 export function Seg<T extends string | number>({
   value,
   options,

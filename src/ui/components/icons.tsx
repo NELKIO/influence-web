@@ -47,6 +47,19 @@ export const IconUsers = (p: P) =>
 export const IconBot = (p: P) =>
   base([<rect x="4" y="8" width="16" height="12" rx="3" />, <path d="M12 4v4M9 13h.01M15 13h.01M9 17h6" />, <circle cx="12" cy="3" r="1" />], p);
 export const IconWifi = (p: P) => base([<path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0" />, <circle cx="12" cy="19" r="1" fill="currentColor" />], p);
+export const IconInfo = (p: P) => base([<circle cx="12" cy="12" r="9" />, <path d="M12 11v6" />, <circle cx="12" cy="7.6" r="0.6" fill="currentColor" />], p);
+/** absolute darkness: a solid moon (darkness is the outlined one) */
+export const IconMoonSolid = (p: P) => base(<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" fill="currentColor" />, p);
+/** a control point: the hex outline the maps mark them with */
+export const IconPoint = (p: P) => base(<path d="M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z" stroke-width="3" />, p);
+/** a crowded map: every cell is somebody's */
+export const IconCrowd = (p: P) =>
+  base([<rect x="3.5" y="3.5" width="7" height="7" rx="1.5" fill="currentColor" />, <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />, <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />, <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" fill="currentColor" />], p);
+/** unions: two linked rings */
+export const IconLink = (p: P) => base([<circle cx="9" cy="12" r="5" />, <circle cx="15" cy="12" r="5" />], p);
+/** a map that changes every launch */
+export const IconDice = (p: P) =>
+  base([<rect x="4" y="4" width="16" height="16" rx="3.5" />, <circle cx="9" cy="9" r="1.3" fill="currentColor" stroke="none" />, <circle cx="15" cy="15" r="1.3" fill="currentColor" stroke="none" />, <circle cx="15" cy="9" r="1.3" fill="currentColor" stroke="none" />, <circle cx="9" cy="15" r="1.3" fill="currentColor" stroke="none" />], p);
 
 /** Logo mark: two hexes of different owners joined by a bridge — the core idea of the game. */
 export function LogoMark(p: P) {

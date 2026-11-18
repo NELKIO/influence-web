@@ -437,6 +437,10 @@ export interface ScenarioMeta {
   crowded?: boolean;
   /** exploration fog: the map itself is unknown until seen (with darkness) */
   blind?: boolean;
+  /** each launch builds a genuinely different map (the setup offers "another map") */
+  varied?: boolean;
+  /** marked control points decide the match (hold 2 of 3 until your next turn) */
+  objectives?: boolean;
   /**
    * What the player may change besides the seat types: the map size (one of `sizes`), the number of
    * seats (`seats` = [fewest, most], you included) and the listed modes. The rest stays fixed. The map
@@ -448,13 +452,18 @@ export interface ScenarioMeta {
 /** A mode a configurable scenario lets the player switch. */
 export type ScenarioMode = 'unions';
 
+function scoutRadius(id: 'moonvale' | 'fireflies', size: FieldSize, seats: number): number {
+  const base = id === 'moonvale' ? { L: 6, XL: 8, XXL: 10 } : { L: 6, XL: 7, XXL: 9 };
+  return (base as Partial<Record<FieldSize, number>>)[size]! + (seats === 2 ? -1 : seats >= 6 ? 2 : seats >= 4 ? 1 : 0);
+}
+
 /** The player's choices for a configurable scenario (missing: the scenario's default). */
 export interface ScenarioConfig {
   size?: FieldSize;
   unions?: boolean;
   /**
-   * Turn-order compensation of the night drop (missing: its default; 'off': none, as past maps of the
-   * day were built). Other scenarios have their own seats and ignore it.
+   * Turn-order compensation of the night drop and the equal-seat scenarios (missing: their default;
+   * 'off': none, as past maps of the day were built). Scenarios with their own seats ignore it.
    */
   orderComp?: OrderComp | 'off';
   /** night drop: your squad is like the others (no knob), for measuring the turn order alone */
@@ -471,7 +480,7 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   siege: { players: ['human', 'master'], level: 4, size: 'L' },
   cauldron: { players: ['human', 'master'], level: 3, size: 'L' },
   bastion: { players: ['human', 'master'], level: 4, size: 'L' },
-  archipelago: { players: ['human', 'god', 'master'], level: 4, size: 'L' },
+  archipelago: { players: ['human', 'god', 'master'], level: 4, size: 'L', configurable: { sizes: ['L'], seats: [3, 6], modes: [] } },
   labyrinth: { players: ['human', 'master'], level: 4, size: 'L' },
   spiral: { players: ['human', 'master'], level: 4, size: 'L' },
   twofronts: { players: ['human', 'god', 'master'], level: 4, size: 'L' },
@@ -493,6 +502,7 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   bridges: { players: ['human', 'master'], level: 3, size: 'L' },
   spear: { players: ['human', 'master'], level: 4, size: 'L' },
   landing: {
+    varied: true,
     players: ['human', 'god', 'master', 'hunter', 'master', 'hunter'],
     level: 3,
     size: 'XL',
@@ -502,16 +512,16 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   },
   laststand: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 4, size: 'L' },
   titans: { players: ['human', 'master', 'master'], level: 3, size: 'L', unions: true },
-  olympus: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 3, size: 'L' },
+  olympus: { objectives: true, players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 3, size: 'L', configurable: { sizes: ['L'], seats: [3, 6], modes: [] } },
   hollow: { players: ['human', 'master', 'god', 'master'], level: 2, size: 'L' },
   raid: { players: ['human', 'master'], level: 4, size: 'L' },
   farshore: { players: ['human', 'master'], level: 3, size: 'L' },
-  moonvale: { players: ['human', 'master', 'hunter'], level: 3, size: 'L', darkness: true, blind: true },
-  sparks: { players: ['human', 'master', 'hunter'], level: 3, size: 'M', crowded: true },
-  fireflies: { players: ['human', 'hunter', 'hunter'], level: 2, size: 'XL', darkness: true, blind: true },
-  crossroads: { players: ['human', 'master'], level: 3, size: 'L' },
-  highlands: { players: ['human', 'master', 'hunter'], level: 3, size: 'L' },
-  colonies: { players: ['human', 'master'], level: 3, size: 'L' },
+  moonvale: { varied: true, players: ['human', 'master', 'hunter'], level: 3, size: 'L', darkness: true, blind: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: [] } },
+  sparks: { varied: true, objectives: true, players: ['human', 'master', 'hunter'], level: 3, size: 'M', crowded: true },
+  fireflies: { varied: true, players: ['human', 'hunter', 'hunter'], level: 2, size: 'XL', darkness: true, blind: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: [] } },
+  crossroads: { varied: true, objectives: true, players: ['human', 'master'], level: 3, size: 'L' },
+  highlands: { varied: true, objectives: true, players: ['human', 'master', 'hunter'], level: 3, size: 'L', configurable: { sizes: ['L'], seats: [2, 6], modes: [] } },
+  colonies: { varied: true, players: ['human', 'master'], level: 3, size: 'L' },
   pinwheel: { players: ['human', 'master', 'hunter'], level: 3, size: 'M' },
 };
 
@@ -556,9 +566,9 @@ export const TUNING: Record<ScenarioId, number> = {
   moonvale: 7,
   sparks: 7,
   fireflies: 2,
-  crossroads: 6,
+  crossroads: 5,
   highlands: 6,
-  colonies: 7,
+  colonies: 4,
   pinwheel: 8,
 };
 
@@ -569,6 +579,9 @@ export const SIZE_TUNING: Partial<Record<ScenarioId, Partial<Record<FieldSize, n
   // recommended line-up, 480 games per size: L 6.75 → 64%, XL 6.25 → 58%, XXL 7 → 61%)
   landing: { L: 6.75, XXL: 7 },
 };
+
+/** Knobs the maps of the day were published with, where the gallery's have since been recalibrated. */
+const DAILY_KNOB: Partial<Record<ScenarioId, number>> = { crossroads: 6, colonies: 7 };
 
 /** The knob for a scenario on a map size. */
 export function scenarioKnob(id: ScenarioId, size: FieldSize = SCENARIO_META[id].size): number {
@@ -591,8 +604,19 @@ export function scenarioSetup(id: ScenarioId, config: ScenarioConfig = {}): { si
   };
 }
 
-/** Frozen map builders for published dailies: gallery terrain can evolve without altering a date. */
-const LEGACY_FRONTIER_BUILDERS = {
+/**
+ * Scenarios whose map of the day differs in rules or layout from the gallery version: the day keeps
+ * the old description (puzzleDescDaily_<id>) next to its frozen map.
+ */
+export const DAILY_LEGACY_DESC: ReadonlySet<ScenarioId> = new Set<ScenarioId>(['sparks', 'olympus', 'highlands', 'moonvale']);
+
+type LegacyBuilder = (rng: Rng, k: number, seats: number) => Board;
+
+/**
+ * Frozen map builders for published dailies: gallery terrain can evolve without altering a date. Every
+ * map of the day of a scenario listed here is built by its frozen copy (with the day's default seats).
+ */
+const LEGACY_BUILDERS: Partial<Record<ScenarioId, LegacyBuilder>> = {
   crossroads(rng: Rng, k: number) {
     const b = new Board();
     const reach = 4 + rng.int(2);
@@ -632,7 +656,355 @@ const LEGACY_FRONTIER_BUILDERS = {
     }
     return b;
   },
+  moonvale(rng: Rng, k: number, seats: number) {
+    const b = new Board();
+    b.disk(6);
+    for (const c of b.all()) c.max = rollMax(rng);
+    const turn = rng.int(6);
+    const scout: Ax = [2, -3 - rng.int(2)];
+    for (let p = 0; p < seats; p++) {
+      const side = turn + 2 * p;
+      for (const at of [[5, 0], [4, 0], [4, 1]] as Ax[]) b.set(...rot(at, side), { owner: p, power: p ? 6 : kp(rng, k) });
+      b.set(...rot(scout, side), { owner: p, power: 2 });
+    }
+    return b;
+  },
+  sparks(rng: Rng, k: number) {
+    const b = new Board();
+    b.disk(4);
+    b.remove(0, 0);
+    const triples: Ax[][] = [];
+    for (const c of b.all()) {
+      const triple = [0, 2, 4].map(turn => rot([c.q, c.r], turn));
+      if (triple.every(([q, r]) => q > c.q || (q === c.q && r >= c.r))) triples.push(triple);
+    }
+    rng.shuffle(triples).forEach((triple, n) => {
+      const first = rng.int(3);
+      const power = n % 4 === 0 ? kp(rng, k) : 1 + rng.int(2);
+      const max = rollMax(rng);
+      triple.forEach((at, i) => b.set(...at, { owner: (first + i) % 3, power, max }));
+    });
+    return b;
+  },
+  fireflies(rng: Rng, k: number, seats: number) {
+    const b = new Board();
+    b.disk(7);
+    for (const c of b.all()) c.max = rollMax(rng);
+    rng.shuffle(landingDrops(rng, 7, 3, 3 * seats)).forEach((at, i) => {
+      const owner = i % seats;
+      b.set(...at, { owner, power: owner ? 2 : kp(rng, k) });
+    });
+    return b;
+  },
+  colonies(rng: Rng, k: number) {
+    const b = new Board();
+    b.disk(8);
+    for (const c of b.all()) c.max = rollMax(rng);
+    const turn = rng.int(6);
+    for (const p of [0, 1]) {
+      const home = rot([p ? 3 : -3, -2], turn);
+      for (const c of b.all()) if (hexDist([c.q, c.r], home) <= 2)
+        Object.assign(c, { owner: p, power: p ? 7 : kp(rng, k) });
+    }
+    for (const r of [4, 6]) for (const q of [-5, -2, 1]) {
+      b.set(...rot([q, r], turn), { owner: 0, power: 2 });
+      b.set(...rot([q + 1, r], turn), { owner: 1, power: 2 });
+    }
+    return b;
+  },
+  /** Six climbers around a mountain; its slopes are rich and walled, with one path up from each side. */
+  olympus(rng, k, seats) {
+    const b = new Board();
+    b.disk(6);
+    for (const c of b.all()) {
+      const d = hexDist([c.q, c.r], [0, 0]);
+      c.max = d <= 2 ? 12 : rollMax(rng, 0.2);
+    }
+    for (const c of b.all()) {
+      if (hexDist([c.q, c.r], [0, 0]) !== 2 || (c.q === 0 || c.r === 0 || c.q + c.r === 0)) continue;
+      for (const [dq, dr] of DIRS) if (hexDist([c.q + dq, c.r + dr], [0, 0]) === 3) b.wall([c.q, c.r], [c.q + dq, c.r + dr]);
+    }
+    const turn = rng.int(6);
+    for (let p = 0; p < seats; p++) {
+      const at = rot([5, 0], p + turn);
+      for (const c of b.all())
+        if (hexDist([c.q, c.r], at) <= 1 && hexDist([c.q, c.r], [0, 0]) >= 5) Object.assign(c, { owner: p, power: p === 0 ? kp(rng, k) : 3 });
+    }
+    for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 6 && c.owner === NEUTRAL && rng.float() < 0.3) b.remove(c.q, c.r);
+    return b;
+  },
 };
+
+/**
+ * The sides (k × 60°) of `seats` evenly spread seats: three and six are fully symmetric, four sit in
+ * two facing pairs (0 1 · 3 4), five leave one side empty.
+ */
+function seatSides(seats: number, turn: number): number[] {
+  return Array.from({ length: seats }, (_, p) => turn + Math.floor((p * 6) / seats));
+}
+
+// ---------------------------------------------------------------- symmetric layouts
+
+type Sym = (a: Ax) => Ax;
+
+/** Mirror an axial vector in the line at k × 30° through the middle. */
+function mirror(a: Ax, k: number): Ax {
+  return rot([a[0] + a[1], -a[1]], k);
+}
+
+/**
+ * Symmetries that carry every seat on the sides seatSides(seats, 0) onto every other: three seats
+ * turn, four are swapped pairwise across the two lines between them, two mirror each other, five and
+ * six use the six-seat group (rotations by 120° and the mirrors between neighbours).
+ */
+function seatSymmetries(seats: number): Sym[] {
+  const r = (k: number): Sym => (a) => rot(a, k);
+  const m = (k: number): Sym => (a) => mirror(a, k);
+  if (seats === 2) return [r(0), m(3)];
+  if (seats === 3) return [r(0), r(2), r(4)];
+  if (seats === 4) return [r(0), r(3), m(1), m(4)];
+  return [r(0), r(2), r(4), m(1), m(3), m(5)];
+}
+
+function orbit(a: Ax, syms: Sym[]): Ax[] {
+  const out = new Map<string, Ax>();
+  for (const f of syms) {
+    const b = f(a);
+    out.set(key(...b), b);
+  }
+  return [...out.values()];
+}
+
+/** Breadth-first distances on the board graph (walls respected), by key. */
+function boardDistances(b: Board, from: Ax[]): Map<string, number> {
+  const { keys, index, adj } = b.graph();
+  const d = new Map<string, number>();
+  const queue = from.map((a) => index.get(key(...a))).filter((i): i is number => i !== undefined);
+  for (const i of queue) d.set(keys[i], 0);
+  for (let n = 0; n < queue.length; n++)
+    for (const j of adj[queue[n]])
+      if (!d.has(keys[j])) {
+        d.set(keys[j], d.get(keys[queue[n]])! + 1);
+        queue.push(j);
+      }
+  return d;
+}
+
+/** Roll every cell's capacity once per symmetric set of cells. */
+function symmetricMaxes(b: Board, rng: Rng, syms: Sym[], big = 0.3) {
+  const rolled = new Set<string>();
+  for (const c of b.all()) {
+    if (rolled.has(key(c.q, c.r))) continue;
+    const max = rollMax(rng, big);
+    for (const at of orbit([c.q, c.r], syms)) {
+      rolled.add(key(...at));
+      b.set(...at, { max });
+    }
+  }
+}
+
+/** Apply a change to a cell and all its symmetric copies. */
+function symmetricSet(b: Board, syms: Sym[], c: Ax, f: (s: Slot) => void) {
+  for (const at of orbit(c, syms)) {
+    const s = b.get(...at);
+    if (s) f(s);
+  }
+}
+
+/** Remove a cell and its copies, unless one is kept or that leaves a cell holding the land together. */
+function symmetricDig(b: Board, syms: Sym[], c: Ax, keep: (s: Slot) => boolean): boolean {
+  const cells = orbit(c, syms).map((a) => b.get(...a)).filter((s): s is Slot => !!s);
+  if (!cells.length || cells.some(keep)) return false;
+  cells.forEach((s) => b.remove(s.q, s.r));
+  if (b.solid()) return true;
+  cells.forEach((s) => b.add(s.q, s.r, s));
+  return false;
+}
+
+/**
+ * Up to `ridges` straight walls three to five cells long, each with a pass, copied by the symmetries;
+ * a ridge that would leave a cell holding the land together is dropped. No wall touches a `clear` cell.
+ */
+function symmetricRidges(b: Board, rng: Rng, syms: Sym[], keep: (s: Slot) => boolean, ridges: number, clear?: (s: Slot) => boolean) {
+  for (let n = 0; n < ridges * 4; n++) {
+    const start = rng.pick(b.all().filter((c) => !keep(c)));
+    const d = rng.int(6);
+    const length = 3 + rng.int(3);
+    const edges: [Ax, Ax][] = [];
+    for (let i = 0; i < length; i++) {
+      const at: Ax = [start.q + DIRS[d][0] * i, start.r + DIRS[d][1] * i];
+      if (i === 1 + rng.int(length - 1)) continue; // a pass
+      for (const e of [DIRS[(d + 1) % 6], DIRS[(d + 2) % 6]]) {
+        const to: Ax = [at[0] + e[0], at[1] + e[1]];
+        const [x, y] = [b.get(...at), b.get(...to)];
+        if (!x || !y || (clear && (clear(x) || clear(y)))) continue;
+        for (const f of syms) edges.push([f(at), f(to)]);
+      }
+    }
+    // no stray stubs: a ridge runs at least three cells along
+    if (edges.length < 4 * syms.length) continue;
+    const before = b.walls.length;
+    for (const [x, y] of edges) b.wall(x, y);
+    if (!b.solid()) b.walls.length = before;
+    else if (--ridges <= 0) break;
+  }
+}
+
+/**
+ * One try at a highlands board in the seats' own frame (null: rejected, roll again). `plain`: the last
+ * resort, no terrain and the simplest summits, which always pass.
+ */
+function highlandsAttempt(rng: Rng, k: number, seats: number, radius: number, syms: Sym[], plain: boolean): Board | null {
+  const b = new Board();
+  b.disk(radius);
+  // capacities are rolled once per symmetric set of cells: every camp has the same land around it
+  symmetricMaxes(b, rng, syms);
+  const sides = seatSides(seats, 0);
+  const camps = sides.map((side) => [rot([radius - 2, 0], side), rot([radius - 1, 0], side)]);
+  // the summits: a set of three that the seats' symmetries keep
+  const t = 2 + rng.int(2);
+  let summits: Ax[];
+  if (plain) summits = seats === 2 ? [[0, 0], [-2, 4], [2, -4]] : seats === 4 ? [[0, 0], [2, 2], [-2, -2]] : [0, 2, 4].map((i) => rot([2, 2], i));
+  else if (seats === 3) {
+    // anywhere: a central triangle, peaks between the camps or right above them
+    const spots = b.all().filter((c) => { const d = hexDist([c.q, c.r], [0, 0]); return d >= 2 && d <= radius - 3; });
+    const at = rng.pick(spots);
+    summits = [0, 2, 4].map((i) => rot([at.q, at.r], i));
+  } else if (seats === 2) {
+    // a ridge across the valley between the camps, or one summit on it and a pair of flanks
+    const line: Ax = [-t, 2 * t];
+    if (rng.bool()) summits = [[0, 0], line, [-line[0], -line[1]]];
+    else {
+      const crest: Ax = rng.bool() ? [0, 0] : [-1, 2];
+      const flank = rng.pick(b.all().filter((c) => hexDist([c.q, c.r], [0, 0]) >= 3 && hexDist([c.q, c.r], [0, 0]) <= radius - 2 && orbit([c.q, c.r], syms).length === 2));
+      summits = [crest, ...orbit([flank.q, flank.r], syms)];
+    }
+  } else if (seats === 4) {
+    // the heart and two summits in the narrow or in the wide gaps between the camps
+    const v: Ax = rng.bool() ? [t, t] : [-(t + 2), t + 2];
+    summits = [[0, 0], v, [-v[0], -v[1]]];
+  } else {
+    // a central triangle or shrines on the passes between neighbouring camps
+    summits = [0, 2, 4].map((i) => rot([t, t], i));
+  }
+  if (summits.some((a) => !b.get(...a)) || new Set(summits.map((a) => key(...a))).size !== 3) return null;
+  const near = (c: Slot, list: Ax[], d: number) => list.some((a) => hexDist([c.q, c.r], a) <= d);
+  const campCells = camps.flat();
+  const keep = (c: Slot) => near(c, campCells, 2) || near(c, summits, 1);
+  // every summit is a roomy peak among roomy slopes with a small garrison
+  for (const c of b.all()) if (near(c, summits, 1)) Object.assign(c, { max: 12, power: 2 });
+  for (const a of summits) b.set(...a, { objective: true, power: 3 });
+  const everywhere = (c: Ax, f: (s: Slot) => void) => symmetricSet(b, syms, c, f);
+  const dig = (c: Ax) => symmetricDig(b, syms, c, keep);
+  if (!plain) {
+    const centre = summits.some((a) => hexDist(a, [0, 0]) <= 2);
+    const terrain = rng.int(3);
+    if (terrain === 0 && !centre) {
+      // a lake in the middle, with coves
+      const lake = 1 + rng.int(2);
+      for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) <= lake && !keep(c)) b.remove(c.q, c.r);
+      for (const c of rng.shuffle(b.all().filter((c) => hexDist([c.q, c.r], [0, 0]) === lake + 1)).slice(0, rng.int(3))) dig([c.q, c.r]);
+    } else if (terrain === 1) {
+      // a broad plateau, garrisoned
+      const plateau = centre ? 1 : 1 + rng.int(2);
+      for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) <= plateau && !c.objective) Object.assign(c, { max: 12, power: Math.max(c.power, 3) });
+    } else {
+      // ridges: walls with passes, and a few sinkholes
+      symmetricRidges(b, rng, syms, keep, 1 + rng.int(3));
+      let holes = rng.int(3);
+      for (const c of rng.shuffle(b.all()).slice(0, 12)) {
+        if (holes <= 0) break;
+        if (dig([c.q, c.r])) holes--;
+      }
+    }
+    // garrisons on some approaches, a ragged rim
+    for (const c of rng.shuffle(b.all().filter((c) => !keep(c) && c.power === 0 && near(c, summits, 3))).slice(0, 1 + rng.int(2))) {
+      const power = 2 + rng.int(3);
+      everywhere([c.q, c.r], (s) => { s.power = Math.min(s.max, power); });
+    }
+    for (const c of rng.shuffle(b.all().filter((c) => hexDist([c.q, c.r], [0, 0]) === radius)).slice(0, rng.int(4))) dig([c.q, c.r]);
+  }
+  // the camps: two cells on the axis, below the slopes
+  camps.forEach((camp, p) => camp.forEach((at) => b.set(...at, { owner: p, power: p ? 5 : kp(rng, k), max: 8 })));
+  // the walls stop at the summits: each keeps four ways in
+  const { index, adj } = b.graph();
+  if (summits.some((a) => adj[index.get(key(...a))!].length < 4) || !b.solid()) return null;
+  const from = summits.map((a) => boardDistances(b, [a]));
+  if (from.some((d, i) => summits.some((a, j) => i !== j && (d.get(key(...a)) ?? 0) < 4))) return null;
+  // climb[camp][summit]: steps from the camp up to the summit
+  const climb = camps.map((camp) => from.map((d) => Math.min(...camp.map((c) => d.get(key(...c)) ?? Infinity))));
+  const sorted = climb.map((c) => [...c].sort((x, y) => x - y));
+  if (sorted.some((c) => c[0] < 3 || !Number.isFinite(c[2]))) return null;
+  // with three or more camps each summit lies between at least two of them (five: one gap is empty)
+  if (seats >= 3 && seats !== 5 && summits.some((_, i) => { const reach = climb.map((c) => c[i]).sort((x, y) => x - y); return reach[1] - reach[0] > 2; })) return null;
+  if (seats !== 5 && new Set(sorted.map(String)).size !== 1) return null;
+  return b;
+}
+
+/** The symmetry that carries side 0 onto this side. */
+function symToSide(syms: Sym[], side: number): Sym {
+  return syms.find((f) => key(...f([1, 0])) === key(...rot([1, 0], side)))!;
+}
+
+/** One try at a moonless valley in the seats' own frame (null: rejected, roll again). */
+function moonvaleAttempt(rng: Rng, k: number, seats: number, radius: number, syms: Sym[]): Board | null {
+  const b = new Board();
+  b.disk(radius);
+  // the valley is mostly poor ground, so that the clearings stand out
+  symmetricMaxes(b, rng, syms, 0.12);
+  const sides = seatSides(seats, 0);
+  const camp0: Ax[] = [[radius - 1, 0], [radius - 2, 0], [radius - 2, 1]];
+  // every place a camp could be (five seats: the sixth stays empty, but nothing is built there)
+  const anyCamp = syms.flatMap((f) => camp0.map(f));
+  const camps = sides.map((side) => camp0.map(symToSide(syms, side)));
+  const ax = (c: Slot): Ax => [c.q, c.r];
+  const apart = (list: Ax[], d: number) => list.every((a, i) => list.every((o, j) => i === j || hexDist(a, o) >= d));
+  // the clearing: seven roomy cells (sometimes a ruin in the middle), not too close to any camp; one
+  // on a line of symmetry is shared by the two seats it lies between
+  const glades = b.all().filter((c) => {
+    const spots = orbit(ax(c), syms);
+    return spots.length * 2 >= syms.length && apart(spots, 3) && spots.every((g) => anyCamp.every((a) => hexDist(g, a) >= 4)) &&
+      hexDist(ax(c), [0, 0]) >= 2 && hexDist(ax(c), [0, 0]) <= radius - 1;
+  });
+  if (!glades.length) return null;
+  const glade = ax(rng.pick(glades));
+  const glades0 = orbit(glade, syms);
+  // the scout: one step from its clearing, off the rim, three clear of every camp and every other scout
+  const scouts = b.all().filter((c) => {
+    const spots = orbit(ax(c), syms);
+    return hexDist(ax(c), glade) === 2 && hexDist(ax(c), [0, 0]) <= radius - 2 && spots.length === syms.length && apart(spots, 3) &&
+      spots.every((s) => anyCamp.every((a) => hexDist(s, a) >= 3) && glades0.every((g) => hexDist(s, g) >= 2));
+  });
+  if (!scouts.length) return null;
+  const scout = ax(rng.pick(scouts));
+  const scouts0 = orbit(scout, syms);
+  const near = (c: Slot, list: Ax[], d: number) => list.some((a) => hexDist(ax(c), a) <= d);
+  const keep = (c: Slot) => near(c, anyCamp, 2) || near(c, scouts0, 2) || near(c, glades0, 1);
+  const ruin = rng.int(3) === 0 ? 3 : 0;
+  for (const c of b.all()) if (near(c, glades0, 1)) Object.assign(c, { max: 12, power: 0 });
+  for (const g of glades0) b.set(...g, { power: ruin });
+  // the middle: a lake, a rich meadow or a ruin
+  const middle = rng.int(3);
+  const core = b.all().filter((c) => hexDist(ax(c), [0, 0]) <= 1 && !keep(c));
+  if (middle === 0) core.forEach((c) => b.remove(c.q, c.r));
+  else if (middle === 1) core.forEach((c) => Object.assign(c, { max: 12, power: 0 }));
+  else core.forEach((c) => Object.assign(c, { max: 12, power: hexDist(ax(c), [0, 0]) ? 3 : 5 }));
+  if (!b.solid()) return null;
+  // ridges with passes and small lakes make corridors, ruins guard some of them
+  symmetricRidges(b, rng, syms, keep, 1 + rng.int(3), (c) => near(c, anyCamp, 1) || near(c, scouts0, 1) || near(c, glades0, 1));
+  const land = b.cells.size;
+  for (let i = 0; i < Math.round(land / 10 / syms.length); i++) {
+    const c = rng.pick(b.all());
+    symmetricDig(b, syms, ax(c), keep);
+  }
+  for (const c of rng.shuffle(b.all().filter((c) => !keep(c) && c.power === 0 && hexDist(ax(c), [0, 0]) > 1)).slice(0, Math.round((b.cells.size * 0.06) / syms.length))) {
+    const power = 2 + rng.int(3);
+    symmetricSet(b, syms, ax(c), (s) => { if (!keep(s)) s.power = Math.min(s.max, power); });
+  }
+  camps.forEach((camp, p) => camp.forEach((at) => b.set(...at, { owner: p, power: p ? 6 : kp(rng, k) })));
+  sides.forEach((side, p) => b.set(...symToSide(syms, side)(scout), { owner: p, power: 2 }));
+  return b.solid() ? b : null;
+}
 
 const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: FieldSize, extras: BuildExtras) => Board> = {
   /** You hold a small core in the middle; a ring of enemy cells surrounds you. Break out. */
@@ -682,17 +1054,20 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     return b;
   },
 
-  /** Islands joined by thin bridges; a rich neutral island in the middle. */
-  archipelago(rng, k) {
+  /**
+   * Islands joined by thin bridges, one per seat; a rich neutral island in the middle. Three islands
+   * keep the classic map; four to six lie farther out (four: two facing pairs, five: one place empty).
+   */
+  archipelago(rng, k, seats) {
     const b = new Board();
     const turn = rng.int(6);
-    const centres: Ax[] = [0, 2, 4].map((i) => rot([5, -2], i + turn));
+    const centres: Ax[] = seatSides(seats, turn).map((side) => rot(seats === 3 ? [5, -2] : [7, -3], side));
     b.disk(1, [0, 0], { max: 12 });
     centres.forEach((c, i) => {
       b.disk(2, c);
       for (const s of b.all()) if (hexDist([s.q, s.r], c) <= 2) s.max = s.max === 12 ? 12 : rollMax(rng, 0.25);
       b.line([0, 0], c);
-      b.line(c, centres[(i + 1) % 3]);
+      b.line(c, centres[(i + 1) % seats]);
       // owner of the island
       const owner = i;
       for (const s of b.all())
@@ -1141,47 +1516,89 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     return b;
   },
 
-  /** Each seat has a fighting squad on the rim and a lone pair of eyes out in the valley. */
-  moonvale(rng, k, seats) {
-    const b = new Board();
-    b.disk(6);
-    for (const c of b.all()) c.max = rollMax(rng);
+  /**
+   * Each seat has a fighting squad on the rim and a lone pair of eyes out in the valley, a few steps
+   * from a rich clearing of its own. Ridges, lakes and ruins cut the dark valley into corridors; the
+   * middle holds a lake, a meadow or a ruin. Laid out once and copied by the seats' symmetries.
+   */
+  moonvale(rng, k, seats, size) {
+    // five seats get the six-seat valley (the sixth camp's place stays empty)
+    const radius = scoutRadius('moonvale', size, seats === 5 ? 6 : seats);
     const turn = rng.int(6);
-    const scout: Ax = [2, -3 - rng.int(2)];
-    for (let p = 0; p < seats; p++) {
-      const side = turn + 2 * p;
-      for (const at of [[5, 0], [4, 0], [4, 1]] as Ax[]) b.set(...rot(at, side), { owner: p, power: p ? 6 : kp(rng, k) });
-      b.set(...rot(scout, side), { owner: p, power: 2 });
+    const syms = seatSymmetries(seats);
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const b = moonvaleAttempt(rng, k, seats, radius, syms);
+      if (b) {
+        b.rotate(turn);
+        return b;
+      }
     }
-    return b;
+    throw new Error(`moonvale: no layout for ${seats} seats`);
   },
 
-  /** Deal shuffled triples around a little central hole: same forces, capacities and exposure for every seat. */
+  /** Three rotationally balanced realms, with different broad landforms and clustered flashpoints. */
   sparks(rng, k) {
     const b = new Board();
-    b.disk(4);
-    b.remove(0, 0);
+    const shape = rng.int(3);
+    b.disk(shape === 2 ? 3 : 4);
+    // (every shape keeps the middle empty: the three-way deal needs no cell on the rotation's fixed point)
+    if (shape === 0) for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) <= 1) b.remove(c.q, c.r); // a ring road
+    if (shape === 1) {
+      // a trefoil: three headlands between three deep bays
+      b.remove(0, 0);
+      for (const turn of [0, 2, 4]) b.disk(1, rot([4, 0], turn));
+      for (const turn of [1, 3, 5]) for (const c of b.all()) if (hexDist([c.q, c.r], rot([4, 0], turn)) <= 1) b.remove(c.q, c.r);
+    }
+    if (shape === 2) {
+      // three rival lobes around a common hub
+      b.remove(0, 0);
+      for (const turn of [0, 2, 4]) b.disk(2, rot([4, 0], turn));
+    }
     const triples: Ax[][] = [];
     for (const c of b.all()) {
       const triple = [0, 2, 4].map(turn => rot([c.q, c.r], turn));
-      // Choose one representative of each rotational orbit.
       if (triple.every(([q, r]) => q > c.q || (q === c.q && r >= c.r))) triples.push(triple);
     }
-    rng.shuffle(triples).forEach((triple, n) => {
-      const first = rng.int(3);
-      const power = n % 4 === 0 ? kp(rng, k) : 1 + rng.int(2);
-      const max = rollMax(rng);
+    const first = rng.int(3);
+    // Two compact hotspots (an inner flashpoint and an outer stronghold) of three strong roomy cells,
+    // and a weak but roomy pocket of 1s worth growing into; the rest of the deal is light (1–2).
+    // a triangle of three touching cells around a random cell at this distance from the middle
+    const spot = (distance: number): string[] => {
+      const shapes = triples.filter(triple => hexDist(triple[0], [0, 0]) === distance).flatMap(([at]) =>
+        [0, 1, 2, 3, 4, 5].map(t => [at, ...[t, t + 1].map(i => DIRS[i % 6]).map(([dq, dr]) => [at[0] + dq, at[1] + dr] as Ax)]))
+        .filter(cells => cells.every(c => b.get(...c)));
+      return rng.pick(shapes).map(c => key(...c));
+    };
+    const hotSpots = [...spot(2), ...spot(shape === 2 ? 5 : 4)];
+    const weakSpot = spot(3);
+    for (const triple of triples) {
+      const hot = triple.some(c => hotSpots.includes(key(...c)));
+      const weak = !hot && triple.some(c => weakSpot.includes(key(...c)));
+      const power = hot ? kp(rng, k) : weak ? 1 : 1 + rng.int(2);
+      const max = hot || weak ? 12 : rollMax(rng);
       triple.forEach((at, i) => b.set(...at, { owner: (first + i) % 3, power, max }));
-    });
+    }
+    // Each realm keeps one spark deep in its own land (the same spot turned for every seat): win by
+    // holding your spark and a rival's until your next turn. Never on a cell that holds the map together.
+    const { keys, adj } = b.graph();
+    const cuts = new Set(articulationPoints(adj).map(i => keys[i]));
+    const buried = triples.filter(triple => triple.every(([q, r]) => {
+      const owner = b.get(q, r)!.owner;
+      return !cuts.has(key(q, r)) && DIRS.every(([dq, dr]) => b.get(q + dq, r + dr)?.owner === owner);
+    }));
+    const sparks = rng.pick(buried);
+    const garrison = 3 + rng.int(3);
+    for (const at of sparks) b.set(...at, { objective: true, power: garrison, max: 12 });
     return b;
   },
 
   /** No squads and no stronghold: only little pools of light, each with an open escape route. */
-  fireflies(rng, k, seats) {
+  fireflies(rng, k, seats, size) {
+    const radius = scoutRadius('fireflies', size, seats);
     const b = new Board();
-    b.disk(7);
+    b.disk(radius);
     for (const c of b.all()) c.max = rollMax(rng);
-    rng.shuffle(landingDrops(rng, 7, 3, 3 * seats)).forEach((at, i) => {
+    rng.shuffle(landingDrops(rng, radius, 3, 3 * seats)).forEach((at, i) => {
       const owner = i % seats;
       b.set(...at, { owner, power: owner ? 2 : kp(rng, k) });
     });
@@ -1216,43 +1633,24 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     return b;
   },
 
-  /** Three high plateaus around a lake. Each camp sits between two summits, not on one. */
+  /**
+   * Camps at the foot of the mountains, three marked summits in a new arrangement every launch, and a
+   * central lake, a garrisoned plateau or ridges with passes between them. Everything (summits,
+   * terrain, capacities, garrisons) is laid out once and copied by the symmetries that carry every camp
+   * onto every other, so each seat faces the same climb (five seats: the six-seat layout, one camp empty).
+   */
   highlands(rng, k, seats) {
-    const b = new Board();
-    const reach = 4 + rng.int(2);
-    const lake = 1 + rng.int(2);
+    const radius = (seats === 2 ? 5 : seats === 3 ? 6 : 7) + rng.int(2);
     const turn = rng.int(6);
-    b.disk(reach + 2);
-    for (const c of b.all()) {
-      if (hexDist([c.q, c.r], [0, 0]) <= lake) b.remove(c.q, c.r);
-      else c.max = rollMax(rng);
-    }
-    const protectedLand = (c: Slot) => Array.from({ length: seats }, (_, p) => turn + 2 * p).some(side =>
-      hexDist([c.q, c.r], rot([reach, 0], side)) <= 2 ||
-      hexDist([c.q, c.r], rot([reach + 1, 0], side + 1)) <= 1);
-    if (rng.bool()) {
-      // Keep a continuous outer ridge, but punctuate the interior with isolated sinkholes.
-      const inland = rng.shuffle(b.all().filter(c => !protectedLand(c)));
-      let holes = 1 + rng.int(3);
-      for (const c of inland) {
-        if (holes === 0) break;
-        if (!DIRS.every(([dq, dr]) => b.get(c.q + dq, c.r + dr))) continue;
-        if (b.carve(c)) holes--;
+    const syms = seatSymmetries(seats);
+    for (let attempt = 0; attempt <= 40; attempt++) {
+      const b = highlandsAttempt(rng, k, seats, radius, syms, attempt === 40);
+      if (b) {
+        b.rotate(turn);
+        return b;
       }
-    } else {
-      // A single basin with coves and a ragged outer ridge.
-      const coves = rng.shuffle(b.all().filter(c => hexDist([c.q, c.r], [0, 0]) === lake + 1 && !protectedLand(c)));
-      const rim = rng.shuffle(b.all().filter(c => hexDist([c.q, c.r], [0, 0]) === reach + 2 && !protectedLand(c)));
-      for (const c of [...coves.slice(0, 1 + rng.int(4)), ...rim.slice(0, 3 + rng.int(8))]) b.carve(c);
     }
-    for (let p = 0; p < seats; p++) {
-      const side = turn + 2 * p;
-      const peak = rot([reach, 0], side);
-      for (const c of b.all()) if (hexDist([c.q, c.r], peak) <= 1) Object.assign(c, { max: 12, power: 2 });
-      b.set(...peak, { objective: true, power: 3 });
-      for (const at of [[reach, 0], [reach + 1, 0]] as Ax[]) b.set(...rot(at, side + 1), { owner: p, power: p ? 5 : kp(rng, k) });
-    }
-    return b;
+    throw new Error(`highlands: no layout for ${seats} seats`);
   },
 
   /** Two neighboring strongholds face each other; many small rival colonies share the southern flank. */
@@ -1266,10 +1664,49 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
       for (const c of b.all()) if (hexDist([c.q, c.r], home) <= 2)
         Object.assign(c, { owner: p, power: p ? 7 : kp(rng, k) });
     }
-    // Paired single-cell flags: the gap between pairs prevents the flank becoming another solid front.
-    for (const r of [4, 6]) for (const q of [-5, -2, 1]) {
-      b.set(...rot([q, r], turn), { owner: 0, power: 2 });
-      b.set(...rot([q + 1, r], turn), { owner: 1, power: 2 });
+    // A solid off-axis patch dealt like crowded land: both sides get as many colonies and the same
+    // powers. Of a few balanced shuffles, the one with the most, smallest same-side colonies is kept, so the
+    // flank is thoroughly mixed rather than a second front or a row of isolated flags.
+    const patch: Ax[] = [];
+    for (let r = 4; r <= 7; r++) for (let q = -5; q <= 1; q++) patch.push(rot([q, r], turn));
+    const clumping = (owner: Map<string, number>) => {
+      let score = 0;
+      const colonies = [0, 0];
+      const seen = new Set<string>();
+      for (const at of patch) {
+        if (seen.has(key(...at))) continue;
+        seen.add(key(...at));
+        const stack = [at];
+        let size = 0;
+        while (stack.length) {
+          const [q, r] = stack.pop()!;
+          size++;
+          for (const [dq, dr] of DIRS) {
+            const n = key(q + dq, r + dr);
+            if (owner.get(n) === owner.get(key(q, r)) && !seen.has(n)) {
+              seen.add(n);
+              stack.push([q + dq, r + dr]);
+            }
+          }
+        }
+        score += size * size;
+        colonies[owner.get(key(...at))!]++;
+      }
+      // every side should own several separate colonies, not one sprawling second front
+      return score + (Math.min(...colonies) < 3 ? 1e6 : 0);
+    };
+    let deal = new Map<string, number>();
+    let best = Infinity;
+    for (let attempt = 0; attempt < 48; attempt++) {
+      const owner = new Map(rng.shuffle([...patch]).map((at, i) => [key(...at), i % 2]));
+      const score = clumping(owner);
+      if (score < best) [best, deal] = [score, owner];
+    }
+    const powers = Array.from({ length: patch.length / 2 }, () => 1 + rng.int(3));
+    const hands = [rng.shuffle([...powers]), rng.shuffle([...powers])];
+    for (const at of patch) {
+      const p = deal.get(key(...at))!;
+      b.set(...at, { owner: p, power: hands[p].pop()! });
     }
     return b;
   },
@@ -1389,13 +1826,18 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     return b;
   },
 
-  /** Six climbers around a mountain; its slopes are rich and walled, with one path up from each side. */
+  /**
+   * Climbers around a walled mountain with a path up on every side; its slopes are rich (roomy, empty
+   * cells). Three marked shrines on the summit decide the match: hold two until your next turn. Three
+   * and six seats get the crown (between the paths) or, for three, the inner ring (by the summit cell);
+   * four get the heart and two crown shrines on the line between the facing pairs; five the crown.
+   */
   olympus(rng, k, seats) {
     const b = new Board();
-    b.disk(6);
+    const radius = seats <= 3 ? 5 : 6;
+    b.disk(radius);
     for (const c of b.all()) {
       const d = hexDist([c.q, c.r], [0, 0]);
-      // the mountain is rich: roomy cells (up to 12), empty and free for whoever climbs first
       c.max = d <= 2 ? 12 : rollMax(rng, 0.2);
     }
     // the mountain wall: a path up in each of the six directions
@@ -1404,12 +1846,21 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
       for (const [dq, dr] of DIRS) if (hexDist([c.q + dq, c.r + dr], [0, 0]) === 3) b.wall([c.q, c.r], [c.q + dq, c.r + dr]);
     }
     const turn = rng.int(6);
-    for (let p = 0; p < seats; p++) {
-      const at = rot([5, 0], p + turn);
+    const sides = seatSides(seats, turn);
+    sides.forEach((side, p) => {
+      const at = rot([radius - 1, 0], side);
       for (const c of b.all())
-        if (hexDist([c.q, c.r], at) <= 1 && hexDist([c.q, c.r], [0, 0]) >= 5) Object.assign(c, { owner: p, power: p === 0 ? kp(rng, k) : 3 });
-    }
-    for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 6 && c.owner === NEUTRAL && rng.float() < 0.3) b.remove(c.q, c.r);
+        if (hexDist([c.q, c.r], at) <= 1 && hexDist([c.q, c.r], [0, 0]) >= radius - 1) Object.assign(c, { owner: p, power: p === 0 ? kp(rng, k) : 3 });
+    });
+    // the shrines, turned with the seats: the crown sits behind the wall between two paths, the inner
+    // ring by the summit cell on the paths' axes, the heart line runs between the facing pairs of four
+    const crown: Ax[] = [0, 2, 4].map(i => rot([1, 1], turn + i));
+    const shrines = seats === 4 ? [[0, 0] as Ax, rot([1, 1], turn), rot([-1, -1], turn)]
+      : seats === 3 && rng.bool() ? [0, 2, 4].map(i => rot([1, 0], turn + 1 + i))
+        : crown;
+    for (const at of shrines) b.set(...at, { objective: true, power: 2 });
+    // a ragged edge, never leaving a rim cell hanging by another one
+    for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === radius && c.owner === NEUTRAL && rng.float() < 0.3) b.carve(c);
     return b;
   },
 
@@ -1502,27 +1953,62 @@ export function landingOrderComp(seats: number, _size: FieldSize, given?: OrderC
 }
 
 /**
+ * Turn-order compensation of the equal-seat scenarios by seat count. Olympus and the highlands give
+ * later seats the ordinary battle's extra first income (engine.seatBonus per start cell); in the dark
+ * valleys the first move decides the race to the clearings, so extra income barely helps there. Measured
+ * with Master in every seat, 40–80 games per line (scripts/scenario-sim.ts): without a compensation the
+ * first mover won 40 of 40 two-seat valleys and 22–33 of 40 three-seat ones.
+ */
+const SEAT_COMP: Partial<Record<ScenarioId, (seats: number) => OrderComp | null>> = {
+  olympus: (n) => defaultOrderComp(n, 1),
+  highlands: (n) => defaultOrderComp(n, 1),
+  // two seats: the first mover sits out its first attack, with 4 more income (46 : 34 of 80);
+  // more seats: a snake order (three seats: 30 / 26 / 24 of 80)
+  moonvale: (n) => n === 2 ? { skip: 1, bonus: [4, 0] } : { order: 'snake' },
+  // two seats: the first mover sits out its first attack (without: 40 of 40 for it; with: 51 : 69 of 120);
+  // three or four: a snake order (26 / 23 / 31 of 80; 18 / 21 / 18 / 23); five or six, where a snake
+  // hands the game to the last seats (6: 4 / 8 / 11 / 16 / 20 / 21 of 80), the first two sit out their
+  // first attack (5: 21 / 15 / 21 / 15 / 8 of 80; 6: 33 / 16 / 26 / 14 / 11 / 20 of 120)
+  fireflies: (n) => n === 2 ? { skip: 1, bonus: [0, 1] } : n <= 4 ? { order: 'snake' } : { skip: 2 },
+  // three seats: 3 extra cells' worth per later seat (without: 16 / 15 / 9 of 40; with: 12 / 11 / 17)
+  archipelago: (n) => defaultOrderComp(n, n === 3 ? 3 : 1),
+};
+
+/** The turn-order compensation of an equal-seat scenario (given: that one; 'off': none), or null. */
+export function scenarioOrderComp(id: ScenarioId, seats: number, given?: OrderComp | 'off'): OrderComp | null {
+  const comp = SEAT_COMP[id];
+  if (comp === undefined || given === 'off') return null;
+  return given ?? comp(seats);
+}
+
+/**
  * Build the starting position of a scenario (deterministic for a seed). `players` replaces the
  * recommended seat types (seat 0 is you; as many seats as recommended, or any number the scenario
  * allows when it is configurable); `config` picks the size and modes of a configurable scenario.
  */
-function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig, historical = false): MatchState {
+function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig, historical = false, order?: number[]): MatchState {
   const meta = SCENARIO_META[id];
   const seats = players ?? meta.players;
   if (!seatsFit(id, seats.length)) throw new Error(`${id}: ${meta.players.length} seats, got ${seats.length}`);
   const { size, unions } = scenarioSetup(id, config);
   const rng = new Rng(seed);
-  const comp = id === 'landing' ? landingOrderComp(seats.length, size, config?.orderComp) : null;
-  const legacyBuilder = historical && (id === 'crossroads' || id === 'highlands') ? LEGACY_FRONTIER_BUILDERS[id] : null;
-  const board = legacyBuilder ? legacyBuilder(rng, knob ?? scenarioKnob(id, size), seats.length) :
+  const comp = id === 'landing' ? landingOrderComp(seats.length, size, config?.orderComp)
+    : historical ? null : scenarioOrderComp(id, seats.length, config?.orderComp);
+  const legacyBuilder = historical ? LEGACY_BUILDERS[id] : undefined;
+  const board = legacyBuilder ? legacyBuilder(rng, knob ?? DAILY_KNOB[id] ?? scenarioKnob(id, size), seats.length) :
     BUILDERS[id](rng, knob ?? scenarioKnob(id, size), seats.length, size, { comp, even: !!config?.even });
   board.unchoke();
   const { field, objectives } = board.toField(size);
+  if (order) {
+    // the map is built for the given seats (your stronger start included); only the turn order moves
+    const seatOf = new Map(order.map((from, to) => [from, to]));
+    for (const c of field.cells) if (c.owner >= 0) c.owner = seatOf.get(c.owner)!;
+  }
   const state = createMatch(
     {
       kind: 'single',
       size,
-      players: [...seats],
+      players: order ? order.map((i) => seats[i]) : [...seats],
       darkness: !!meta.darkness,
       symmetry: false,
       crowded: !!meta.crowded,
@@ -1553,14 +2039,22 @@ export function buildDailyScenario(id: ScenarioId, seed: number): MatchState {
  * A new match for these settings: the scenario named in `settings.puzzle` (with the given seats, kind
  * of match and, when the scenario is configurable, size and unions), or an ordinary generated map.
  */
-export function startMatch(settings: MatchSettings, seed = randomSeed()): MatchState {
+export function startMatch(settings: MatchSettings, seed = randomSeed(), seatOrder?: number[]): MatchState {
   // a match of one never ends (nobody is left to beat): refuse it rather than start it
   if (!Array.isArray(settings.players) || settings.players.length < 2) throw new RangeError('a match needs at least 2 players');
-  if (!isScenarioId(settings.puzzle)) return createMatch(settings, { seed });
-  // a configurable scenario has equal seats, so "shuffle players" may decide who moves first
-  const shuffle = !!settings.shuffle && !!SCENARIO_META[settings.puzzle].configurable;
-  const players = shuffle ? new Rng((seed ^ 0x2545f491) >>> 0).shuffle([...settings.players]) : settings.players;
-  const st = buildScenario(settings.puzzle, seed, undefined, players, { size: settings.size, unions: settings.unions });
+  const id = settings.puzzle;
+  if (!isScenarioId(id)) {
+    return createMatch(seatOrder ? { ...settings, players: seatOrder.map((i) => settings.players[i]) } : settings, { seed });
+  }
+  // a configurable scenario has the same climb for every seat, so "shuffle players" may decide who moves first
+  const shuffle = !!settings.shuffle && !!SCENARIO_META[id].configurable;
+  const order = seatOrder ?? (shuffle ? new Rng((seed ^ 0x2545f491) >>> 0).shuffle([...settings.players.keys()]) : undefined);
+  const config = { size: settings.size, unions: settings.unions };
+  const st = !order ? buildScenario(id, seed, undefined, settings.players, config)
+    // the night drop builds its turn-order compensation into the squads: its seats are dealt before the drop
+    : id === 'landing' ? buildScenario(id, seed, undefined, order.map((i) => settings.players[i]), config)
+    // elsewhere the design favours your seat (the difficulty knob): build it for you, then move the turn order
+    : buildScenarioInternal(id, seed, undefined, settings.players, config, false, order);
   st.settings = { ...st.settings, kind: settings.kind, turnTime: settings.turnTime, ...(shuffle ? { shuffle: true } : {}) };
   return st;
 }

@@ -1,5 +1,5 @@
 import { cellsOf, targetsFrom, winChance } from '../core/engine';
-import { objectiveCount } from '../core/objectives';
+import { objectiveCount, objectiveHolders, objectiveWinCount } from '../core/objectives';
 import type { MatchState } from '../core/types';
 import type { AttackMove, Bot } from './types';
 
@@ -24,7 +24,7 @@ export function withObjectiveTactics(base: Bot): Bot {
       if (!s.objectives) return base.nextAttack(s, ctx);
       if (s.ended || s.phase !== 'attack') return null;
       const { cells } = s.field, d = routes(s);
-      const defending = objectiveCount(s, s.current) >= 2;
+      const defending = objectiveCount(s, s.current) >= objectiveWinCount(s);
       let best: AttackMove | null = null, high = -Infinity;
       for (const from of cellsOf(s, s.current)) for (const to of targetsFrom(s, from)) {
         const chance = winChance(cells[from].power, cells[to].power);
@@ -34,7 +34,7 @@ export function withObjectiveTactics(base: Bot): Bot {
           s.objectives!.includes(i) && cells[i].owner === s.current && winChance(cells[to].power, cells[i].power) > 0,
         );
         if (!point && !threat && (defending || d[to] >= d[from] || chance < 0.75)) continue;
-        const breaksHold = point && cells[to].owner === s.objectiveHolder;
+        const breaksHold = point && objectiveHolders(s).includes(cells[to].owner) && objectiveCount(s, cells[to].owner) === objectiveWinCount(s);
         const score = (breaksHold ? 10000 : threat ? 2000 : point ? 1000 : 0) + 100 * chance - 5 * d[to] + cells[from].power;
         if (score > high) { high = score; best = { from, to }; }
       }

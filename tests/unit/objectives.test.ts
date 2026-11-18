@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { attack, checkStuck, concede, createMatch, endAttack, finishEarly, finishTurn } from '../../src/core/engine';
+import { attack, checkEnd, checkStuck, concede, createMatch, endAttack, finishEarly, finishTurn } from '../../src/core/engine';
 import { NEUTRAL, SIZE_ORDER, type Field, type FieldSize, type MatchSettings, type MatchState } from '../../src/core/types';
 import { createBot } from '../../src/ai';
 import { stateHash } from '../../src/net/protocol';
 import { battleHash, parseBattleMessage, BATTLE_PROTOCOL_VERSION } from '../../src/net/battleProtocol';
 import { startMatch } from '../../src/core/scenarios';
 import { applyBattleAction, localizeBattleState, previewBattleMatch } from '../../src/net/battleRules';
-import { chooseFrontierPoints } from '../../src/core/objectives';
+import { chooseFrontierPoints, frontierConfig, objectiveHolders, objectiveWinCount } from '../../src/core/objectives';
 import { articulationPoints } from '../../src/core/connectivity';
 import { isMatchState } from '../../src/storage';
 import { expectAllSame, makeRoom, reloadGuest, send } from './battleHelpers';
@@ -33,6 +33,30 @@ describe('generated frontiers', () => {
     return d as number[];
   };
 
+  it('normalizes requested point counts, majority defaults and independent win counts', () => {
+    expect(frontierConfig({})).toEqual({ pointCount: 3, winCount: 2 });
+    expect(frontierConfig({ frontierPointCount: 4 })).toEqual({ pointCount: 4, winCount: 3 });
+    expect(frontierConfig({ frontierPointCount: 9 })).toEqual({ pointCount: 9, winCount: 5 });
+    expect(frontierConfig({ frontierPointCount: 9, frontierWinCount: 1 })).toEqual({ pointCount: 9, winCount: 1 });
+    expect(frontierConfig({ frontierPointCount: 2, frontierWinCount: 7 })).toEqual({ pointCount: 3, winCount: 3 });
+    expect(frontierConfig({ frontierPointCount: 20, frontierWinCount: -4 })).toEqual({ pointCount: 9, winCount: 1 });
+    expect(frontierConfig({ frontierPointCount: NaN, frontierWinCount: 'oops' })).toEqual({ pointCount: 3, winCount: 2 });
+  });
+
+  it('chooses 3–9 reachable targets without consuming battle dice, including crowded starts', () => {
+    for (const pointCount of [3, 4, 6, 9]) for (const crowded of [false, true]) {
+      const cfg = { ...settings('S', 6, crowded), frontierPointCount: pointCount };
+      const on = startMatch(cfg, 17);
+      const off = startMatch({ ...cfg, frontierMode: false }, 17);
+      expect(on.objectives).toHaveLength(pointCount);
+      expect(new Set(on.objectives).size).toBe(pointCount);
+      expect(on.objectives!.every(i => on.field.cells[i].owner === NEUTRAL && on.field.cells[i].power === (crowded ? 3 : 0) && !on.field.starts.includes(i))).toBe(true);
+      expect(on.rng).toEqual(off.rng);
+      expect(on.objectives).toEqual(startMatch(cfg, 17).objectives);
+      expect(objectiveWinCount(on)).toBe(Math.floor(pointCount / 2) + 1);
+    }
+  });
+
   it('chooses three reachable, separated, neutral non-leaf targets without altering battle dice', () => {
     for (const size of SIZE_ORDER) for (let count = 2; count <= 6; count++) for (const symmetry of [false, true]) for (const seed of [3, 19]) {
       const off = startMatch({ ...settings(size, count, false, symmetry), frontierMode: false }, seed);
@@ -49,6 +73,20 @@ describe('generated frontiers', () => {
     }
   });
 
+  it('uses single-cell chokepoints only after every open candidate is taken', () => {
+    const field: Field = {
+      // 0 and 8 are bases; 3, 6 and 7 are cut vertices between the triangles 0-1-2 and 4-5-6.
+      size: 'S', w: 9, h: 1, walls: [], starts: [0, 8],
+      cells: Array.from({ length: 9 }, (_, i) => ({ id: i, x: i, y: 0, maxPower: 8, power: 0, owner: i === 0 ? 0 : i === 8 ? 1 : NEUTRAL })),
+      adj: [[1, 2], [0, 2, 3], [0, 1, 3], [1, 2, 4, 5], [3, 5, 6], [3, 4, 6], [4, 5, 7], [6, 8], [7]],
+    };
+    expect(articulationPoints(field.adj).sort()).toEqual([3, 6, 7]);
+    expect(chooseFrontierPoints(field, 4).sort()).toEqual([1, 2, 4, 5]);
+    const five = chooseFrontierPoints(field, 5);
+    expect(five).toEqual(expect.arrayContaining([1, 2, 4, 5]));
+    expect(five).toHaveLength(5);
+  });
+
   it('does not place a target on a single-cell chokepoint when better choices exist', () => {
     const state = startMatch(settings('S', 2, false, false), 24699);
     const cuts = articulationPoints(state.field.adj);
@@ -63,7 +101,8 @@ describe('generated frontiers', () => {
       const off = startMatch({ ...settings('S', count, true), frontierMode: false }, 17);
       expect(on.objectives).toHaveLength(3);
       expect(on.rng).toEqual(off.rng);
-      expect(on.objectives!.every(i => on.field.cells[i].owner === NEUTRAL && on.field.cells[i].power === 0)).toBe(true);
+      // a garrison of 3 against dealt cells of 2
+      expect(on.objectives!.every(i => on.field.cells[i].owner === NEUTRAL && on.field.cells[i].power === 3)).toBe(true);
       const totals = on.settings.players.map((_, seat) => on.field.cells.filter(c => c.owner === seat).length);
       expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1);
       expect(off.field.cells.every(c => c.owner >= 0)).toBe(true);
@@ -95,24 +134,101 @@ describe('generated frontiers', () => {
       expect(isMatchState(bad)).toBe(false);
       expect(parseBattleMessage(wire(bad))).toBeNull();
     }
-    expect(BATTLE_PROTOCOL_VERSION).toBe(8);
+    expect(BATTLE_PROTOCOL_VERSION).toBe(9);
   });
 
   it('previews exactly the map and seat shuffle that the online host starts', async () => {
-    const room = await makeRoom({ players: ['human', 'online', 'hunter', 'master'], size: 'M', seed: 27, shuffle: true, frontierMode: true });
+    const room = await makeRoom({ players: ['human', 'online', 'hunter', 'master'], size: 'M', seed: 27, shuffle: true, frontierMode: true, frontierPointCount: 7, frontierWinCount: 3 });
     try {
       const preview = previewBattleMatch(room.host.settings, 27).state;
       expect(room.host.start()).toBe(true);
-      expect(preview.objectives).toHaveLength(3);
+      expect(preview.objectives).toHaveLength(7);
+      expect(objectiveWinCount(room.host.state!)).toBe(3);
       expect(preview.objectives).toEqual(room.host.state?.objectives);
       expect(preview.field).toEqual(room.host.state?.field);
       expect(preview.settings.players).toEqual(room.host.state?.settings.players);
       await room.hub.flush();
       expect(room.guests[0].g.state?.objectives).toEqual(preview.objectives);
+      expect(objectiveWinCount(room.guests[0].g.state!)).toBe(3);
     } finally {
       room.guests.forEach(g => g.g.dispose());
       room.host.dispose();
     }
+  });
+});
+
+describe('independent frontier holds', () => {
+  const configured = () => {
+    const s = board({ puzzle: undefined, frontierMode: true, frontierPointCount: 4, frontierWinCount: 1 });
+    s.objectives = [1, 2, 4, 5];
+    s.field.cells[2].owner = 1;
+    return s;
+  };
+
+  it('arms each qualifying seat and wins only at the first real return to that seat', () => {
+    const s = configured();
+    expect(objectiveWinCount(s)).toBe(1);
+    pass(s); expect(objectiveHolders(s)).toEqual([0]);
+    pass(s); expect(objectiveHolders(s)).toEqual([0, 1]);
+    expect(s.ended).toBeNull();
+    expect(isMatchState(JSON.parse(JSON.stringify(s)))).toBe(true);
+    pass(s); expect(objectiveHolders(s)).toEqual([0, 1]);
+    expect(s.ended).toMatchObject({ reason: 'objective', winner: 0 });
+  });
+
+  it('revokes only the broken hold, including when its points are reacquired before return', () => {
+    const s = configured();
+    pass(s); pass(s);
+    s.field.cells[1].owner = 1;
+    checkEnd(s);
+    expect(objectiveHolders(s)).toEqual([1]);
+    s.field.cells[1].owner = 0;
+    checkEnd(s);
+    pass(s); expect(s.current).toBe(0); expect(s.ended).toBeNull();
+    expect(objectiveHolders(s)).toEqual([1, 2]);
+    pass(s); expect(s.current).toBe(1);
+    expect(s.ended).toMatchObject({ reason: 'objective', winner: 1 });
+  });
+
+  it('hashes additional holders and rejects inconsistent settings and saved holds on both channels', () => {
+    const s = configured();
+    pass(s); pass(s);
+    expect(objectiveHolders(s)).toEqual([0, 1]);
+    expect(battleHash({ ...s, objectiveHoldersExtra: undefined })).not.toBe(battleHash(s));
+    expect(stateHash({ ...s, objectiveHoldersExtra: undefined })).not.toBe(stateHash(s));
+    const wire = (state: unknown) => ({ t: 'bSync', matchId: 'room', seat: 0, seq: 3, state, roster: [] });
+    for (const bad of [
+      { ...s, settings: { ...s.settings, frontierPointCount: 3 } },
+      { ...s, settings: { ...s.settings, frontierWinCount: 5 } },
+      { ...s, settings: { ...s.settings, frontierPointCount: 4.5 } },
+      { ...s, objectives: [1, 1, 4, 5] },
+      { ...s, objectiveHoldersExtra: [0] },
+      { ...s, objectiveHoldersExtra: [1, 1] },
+      { ...s, objectiveHoldersExtra: [3] },
+      { ...s, objectiveHoldersExtra: [1], field: { ...s.field, cells: s.field.cells.map((c, i) => i === 2 ? { ...c, owner: 0 } : c) } },
+    ]) {
+      expect(isMatchState(bad)).toBe(false);
+      expect(parseBattleMessage(wire(bad))).toBeNull();
+    }
+    expect(parseBattleMessage(wire(s))).not.toBeNull();
+  });
+
+  it('a bot below a custom threshold keeps pushing from its own points', async () => {
+    const s = board({ puzzle: undefined, frontierMode: true, frontierPointCount: 4, frontierWinCount: 3, players: ['human', 'hunter'] });
+    s.objectives = [1, 2, 4, 5];
+    s.current = 1;
+    s.field.cells.forEach((c, i) => { c.owner = [0, 0, 1, -1, -1, 1][i] ?? -1; c.power = [4, 1, 8, 0, 0, 1][i] ?? 0; });
+    const bot = createBot('hunter');
+    expect(await bot.nextAttack(s, { speedMs: 0 })).toEqual({ from: 2, to: 1 });
+    bot.dispose?.();
+  });
+
+  it('keeps named three-of-two puzzles even when custom settings are present', () => {
+    const s = board({ frontierPointCount: 9, frontierWinCount: 1 });
+    expect(objectiveWinCount(s)).toBe(2);
+    expect(isMatchState(JSON.parse(JSON.stringify(s)))).toBe(true);
+    attack(s, 1, 2, { win: true }); pass(s);
+    expect(objectiveHolders(s)).toEqual([0]);
   });
 });
 

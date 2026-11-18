@@ -7,7 +7,7 @@ import { getSettings, navigate, updateSettings, useSettings, type Launch, type R
 import { playerName } from '../names';
 import { playerColor } from '../theme';
 import { alivePlayers, anyAttackLeft, canSpectate, cellCount, isPersonType, scoreOf, spectateCopy } from '../../core/engine';
-import { objectiveCount } from '../../core/objectives';
+import { objectiveCount, objectiveHolders, objectiveWinCount } from '../../core/objectives';
 import type { ConcedeChoice, MatchState } from '../../core/types';
 import { countGame } from '../../sitestats';
 import { addRecord, awardMedal, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
@@ -15,14 +15,18 @@ import { matchMedal, type MedalTier } from '../../medals';
 import { Medal } from '../components/Medal';
 import { createMatch, withFreshDice } from '../../core/engine';
 import { createDailyAttempt } from '../../daily';
-import { startMatch } from '../../core/scenarios';
+import { isKnownScenarioId, isScenarioId, SCENARIO_META, startMatch } from '../../core/scenarios';
+import { goalText, ruleKeys, RulesList, scenarioDesc } from '../components/ScenarioInfo';
+import { orderCompHint } from '../orderHint';
 import { Modal } from '../components/controls';
 import {
   IconSkip,
   IconFlag,
   IconBot,
   IconShare,
+  IconDice,
   IconHome,
+  IconInfo,
   IconPause,
   IconPlay,
   IconRestart,
@@ -80,6 +84,10 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const [viewingBoard, setViewingBoard] = useState(false);
   /** a scenario medal this match has just earned (or turned to gold) */
   const [newMedal, setNewMedal] = useState<MedalTier | null>(null);
+  /** the scenario's description and rules, opened from the HUD at any time */
+  const [info, setInfo] = useState(false);
+  const infoRef = useRef(false);
+  infoRef.current = info;
   const online = launch.online as OnlineBinding | undefined;
 
   const ctrl = useMemo(() => {
@@ -169,15 +177,14 @@ export function GameScreen({ launch }: { launch: Launch }) {
     });
     const unbind = online?.bind(ctrl);
     // puzzle: show the goal at the start (a guest in a battle room plays another seat)
-    const pz = ctrl.state.settings.puzzle;
-    if (pz && !online?.remoteDriven && ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack') {
-      ctrl.showHint(`${t(`puzzle_${pz}` as 'puzzle_siege')}: ${t(`puzzleDesc_${pz}` as 'puzzleDesc_siege')}`, undefined, 6000);
-    } else {
-      // the turn-order compensation is invisible on the board at the start: say it once
-      const c = ctrl.state.settings.orderComp;
-      const top = c && c !== 'off' ? Math.max(0, ...(c.bonus ?? [])) : 0;
-      if (top > 0 && ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack') ctrl.showHint(t('orderBonusHint', { b: top }), undefined, 5000);
-    }
+    const pz = isKnownScenarioId(ctrl.state.settings.puzzle) ? ctrl.state.settings.puzzle : null;
+    // the turn-order compensation is invisible on the board at the start: say it once
+    const orderHint = orderCompHint(ctrl.state.settings.orderComp);
+    const atStart = ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack';
+    if (pz && !online?.remoteDriven && atStart) {
+      const goal = `${t(`puzzle_${pz}` as 'puzzle_siege')}: ${scenarioDesc(pz, ctrl.state.settings.kind === 'daily')}`;
+      ctrl.showHint(orderHint ? `${goal} ${orderHint}` : goal, undefined, orderHint ? 9000 : 6000);
+    } else if (orderHint && atStart) ctrl.showHint(orderHint, undefined, 5000);
     if (isSaveable(ctrl.state) && !ctrl.state.ended) saveGame({ state: ctrl.state, initial: launch.initial });
     // test/debug hook
     (window as unknown as { __infweb?: unknown }).__infweb = { ctrl, renderer: r };
@@ -185,6 +192,14 @@ export function GameScreen({ launch }: { launch: Launch }) {
     const key = (e: KeyboardEvent) => {
       // Let the focused fire button handle Enter/Space as a native action, not the end-turn shortcut.
       if ((e.key === 'Enter' || e.key === ' ') && (e.target as HTMLElement)?.closest?.('[data-testid="signal-fire"]')) return;
+      if (infoRef.current) {
+        // the info window takes the keys while it is open
+        if (e.key === 'Escape' || e.key === 'Enter') {
+          e.preventDefault();
+          setInfo(false);
+        }
+        return;
+      }
       if (e.key === 'Escape') {
         if (ctrl.overlay.kind === 'pause') ctrl.resume();
         else if (ctrl.pickingFire) ctrl.toggleFirePicker();
@@ -314,13 +329,19 @@ export function GameScreen({ launch }: { launch: Launch }) {
     }
   };
 
+  // a scenario of this device (still in the gallery): its info, and its own ways to play again
+  const pz = isKnownScenarioId(s.settings.puzzle) ? s.settings.puzzle : null;
+  const playable = !online && s.settings.kind === 'single' && isScenarioId(pz) ? pz : null;
+
   const quickRematch = () => {
     if (s.settings.kind === 'battleOnline') {
       // a new online battle starts from the setup (this room is finished: close it)
       online?.onLeaveEnded?.();
       navigate({ name: 'setup' });
     } else if (s.settings.kind === 'single') {
-      const st = startMatch(setupToSettings(loadSetup()));
+      const setup = loadSetup();
+      // a scenario match plays its own scenario again, even if the setup has moved on since (a resumed match)
+      const st = startMatch(playable && setup.scenario !== playable ? launch.initial.settings : setupToSettings(setup));
       navigate({ name: 'game', launch: { state: st, initial: structuredClone(st) } });
     } else newGame();
   };
@@ -335,6 +356,11 @@ export function GameScreen({ launch }: { launch: Launch }) {
           <button class="side-btn" aria-label={t('pause')} onClick={() => ctrl.pause()} style={{ width: 40, height: 40, borderRadius: 12 }}>
             <IconPause />
           </button>
+          {pz && (
+            <button class="side-btn" aria-label={t('scenarioInfo')} title={t('scenarioInfo')} data-testid="scenario-info-btn" onClick={() => setInfo(true)} style={{ width: 40, height: 40, borderRadius: 12 }}>
+              <IconInfo />
+            </button>
+          )}
           <div class="scorebar" aria-hidden="true">
             {scores.map((sc, i) =>
               sc > 0 ? <div key={i} style={{ flexGrow: sc / totalScore, background: playerColor(i) }} /> : null,
@@ -364,10 +390,19 @@ export function GameScreen({ launch }: { launch: Launch }) {
           })}
         </div>
         {s.objectives && !s.ended && (
-          <div class="hud-row" data-testid="objective-hud" role="status" style={{ justifyContent: 'center', textAlign: 'center', fontSize: 13 }}>
-            {t(s.objectiveHolder === undefined ? 'objectiveGoal' : 'objectivePending', {
-              name: playerName(s.settings, s.objectiveHolder ?? cur), n: objectiveCount(s, s.objectiveHolder ?? cur),
-            })}
+          <div class="hud-row" data-testid="objective-hud" role="status" style={{ flexDirection: 'column', justifyContent: 'center', textAlign: 'center', fontSize: 13 }}>
+            {(() => {
+              // every seat with a winning hold pending, else the seat to move
+              const holders = objectiveHolders(s);
+              const seats = holders.length ? holders : [cur];
+              return seats.map((seat) => (
+                <div key={seat}>
+                  {t(holders.length ? 'objectivePending' : 'objectiveGoal', {
+                    name: playerName(s.settings, seat), n: objectiveCount(s, seat), total: s.objectives!.length, k: objectiveWinCount(s),
+                  })}
+                </div>
+              ));
+            })()}
           </div>
         )}
         {online?.Extra && <online.Extra ctrl={ctrl} />}
@@ -572,6 +607,31 @@ export function GameScreen({ launch }: { launch: Launch }) {
         </Modal>
       )}
 
+      {info && pz && (
+        <Modal onBackdrop={() => setInfo(false)}>
+          <div class="scenario-info" data-testid="scenario-info">
+            <div class="kicker">{t('scenarioKicker')}</div>
+            <h2>{t(`puzzle_${pz}` as 'puzzle_siege')}</h2>
+            <p>{scenarioDesc(pz, s.settings.kind === 'daily')}</p>
+            {orderCompHint(s.settings.orderComp) && <p class="order-note">{orderCompHint(s.settings.orderComp)}</p>}
+            <RulesList
+              // the rules this match is played with
+              keys={ruleKeys({
+                blind: s.settings.blind,
+                darkness: s.settings.darkness,
+                objectives: !!s.objectives,
+                crowded: s.settings.crowded,
+                unions: s.settings.unions && launch.initial.settings.players.filter(isPersonType).length < 2,
+              })}
+              goal={goalText(s.objectives ? { k: objectiveWinCount(s), n: s.objectives.length } : null)}
+            />
+          </div>
+          <button class="btn primary" onClick={() => setInfo(false)}>
+            {t('ok')}
+          </button>
+        </Modal>
+      )}
+
       {ov.kind === 'result' && s.ended && !viewingBoard && (
         <ResultModal
           ctrl={ctrl}
@@ -580,6 +640,9 @@ export function GameScreen({ launch }: { launch: Launch }) {
           onRestart={!online && s.settings.kind !== 'daily' ? restartSame : undefined}
           onNew={s.settings.kind !== 'duelOnline' ? quickRematch : undefined}
           onViewBoard={() => setViewingBoard(true)}
+          // a scenario: a new variation of a map that changes, the same map again for a fixed one
+          again={playable ? (SCENARIO_META[playable].varied ? 'variation' : 'same') : undefined}
+          onScenarios={() => navigate({ name: 'setup' })}
           onWatch={!online && canSpectate(s) ? watchBots : undefined}
           medal={newMedal}
           extra={online?.ResultActions ? <online.ResultActions ctrl={ctrl} /> : null}
@@ -678,6 +741,8 @@ function ResultModal({
   onRestart,
   onNew,
   onViewBoard,
+  again,
+  onScenarios,
   onWatch,
   medal,
   extra,
@@ -687,6 +752,8 @@ function ResultModal({
   onRestart?: () => void;
   onNew?: () => void;
   onViewBoard: () => void;
+  again?: 'variation' | 'same';
+  onScenarios: () => void;
   onWatch?: () => void;
   medal: MedalTier | null;
   extra: preact.JSX.Element | null;
@@ -743,7 +810,7 @@ function ResultModal({
           </div>
         </div>
       )}
-      {end.reason === 'objective' && <p data-testid="objective-result">{t('objectiveVictory', { name: playerName(s.settings, end.winner) })}</p>}
+      {end.reason === 'objective' && <p data-testid="objective-result">{t('objectiveVictory', { name: playerName(s.settings, end.winner), k: objectiveWinCount(s) })}</p>}
       {end.reason === 'concede' && s.settings.kind === 'duelOnline' && end.humanWon && <p>{t('oppConceded')}</p>}
       {end.reason === 'timeout' && end.humanWon && <p>{t('timeoutWin')}</p>}
       {spectate && <p class="muted" style={{ textAlign: 'center', margin: 0 }}>{t('spectateNote')}</p>}
@@ -776,10 +843,20 @@ function ResultModal({
           )}
       </div>
       {extra}
-      {onNew && (
-        <button class="btn primary" onClick={onNew}>
-          {s.settings.kind === 'daily' ? t('dailyRetry') : s.settings.kind === 'duelTraining' || s.settings.kind === 'duelLocal' ? t('newDuel') : t('newGame')}
+      {again === 'variation' && onNew ? (
+        <button class="btn primary" data-testid="play-again" onClick={onNew}>
+          <IconDice width={18} height={18} /> {t('newVariation')}
         </button>
+      ) : again === 'same' && onRestart ? (
+        <button class="btn primary" data-testid="play-again" onClick={onRestart}>
+          <IconRestart width={18} height={18} /> {t('playAgain')}
+        </button>
+      ) : (
+        onNew && (
+          <button class="btn primary" onClick={onNew}>
+            {s.settings.kind === 'daily' ? t('dailyRetry') : s.settings.kind === 'duelTraining' || s.settings.kind === 'duelLocal' ? t('newDuel') : t('newGame')}
+          </button>
+        )
       )}
       {onWatch && (
         <button class="btn small" onClick={onWatch} data-testid="watch-bots">
@@ -793,10 +870,17 @@ function ResultModal({
         <button class="btn ghost" onClick={onMenu}>
           <IconHome width={18} height={18} /> {t('toMenu')}
         </button>
-        {onRestart && (
-          <button class="btn ghost" onClick={onRestart}>
-            <IconRestart width={18} height={18} /> {t('replayShort')}
+        {again === 'same' && onRestart ? (
+          // "again" is the main action already: offer the other scenarios instead
+          <button class="btn ghost" onClick={onScenarios}>
+            {t('toScenarios')}
           </button>
+        ) : (
+          onRestart && (
+            <button class="btn ghost" onClick={onRestart}>
+              <IconRestart width={18} height={18} /> {t('replayShort')}
+            </button>
+          )
         )}
       </div>
     </Modal>

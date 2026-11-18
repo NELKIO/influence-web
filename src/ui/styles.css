@@ -407,6 +407,132 @@ button {
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
+/* range slider (setting list) */
+.list-item.slider-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.slider-value {
+  min-width: 44px;
+  padding: 3px 10px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.slider:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--surface-3) var(--fill, 0%));
+}
+
+.slider::-moz-range-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-3);
+}
+
+.slider::-moz-range-progress {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -8px;
+  border-radius: 50%;
+  border: none;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s;
+}
+
+.slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.slider:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+
+.slider:focus-visible {
+  outline: none;
+}
+
+.slider:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.slider:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.slider-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-hint {
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.frontier-sliders {
+  border-bottom: 1px solid var(--hair);
+}
+
+.frontier-sliders:last-child {
+  border-bottom: none;
+}
+
+.frontier-sliders .list-item {
+  padding-left: 28px;
+}
+
 /* ---------------------------------------------------------------- menu */
 
 .menu-screen {
@@ -2268,7 +2394,7 @@ button {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--hair));
 }
 
-.scenario-pick svg[aria-hidden] {
+.scenario-pick .pick-map > svg {
   margin: 2px 0 6px;
 }
 
@@ -2672,4 +2798,302 @@ button {
   font-size: 11px;
   font-weight: 800;
   line-height: 1.3;
+}
+
+/* ---------------------------------------------------------------- scenario gallery: sections, tags, rules */
+
+/* a section heading spans the whole gallery grid */
+.puzzle-section {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin: 10px 4px 0;
+}
+
+.puzzle-section:first-child {
+  margin-top: 0;
+}
+
+.puzzle-section .t {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.puzzle-section .d {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* difficulty: five short bars, as on the map of the day */
+.pips {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pips i {
+  width: 6px;
+  height: 4px;
+  border-radius: 1.5px;
+  background: var(--surface-3);
+}
+
+.pips i.on {
+  background: color-mix(in srgb, var(--bad) 85%, var(--text));
+}
+
+/* on a card the difficulty takes the corner opposite the medal */
+.card-level {
+  position: absolute;
+  top: 11px;
+  left: 10px;
+  line-height: 0;
+}
+
+@media (min-width: 520px) {
+  .card-level {
+    top: 13px;
+    left: 12px;
+  }
+}
+
+.puzzle-card .name {
+  line-height: 1.25;
+}
+
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: auto;
+}
+
+.card-tags .meta {
+  margin: 0 2px 0 0;
+}
+
+.rtag {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--hair);
+  color: var(--muted);
+}
+
+/* rule colours, shared by tags, chips and the rules list */
+.tag-darkness,
+.tag-blind {
+  color: #b9c2ff;
+}
+
+.rtag.tag-darkness,
+.rtag.tag-blind,
+.rule-icon.tag-darkness,
+.rule-icon.tag-blind {
+  background: #0b0d1c;
+  border-color: rgba(150, 160, 255, 0.18);
+}
+
+.tag-objectives {
+  color: #ffcf78;
+}
+
+.tag-varied {
+  color: color-mix(in srgb, var(--good) 75%, var(--text));
+}
+
+.tag-unions {
+  color: color-mix(in srgb, var(--p4) 70%, var(--text));
+}
+
+.tag-crowded {
+  color: color-mix(in srgb, var(--p5) 70%, var(--text));
+}
+
+.chip.tag-objectives,
+.chip.tag-varied,
+.chip.tag-unions,
+.chip.tag-crowded {
+  border-color: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+/* what the card icons mean */
+.tag-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: -2px 4px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tag-legend .item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+/* the chosen scenario: its goal, difficulty and a fresh map */
+.scenario-goal {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--hair);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.scenario-goal svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.scenario-goal b {
+  font-weight: 800;
+}
+
+.scenario-head .kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scenario-head .kicker .pips i {
+  width: 8px;
+  height: 5px;
+}
+
+.reroll-btn {
+  align-self: flex-start;
+}
+
+.pick-map {
+  animation: pickMapIn 0.35s ease-out;
+}
+
+@keyframes pickMapIn {
+  from {
+    opacity: 0.25;
+    transform: scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pick-map {
+    animation: none;
+  }
+}
+
+/* read-only scenario rules (the modes step, the in-game info) */
+.rules-list .list-item {
+  align-items: flex-start;
+  min-height: 0;
+}
+
+.rule-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--bg-2);
+  border: 1px solid var(--hair);
+}
+
+.rule-icon:not([class*='tag-']) {
+  color: var(--muted);
+}
+
+.rule-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.rule-icon:empty {
+  visibility: hidden;
+}
+
+.rule-icon.goal {
+  color: var(--accent);
+}
+
+/* the scenario info in a match */
+.scenario-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100dvh - 180px);
+  overflow-y: auto;
+}
+
+.scenario-info .kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: center;
+}
+
+.scenario-info p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.scenario-info p.order-note {
+  font-size: 13px;
+  font-style: italic;
+}
+
+.scenario-info .rules-list {
+  background: var(--bg-2);
+}
+
+.scenario-info .rule-icon {
+  background: var(--surface);
+}
+
+/* phones: three tags and the seats still fit one line of a third of the screen */
+@media (max-width: 519px) {
+  .card-tags {
+    gap: 3px;
+  }
+
+  .card-tags .rtag {
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+  }
+
+  .card-tags .rtag svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  .card-tags .meta {
+    gap: 3px;
+    margin-right: 1px;
+  }
 }

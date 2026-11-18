@@ -34,8 +34,9 @@ import type { AttackRefusal, ConcedeChoice, MatchEnd, MatchSettings, MatchState,
  * 6: strength-balanced division, signal fires and objective victories.
  * 7: a guest's fire request is bound to the turn it was sent in.
  * 8: generated frontier targets are included in anonymous battle snapshots.
+ * 9: configurable frontier counts and concurrent objective holds.
  */
-export const BATTLE_PROTOCOL_VERSION = 8;
+export const BATTLE_PROTOCOL_VERSION = 9;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =

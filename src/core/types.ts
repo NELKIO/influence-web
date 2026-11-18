@@ -85,8 +85,12 @@ export interface MatchSettings {
   darkness: boolean;
   symmetry: boolean;
   crowded: boolean;
-  /** Three neutral graph-spaced points to capture and hold (generated ordinary battles only). */
+  /** Neutral graph-spaced points to capture and hold (generated ordinary battles only). */
   frontierMode?: boolean;
+  /** Number of generated frontier points (3–9; omitted means three). */
+  frontierPointCount?: number;
+  /** Points needed to hold; omitted means a strict majority. */
+  frontierWinCount?: number;
   unions: boolean;
   shuffle: boolean;
   /** duel rules: income = biggest group, greys first, no unions */
@@ -172,10 +176,12 @@ export interface MatchState {
   signalFireCells?: number[];
   /** cell index of the currently selected cell (UI convenience, kept in state for bots/continuation) */
   selected: number;
-  /** Three marked field indices on Crossroads and Highlands. */
+  /** Marked field indices on named puzzles or generated frontier battles. */
   objectives?: number[];
-  /** Seat that ended its turn controlling at least two points and has not lost that majority. */
+  /** First seat with a pending hold; legacy saves use this field alone. */
   objectiveHolder?: number;
+  /** Other seats with pending holds when the threshold allows several at once. */
+  objectiveHoldersExtra?: number[];
   chronicle: Chronicle;
   /** per slot: eliminated at round (or -1) */
   outAt: number[];

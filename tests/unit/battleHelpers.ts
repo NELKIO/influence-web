@@ -33,6 +33,8 @@ export interface RoomOptions {
   signalFires?: boolean;
   shuffle?: boolean;
   frontierMode?: boolean;
+  frontierPointCount?: number;
+  frontierWinCount?: number;
   unions?: boolean;
   duelRules?: boolean;
   /** how many guests join (default: one per online seat) */
@@ -55,6 +57,8 @@ export function battleSettings(o: RoomOptions): MatchSettings {
     unions: o.unions ?? false,
     shuffle: o.shuffle ?? false,
     ...(o.frontierMode && { frontierMode: true }),
+    ...(o.frontierPointCount !== undefined && { frontierPointCount: o.frontierPointCount }),
+    ...(o.frontierWinCount !== undefined && { frontierWinCount: o.frontierWinCount }),
     duelRules: o.duelRules ?? false,
     turnTime: o.turnTime ?? 0,
     ...(o.puzzle ? { puzzle: o.puzzle } : {}),

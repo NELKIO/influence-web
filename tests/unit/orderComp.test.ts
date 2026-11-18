@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createBot } from '../../src/ai';
 import { runMatch } from '../../src/ai/arena';
 import { autoPower, createMatch, defaultOrderComp, endAttack, finishTurn, roundOrder, seatBonus } from '../../src/core/engine';
-import { buildScenario, SCENARIOS, startMatch } from '../../src/core/scenarios';
+import { buildScenario, scenarioOrderComp, SCENARIOS, startMatch } from '../../src/core/scenarios';
 import { seatsMedal } from '../../src/medals';
 import { createDailyMatch, dailyKind, dailySettings, dayId } from '../../src/daily';
 import type { FieldSize, MatchSettings, OrderComp, PlayerType } from '../../src/core/types';
@@ -122,12 +122,33 @@ describe('turn-order compensation in ordinary battles', () => {
     expect(roundOrder({ ...base, players }, 1)).toEqual([0, 1, 2, 3]);
   });
 
-  it('scenarios keep their own seats (only the night drop is compensated)', () => {
+  it('scenarios keep their own seats (only the night drop and equal-seat scenarios are compensated)', () => {
     for (const id of SCENARIOS) {
       const st = buildScenario(id, 3);
       if (id === 'landing') expect(st.settings.orderComp).toEqual(defaultOrderComp(st.settings.players.length, 3));
+      else if (scenarioOrderComp(id, st.settings.players.length)) expect(st.settings.orderComp).toEqual(scenarioOrderComp(id, st.settings.players.length));
       else expect(st.settings.orderComp).toBeUndefined();
     }
+    expect(scenarioOrderComp('olympus', 6)).toEqual(defaultOrderComp(6));
+    expect(scenarioOrderComp('olympus', 6, 'off')).toBeNull();
+    expect(buildScenario('olympus', 3, undefined, undefined, { orderComp: 'off' }).settings.orderComp).toBeUndefined();
+    expect(scenarioOrderComp('siege', 2)).toBeNull();
+  });
+
+  it('the moonless valley evens the race to the clearings by seat count (measured with bots on the server)', () => {
+    // two seats: the first mover sits out its first attack but gets 4 more income
+    expect(scenarioOrderComp('moonvale', 2)).toEqual({ skip: 1, bonus: [4, 0] });
+    // more seats: every other round is played backwards
+    for (const n of [3, 4, 5, 6]) expect(scenarioOrderComp('moonvale', n)).toEqual({ order: 'snake' });
+    const st = startMatch({ ...base, size: 'L', players: seats(4), puzzle: 'moonvale', darkness: true, blind: true }, 9);
+    expect(roundOrder(st.settings, 1)).toEqual([3, 2, 1, 0]);
+    expect(scenarioOrderComp('fireflies', 2)).toEqual({ skip: 1, bonus: [0, 1] });
+    for (const n of [3, 4]) expect(scenarioOrderComp('fireflies', n)).toEqual({ order: 'snake' });
+    for (const n of [5, 6]) expect(scenarioOrderComp('fireflies', n)).toEqual({ skip: 2 });
+    expect(scenarioOrderComp('archipelago', 3)).toEqual({ bonus: [0, 3, 6] });
+    expect(scenarioOrderComp('archipelago', 6)).toEqual(defaultOrderComp(6));
+    // published maps of the day keep their old order
+    expect(createDailyMatch('2026-11-26').settings.orderComp).toBeUndefined();
   });
 });
 

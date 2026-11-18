@@ -6,6 +6,7 @@ import { createDailyAttempt, createDailyMatch, dailyLevel, dayId, dayNumber, par
 import { loadDaily, loadSavedGame } from '../../storage';
 import { IconBack, IconArrow } from '../components/icons';
 import { SecretMap } from '../components/MiniMap';
+import { scenarioDesc } from '../components/ScenarioInfo';
 import { useDiscardGuard } from '../components/DiscardGuard';
 import { sfx, unlockAudio } from '../../audio/sfx';
 import { playerName } from '../names';
@@ -135,7 +136,7 @@ export function DailyScreen() {
           {puzzle && (
             <div class="puzzle-brief">
               <div class="title">{t(`puzzle_${puzzle}` as 'puzzle_siege')}</div>
-              <div class="desc">{t(`puzzleDesc_${puzzle}` as 'puzzleDesc_siege')}</div>
+              <div class="desc">{scenarioDesc(puzzle, true)}</div>
             </div>
           )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

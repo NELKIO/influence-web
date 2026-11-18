@@ -1,7 +1,7 @@
 import { Rng, randomSeed } from './rng';
 import { generateField } from './field';
 import { splitTerritories } from './splitTerritories';
-import { chooseFrontierPoints, interruptObjectiveHold, objectiveHandoff } from './objectives';
+import { chooseFrontierPoints, frontierConfig, interruptObjectiveHold, objectiveHandoff, objectiveHolders } from './objectives';
 import {
   DIFFICULTY,
   NEUTRAL,
@@ -107,18 +107,25 @@ function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
   });
   if (comp && !(s.crowded && !s.duelRules)) applyStartComp(field, chosen, comp);
   const objectives = s.frontierMode && !s.puzzle && !s.duelRules && (s.kind === 'single' || s.kind === 'battleOnline')
-    ? chooseFrontierPoints(field) : undefined;
+    ? chooseFrontierPoints(field, frontierConfig(s).pointCount) : undefined;
   if (s.crowded && !s.duelRules) {
     const order = rng.shuffle(field.cells.map((_, i) => i));
     let dealt = 0;
     order.forEach((ci) => {
-      if (objectives?.includes(ci)) return;
+      if (objectives?.includes(ci)) {
+        // a garrison stronger than any dealt cell: points are won after reinforcing, not grabbed in the first round
+        field.cells[ci].power = CROWDED_POINT_GARRISON;
+        return;
+      }
       field.cells[ci].owner = dealt++ % n;
       field.cells[ci].power = 2;
     });
   }
   return objectives;
 }
+
+/** Power of a neutral control point on a crowded map (dealt cells have 2). */
+const CROWDED_POINT_GARRISON = 3;
 
 /**
  * Turn-order compensation (measured with scripts/seat-bias.ts): who moves first in a round has an
@@ -627,7 +634,7 @@ export function checkStuck(state: MatchState): StuckOffer | null {
   if (total <= 0.8 * max) return null;
   const mine = cellCount(state, state.current);
   const percent = (mine / state.field.cells.length) * 100;
-  if (state.objectives) return state.objectiveHolder === undefined ? { percent, enough: false, draw: true } : null;
+  if (state.objectives) return objectiveHolders(state).length === 0 ? { percent, enough: false, draw: true } : null;
   // alone against bots (the original rule): a fair share of the field wins, less loses
   if (humansAlive(state).length <= 1) return { percent, enough: percent >= 100 / alive.length };
   // with other people still in the match the leader takes it; a first place shared by a person is a draw
@@ -654,7 +661,7 @@ export function finishEarly(state: MatchState, offer: StuckOffer): void {
   if (state.ended) return;
   const end = { reason: 'early' as const, turn: state.turn };
   if (state.objectives) {
-    if (state.objectiveHolder === undefined) state.ended = { ...end, winner: -1, humanWon: false, draw: true };
+    if (objectiveHolders(state).length === 0) state.ended = { ...end, winner: -1, humanWon: false, draw: true };
     return;
   }
   if (offer.enough) {

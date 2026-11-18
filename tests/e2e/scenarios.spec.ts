@@ -22,11 +22,11 @@ const gameInfo = (page: Page) =>
 test('a scenario is selected, not started: seats are fixed, a bot level can be changed, start plays it', async ({ page }) => {
   const errors = await fresh(page);
   await openSetup(page);
-  await page.locator('[data-scenario="olympus"]').click();
+  await page.locator('[data-scenario="laststand"]').click();
   // still on the setup screen, with the scenario shown on top and the size picker gone
-  await expect(page.getByTestId('scenario-pick')).toContainText('Олимп');
+  await expect(page.getByTestId('scenario-pick')).toContainText('Последний рубеж');
   await expect(page.getByTestId('scenario-pick')).toContainText('6 игроков');
-  await expect(page.locator('[data-scenario="olympus"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-scenario="laststand"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.size-grid')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Другая карта' })).toHaveCount(0);
 
@@ -41,14 +41,14 @@ test('a scenario is selected, not started: seats are fixed, a bot level can be c
   // the choice is remembered
   await page.getByRole('button', { name: 'Назад' }).click();
   await openSetup(page);
-  await expect(page.getByTestId('scenario-pick')).toContainText('Олимп');
+  await expect(page.getByTestId('scenario-pick')).toContainText('Последний рубеж');
   await page.locator('.steps button').nth(1).click();
   await expect(page.locator('.type-pick').first().locator('button.on')).toHaveText('Охотник');
 
   await page.getByRole('button', { name: /^В бой/ }).first().click();
   await waitGame(page);
   const info = await gameInfo(page);
-  expect(info.puzzle).toBe('olympus');
+  expect(info.puzzle).toBe('laststand');
   expect(info.players).toEqual(['human', 'hunter', 'hunter', 'god', 'hunter', 'master']);
   expect(info.darkness).toBe(false);
   await expectNoErrors(errors);
@@ -59,13 +59,13 @@ test('a scenario locks the modes', async ({ page }) => {
   await openSetup(page);
   await page.locator('[data-scenario="titans"]').click();
   await page.locator('.steps button').nth(2).click();
-  await expect(page.locator('.locked-note')).toContainText('Режимы задаёт сценарий «Меж двух титанов»');
-  const switches = page.getByRole('switch');
-  await expect(switches).toHaveCount(4);
-  for (let i = 0; i < 4; i++) await expect(switches.nth(i)).toBeDisabled();
-  // darkness off, symmetry off, crowded off, unions on
-  await expect(switches.nth(0)).toHaveAttribute('aria-checked', 'false');
-  await expect(switches.nth(3)).toHaveAttribute('aria-checked', 'true');
+  // the modes are the scenario's rules, listed read-only: unions on, nothing else, nothing to switch
+  await expect(page.getByText('Правила сценария')).toBeVisible();
+  const rules = page.getByTestId('scenario-rules');
+  await expect(rules.locator('[data-rule]')).toHaveCount(2);
+  await expect(rules.locator('[data-rule="goal"]')).toBeVisible();
+  await expect(rules.locator('[data-rule="unions"]')).toContainText('Союзы');
+  await expect(page.getByRole('switch')).toHaveCount(0);
   await page.getByRole('button', { name: /В бой · 3 игрока/ }).click();
   await waitGame(page);
   const info = await gameInfo(page);
@@ -100,7 +100,7 @@ test('night drop starts in darkness at a random spot; quick start and hot-seat h
   await openSetup(page);
   await page.locator('[data-scenario="landing"]').click();
   // the preview gives nobody away
-  await expect(page.getByTestId('scenario-pick')).toContainText('Тьма');
+  await expect(page.getByTestId('scenario-pick')).toContainText('Абсолютная тьма');
   await expect(page.getByTestId('scenario-pick').locator('polygon[fill^="var(--p"]')).toHaveCount(0);
   await page.getByRole('button', { name: /^В бой/ }).first().click();
   await waitGame(page);
@@ -180,10 +180,10 @@ test('night drop can be configured: size, unions and seats persist and reach the
   await expect(page.locator('.player-row')).toHaveCount(4);
   await expect(page.locator('.type-pick').nth(2).locator('button.on')).toHaveText('Охотник');
 
-  // modes: darkness and the uncharted map stay locked, unions can be switched on
+  // modes: absolute darkness is the scenario's rule (read-only), unions can be switched on
   await page.locator('.steps button').nth(2).click();
-  await expect(page.locator('.list.locked .toggle').first()).toBeDisabled();
-  await expect(page.locator('.list.locked')).toContainText('Неизведанная карта');
+  await expect(page.getByTestId('scenario-rules')).toContainText('Абсолютная тьма');
+  await expect(page.getByRole('switch')).toHaveCount(1);
   await page.getByTestId('scenario-unions').locator('.toggle').click();
   await expect(page.getByTestId('scenario-unions').locator('.toggle')).toHaveClass(/on/);
 
@@ -200,6 +200,49 @@ test('night drop can be configured: size, unions and seats persist and reach the
   expect(info.cells).toBeGreaterThan(240);
   await expectNoErrors(errors);
 });
+
+for (const [id, recommended] of [['moonvale', 'Большая'], ['fireflies', 'Огромная']] as const) {
+  test(`${id} can be sized and seated like the night drop, and both reach the match`, async ({ page }) => {
+    const errors = await fresh(page, { confirmEnd: false });
+    await openSetup(page);
+    await page.locator(`[data-scenario="${id}"]`).click();
+    const size = page.getByTestId('scenario-size');
+    await expect(size.getByRole('radio')).toHaveText(['Большая', 'Огромная', 'Гигантская']);
+    await expect(size.getByRole('radio', { name: recommended })).toHaveAttribute('aria-checked', 'true');
+    await size.getByRole('radio', { name: 'Гигантская' }).click();
+    // the map stays secret in the preview whatever the size
+    await expect(page.getByTestId('scenario-pick').locator('[data-unknown-map]')).toBeVisible();
+    await page.locator('.steps button').nth(1).click();
+    await expect(page.locator('.player-row')).toHaveCount(3);
+    await page.getByRole('button', { name: 'Убрать' }).first().click();
+    await expect(page.locator('.player-row')).toHaveCount(2);
+    await expect(page.getByRole('button', { name: 'Убрать' })).toHaveCount(0);
+    for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Добавить соперника' }).click();
+    await expect(page.locator('.player-row')).toHaveCount(6);
+    await expect(page.getByRole('button', { name: 'Добавить соперника' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Убрать' }).first().click();
+    await page.reload();
+    await expect(page.getByTestId('scenario-pick')).toContainText('5 игроков');
+    await page.getByRole('button', { name: /^В бой/ }).first().click();
+    await waitGame(page);
+    const big = await gameInfo(page);
+    expect(big).toMatchObject({ puzzle: id, size: 'XXL', darkness: true });
+    expect(big.players).toHaveLength(5);
+    // fewer gods on the same size get a smaller valley
+    await page.goto('./');
+    await openSetup(page);
+    await page.locator(`[data-scenario="${id}"]`).click();
+    await page.locator('.steps button').nth(1).click();
+    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Убрать' }).first().click();
+    await page.getByRole('button', { name: /^В бой/ }).first().click();
+    await page.locator('.modal').getByRole('button').last().click();
+    await waitGame(page);
+    const small = await gameInfo(page);
+    expect(small.players).toHaveLength(2);
+    expect(small.cells).toBeLessThan(big.cells);
+    await expectNoErrors(errors);
+  });
+}
 
 /** Seen cells of a seat (exploration fog) and how many cells the board drew in its last frame. */
 const fogInfo = (page: Page, seat: number) =>
@@ -339,5 +382,35 @@ test('map of the day: a night drop day shows no map, old results and the streak 
     return { kind: s.settings.kind, puzzle: s.settings.puzzle, blind: s.settings.blind, players: s.settings.players };
   });
   expect(info).toEqual({ kind: 'daily', puzzle: 'landing', blind: true, players: ['human', 'god', 'master', 'hunter', 'master', 'hunter'] });
+  await expectNoErrors(errors);
+});
+
+test('two-seat moonless valley: the first mover is told it sits out its first attack, and gets +4', async ({ page }) => {
+  const errors = await fresh(page, { confirmEnd: false });
+  await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ shuffle: false, rev: 2, scenario: 'moonvale', scenarioSeats: { moonvale: ['human', 'master'] } })));
+  await page.reload();
+  await openSetup(page);
+  await expect(page.getByTestId('scenario-pick')).toContainText('2 игрока');
+  await page.getByRole('button', { name: /^В бой/ }).first().click();
+  await waitGame(page);
+  await expect(page.locator('.hint', { hasText: 'пропускает атаку в первом раунде' })).toBeVisible();
+  const start = await page.evaluate(() => {
+    const s = (window as any).__infweb.ctrl.state;
+    return { comp: s.settings.orderComp, current: s.current, players: s.settings.players, owners: s.field.cells.map((c: { owner: number }) => c.owner).join() };
+  });
+  expect(start).toMatchObject({ comp: { skip: 1, bonus: [4, 0] }, current: 0, players: ['human', 'master'] });
+  // no cell of yours can attack: the only way on is to end the attack, and the reinforcement carries the +4
+  await page.getByRole('button', { name: 'Завершить атаку' }).first().click();
+  const after = await page.evaluate(() => {
+    const s = (window as any).__infweb.ctrl.state;
+    const own = s.field.cells.filter((c: { owner: number }) => c.owner === 0).length;
+    return { phase: s.phase, powerLeft: s.powerLeft, own, owners: s.field.cells.map((c: { owner: number }) => c.owner).join() };
+  });
+  expect(after.phase).toBe('power');
+  expect(after.owners).toBe(start.owners);
+  expect(after.powerLeft).toBe(after.own + 4);
+  // the rule stays in the scenario info
+  await page.getByTestId('scenario-info-btn').click();
+  await expect(page.getByTestId('scenario-info')).toContainText('пропускает атаку');
   await expectNoErrors(errors);
 });

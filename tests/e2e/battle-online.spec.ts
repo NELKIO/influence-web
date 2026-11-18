@@ -160,13 +160,13 @@ test('generated frontiers: the host preview matches both online boards with shuf
   const base = `${baseURL}?transport=bc`;
   const host = await context.newPage();
   const guest = await context.newPage();
-  await setup(host, base, { ...HOST_SETUP, players: ['human', 'online'], symmetry: false, shuffle: true, frontierMode: true });
+  await setup(host, base, { ...HOST_SETUP, players: ['human', 'online'], symmetry: false, shuffle: true, frontierMode: true, frontierPoints: 6, frontierWin: 2 });
   await setup(guest, base);
   await host.bringToFront();
   await host.getByText('Новая битва').click();
   const preview = host.locator('.map-preview');
   const marks = preview.locator('[data-objective]');
-  await expect(marks).toHaveCount(3);
+  await expect(marks).toHaveCount(6);
   const expected = {
     marks: await marks.evaluateAll(nodes => nodes.map(n => Number(n.getAttribute('data-objective')))),
     cells: await preview.locator('svg polygon:not([data-objective])').count(),
@@ -182,8 +182,10 @@ test('generated frontiers: the host preview matches both online boards with shuf
     await expect(page.locator('canvas')).toBeVisible();
     expect(await page.evaluate(() => {
       const s = (window as any).__infweb.ctrl.state;
-      return { marks: s.objectives, cells: s.field.cells.length };
-    })).toEqual(expected);
+      return { marks: s.objectives, cells: s.field.cells.length, n: s.settings.frontierPointCount, k: s.settings.frontierWinCount };
+    })).toEqual({ ...expected, n: 6, k: 2 });
+    await expect(page.getByTestId('objective-hud')).toContainText('/6');
+    await expect(page.getByTestId('objective-hud')).toContainText('удержите 2');
   }
   expect(await board(guest)).toBe(await board(host));
 });

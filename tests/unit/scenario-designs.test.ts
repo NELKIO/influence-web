@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildScenario, isScenarioId, SCENARIOS } from '../../src/core/scenarios';
+import { buildDailyScenario, buildScenario, isScenarioId, SCENARIO_META, SCENARIOS, seatsFit } from '../../src/core/scenarios';
 import { canAttackFrom, exploredCells, visibleCells } from '../../src/core/engine';
 import { hexNeighbours } from '../../src/core/field';
+import { articulationPoints } from '../../src/core/connectivity';
+import { OBJECTIVE_PUZZLES } from '../../src/core/objectivePuzzles';
 import type { Field } from '../../src/core/types';
 
 const additions = ['moonvale', 'fireflies', 'crossroads', 'highlands', 'colonies', 'farshore', 'sparks', 'pinwheel'] as const;
@@ -71,7 +73,7 @@ describe('new scenario designs', () => {
     for (const seed of seeds) {
       const st = buildScenario(id, seed);
       for (const p of st.settings.players.keys()) expect(owned(st.field, p).some(i => canAttackFrom(st, i))).toBe(true);
-      if (id !== 'crossroads' && id !== 'highlands') expect(st.objectives).toBeUndefined();
+      if (!OBJECTIVE_PUZZLES.has(id)) expect(st.objectives).toBeUndefined();
     }
   });
 
@@ -160,8 +162,15 @@ describe('new scenario designs', () => {
 
   it('colonies: balanced neighboring cores face an intermingled off-axis patch of small holdings', () => {
     for (const seed of seeds) {
-      const { field: f, settings } = buildScenario('colonies', seed);
+      // the difficulty knob only weakens your base; at the neutral knob both sides are equal
+      const handicapped = buildScenario('colonies', seed).field;
+      const { field: f, settings } = buildScenario('colonies', seed, 7);
       expect(settings.players).toHaveLength(2);
+      expect(handicapped.cells.map(c => c.owner)).toEqual(f.cells.map(c => c.owner));
+      handicapped.cells.forEach((c, i) => {
+        if (c.owner === 1) expect(c.power).toBe(f.cells[i].power);
+        if (c.owner === 0) expect(c.power).toBeLessThanOrEqual(f.cells[i].power);
+      });
       const [ours, theirs] = [components(f, 0), components(f, 1)];
       expect(owned(f, 0).length).toBe(owned(f, 1).length);
       const power = (p: number) => owned(f, p).reduce((sum, i) => sum + f.cells[i].power, 0);
@@ -170,8 +179,8 @@ describe('new scenario designs', () => {
       expect(theirs[0].length).toBeGreaterThanOrEqual(7);
       expect(Math.min(...ours[0].map(i => distances(f, theirs[0])[i]))).toBeLessThanOrEqual(3);
       for (const groups of [ours, theirs]) {
-        expect(groups.slice(1).length).toBeGreaterThanOrEqual(4);
-        expect(groups.slice(1).every(g => g.length <= 2)).toBe(true);
+        expect(groups.slice(1).length).toBeGreaterThanOrEqual(3);
+        expect(groups.slice(1).every(g => g.length < groups[0].length / 2)).toBe(true);
         const far = distances(f, groups[0]);
         expect(groups.slice(1).every(g => g.every(i => far[i] >= 3))).toBe(true);
       }
@@ -201,7 +210,7 @@ describe('new scenario designs', () => {
     expect(bankProfiles.size).toBeGreaterThanOrEqual(3);
   });
 
-  it('highlands rolls both a single basin and additional inland sinkholes', () => {
+  it('highlands rolls an open plateau, an enclosed lake basin and separate inland sinkholes', () => {
     const basins = Array.from({ length: 24 }, (_, seed) => {
       const f = buildScenario('highlands', seed * 37 + 1).field;
       const key = (x: number, y: number) => `${x},${y}`;
@@ -224,8 +233,89 @@ describe('new scenario designs', () => {
       }
       return inland;
     });
+    expect(basins).toContain(0);
     expect(basins).toContain(1);
     expect(basins.some(n => n > 1)).toBe(true);
+  });
+
+  it('sparks rerolls into different terrain silhouettes and clustered high-power fronts', () => {
+    const shapes = new Set<string>();
+    for (let seed = 1; seed <= 24; seed++) {
+      const st = buildScenario('sparks', seed * 37), f = st.field;
+      shapes.add(normalizedShape(f));
+      for (const p of [0, 1, 2]) {
+        const hot = owned(f, p).filter(i => f.cells[i].power >= 6);
+        expect(hot.length).toBeGreaterThanOrEqual(3);
+        // power gathers in compact hotspots (no lone strong cell), and most of the land (but the spark) stays weak
+        expect(hot.every(i => f.adj[i].some(j => f.cells[j].power >= 6))).toBe(true);
+        expect(owned(f, p).filter(i => f.cells[i].power <= 2 || st.objectives!.includes(i)).length).toBeGreaterThanOrEqual(2 * hot.length);
+      }
+    }
+    expect(shapes.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('colonies fills the far flank with a dense mixed deal rather than separated pairs', () => {
+    for (const seed of seeds) {
+      const f = buildScenario('colonies', seed).field;
+      const [a, b] = [components(f, 0)[0], components(f, 1)[0]];
+      const flank = f.cells.flatMap((c, i) => c.owner >= 0 && !a.includes(i) && !b.includes(i) ? [i] : []);
+      expect(flank.length).toBeGreaterThanOrEqual(24);
+      expect(flank.filter(i => f.adj[i].some(j => flank.includes(j) && f.cells[j].owner !== f.cells[i].owner)).length)
+        .toBeGreaterThanOrEqual(16);
+    }
+  });
+
+  for (const id of ['moonvale', 'fireflies'] as const) it(`${id}: L/XL/XXL and 2–6 seats scale playable scout land`, () => {
+    const meta = SCENARIO_META[id];
+    expect(meta.configurable).toEqual({ sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: [] });
+    expect(seatsFit(id, 2)).toBe(true);
+    expect(seatsFit(id, 6)).toBe(true);
+    for (const size of ['L', 'XL', 'XXL'] as const) {
+      const areas: number[] = [];
+      for (const n of [2, 3, 6]) {
+        const players = Array.from({ length: n }, (_, p) => meta.players[p % meta.players.length]);
+        // playability of the land itself, without the first round's turn-order compensation
+        const st = buildScenario(id, 117, undefined, players, { size, unions: true, orderComp: 'off' });
+        const f = st.field;
+        expect(st.settings).toMatchObject({ size, darkness: true, blind: true, unions: false });
+        expect(buildScenario(id, 117, undefined, players, { size, orderComp: 'off' }).field).toEqual(f);
+        expect(distances(f, [0]).every(Number.isFinite)).toBe(true);
+        for (let p = 0; p < n; p++) {
+          const mine = owned(f, p);
+          expect(mine.length).toBe(id === 'moonvale' ? 4 : 3);
+          expect(mine.some(i => canAttackFrom(st, i))).toBe(true);
+          expect(mine.some(i => f.adj[i].some(j => f.cells[j].owner === -1))).toBe(true);
+        }
+        areas.push(f.cells.length);
+      }
+      expect(areas[0]).toBeLessThan(areas[1]);
+      expect(areas[1]).toBeLessThan(areas[2]);
+    }
+    const players = meta.players;
+    const sizes = (['L', 'XL', 'XXL'] as const).map(size => buildScenario(id, 117, undefined, players, { size }).field.cells.length);
+    expect(sizes[0]).toBeLessThan(sizes[1]);
+    expect(sizes[1]).toBeLessThan(sizes[2]);
+  });
+
+  it('redesigned maps never hang on a single cell', () => {
+    for (const seed of seeds) {
+      for (const id of ['sparks', 'highlands', 'colonies'] as const) expect(articulationPoints(buildScenario(id, seed).field.adj), id).toEqual([]);
+      for (const id of ['moonvale', 'fireflies'] as const) for (const n of [2, 4, 5, 6]) for (const size of ['L', 'XXL'] as const) {
+        const players = Array.from({ length: n }, (_, p) => SCENARIO_META[id].players[p % 3]);
+        expect(articulationPoints(buildScenario(id, seed, undefined, players, { size }).field.adj), `${id} ${n} ${size}`).toEqual([]);
+      }
+    }
+  });
+
+  it('keeps published daily frontier and scout layouts exactly frozen', () => {
+    const signatures = { moonvale: 'b990d1e3', fireflies: '9d29685d', sparks: 'f72c7c02', colonies: 'fb39f1f6', highlands: 'd5ef452' };
+    for (const id of Object.keys(signatures) as (keyof typeof signatures)[]) {
+      const st = buildDailyScenario(id, 117);
+      const data = JSON.stringify([st.field, st.objectives, st.settings]);
+      let hash = 2166136261;
+      for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data.charCodeAt(i), 16777619) >>> 0;
+      expect.soft(hash.toString(16), id).toBe(signatures[id]);
+    }
   });
 
   it('pinwheel: every column can strike the weak rear of a different rival on turn one', () => {

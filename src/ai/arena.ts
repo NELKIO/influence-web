@@ -54,7 +54,8 @@ function fail(msg: string): never {
 
 export function totalPower(state: MatchState): number {
   let s = 0;
-  for (const c of state.field.cells) if (c.owner >= 0) s += c.power;
+  // neutral garrisons too: a fight with one moves power between it and the attacker
+  for (const c of state.field.cells) s += c.power;
   return s;
 }
 
@@ -63,7 +64,8 @@ export function checkCells(state: MatchState): void {
   state.field.cells.forEach((c, i) => {
     if (c.owner < -1 || c.owner >= n || !Number.isInteger(c.owner)) fail(`cell ${i}: bad owner ${c.owner}`);
     if (c.owner === -1) {
-      if (c.power !== 0) fail(`cell ${i}: neutral with power ${c.power}`);
+      // neutral garrisons (scenarios, turn-order guards, crowded control points) keep their power
+      if (!(c.power >= 0 && c.power <= c.maxPower && Number.isInteger(c.power))) fail(`cell ${i}: neutral power ${c.power} out of 0..${c.maxPower}`);
     } else if (!(c.power >= 1 && c.power <= c.maxPower && Number.isInteger(c.power))) {
       fail(`cell ${i}: power ${c.power} out of 1..${c.maxPower}`);
     }
