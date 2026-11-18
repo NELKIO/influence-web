@@ -18,7 +18,22 @@ import { nextScriptedAttack } from './netHelpers';
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
+
+/** Seeded random bytes (room ids, the guest's dice), so a run is the same on every machine and load. */
+function seedRandom(seed: number) {
+  let x = seed >>> 0;
+  vi.spyOn(crypto, 'getRandomValues').mockImplementation(<T extends ArrayBufferView | null>(a: T): T => {
+    const v = a as ArrayBufferView;
+    const bytes = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+    for (let i = 0; i < bytes.length; i++) {
+      x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+      bytes[i] = x >>> 24;
+    }
+    return a;
+  });
+}
 
 const KINDS: PathKind[] = ['direct', 'nostr', 'peerrelay', 'mqtt'];
 
@@ -60,6 +75,7 @@ async function duel(
 ): Promise<Run> {
   const kinds = hooks.kinds ?? KINDS;
   vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'Date'] });
+  seedRandom(5);
   const paths = confs.map((c, i) => new LossyPath({ ...c, seed: 11 + i }));
   // until the match runs nothing is lost (the old single path cannot repair a lost setup at all)
   const drops = paths.map((p) => p.conf.drop ?? 0);
