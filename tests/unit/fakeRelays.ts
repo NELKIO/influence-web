@@ -35,12 +35,13 @@ export class FakeWs implements WsLike {
     private server: { onClientMessage(ws: FakeWs, data: string): void; onClientClose(ws: FakeWs): void },
     private latency: () => number,
   ) {}
-  /** server: accept the connection */
-  accept() {
+  /** server: accept the connection; `then` runs on the server once the socket is open */
+  accept(then?: () => void) {
     setTimeout(() => {
       if (this.readyState !== 0) return;
       this.readyState = 1;
       this.onopen?.({});
+      then?.();
     }, this.latency());
   }
   /** server: refuse the connection (e.g. HTTP 429 / unreachable) */
@@ -113,23 +114,26 @@ export class FakePeerBroker {
       ws.refuse();
       return ws;
     }
-    ws.accept();
-    setTimeout(() => {
-      if (ws.readyState !== 1) return;
-      if (this.clients.has(id)) {
-        ws.deliver(JSON.stringify({ type: 'ID-TAKEN', payload: { msg: 'ID is taken' } }));
-        setTimeout(() => ws.drop(1000), this.latencyMs * 2 + 1);
-        return;
-      }
-      this.clients.set(id, ws);
-      this.ids.set(ws, id);
-      ws.deliver(JSON.stringify({ type: 'OPEN' }));
-      for (const q of this.queued.get(id) ?? []) {
-        clearTimeout(q.timer);
-        ws.deliver(q.msg);
-      }
-      this.queued.delete(id);
-    }, this.latencyMs + 1);
+    // registration follows the accept: as two separate timers (latency, latency + 1) they may fire out of
+    // order when the event loop runs late, and a socket opened but never registered hangs without OPEN
+    ws.accept(() =>
+      setTimeout(() => {
+        if (ws.readyState !== 1) return;
+        if (this.clients.has(id)) {
+          ws.deliver(JSON.stringify({ type: 'ID-TAKEN', payload: { msg: 'ID is taken' } }));
+          setTimeout(() => ws.drop(1000), this.latencyMs * 2 + 1);
+          return;
+        }
+        this.clients.set(id, ws);
+        this.ids.set(ws, id);
+        ws.deliver(JSON.stringify({ type: 'OPEN' }));
+        for (const q of this.queued.get(id) ?? []) {
+          clearTimeout(q.timer);
+          ws.deliver(q.msg);
+        }
+        this.queued.delete(id);
+      }, 1),
+    );
     return ws;
   };
 

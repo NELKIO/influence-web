@@ -1,4 +1,5 @@
 import { chromium, expect, test, type Page } from '@playwright/test';
+import { waitGame } from './helpers';
 
 // Online battle (host + 2 guests + a bot) over BroadcastChannel: tabs of one browser, ?transport=bc.
 // The real-network variant of the same flow runs on CI with REAL_P2P=1.
@@ -180,6 +181,8 @@ test('generated frontiers: the host preview matches both online boards with shuf
   await host.getByRole('button', { name: 'Начать битву' }).click();
   for (const page of [host, guest]) {
     await expect(page.locator('canvas')).toBeVisible();
+    // the game screen paints its canvas a moment before its effect hands out the controller
+    await waitGame(page);
     expect(await page.evaluate(() => {
       const s = (window as any).__infweb.ctrl.state;
       return { marks: s.objectives, cells: s.field.cells.length, n: s.settings.frontierPointCount, k: s.settings.frontierWinCount };
