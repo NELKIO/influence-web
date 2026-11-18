@@ -3,6 +3,7 @@ import type { DarknessOptions } from '../../core/darknessOptions';
 import { SettingRow, Toggle } from './controls';
 
 type Props = { options: DarknessOptions; update: (patch: Partial<DarknessOptions>) => void };
+type FrontierProps = { options: DarknessOptions & { frontierMode?: boolean }; update: (patch: Partial<DarknessOptions & { frontierMode: boolean }>) => void };
 
 export function DarknessRow({ options, update }: Props) {
   return (
@@ -12,11 +13,16 @@ export function DarknessRow({ options, update }: Props) {
   );
 }
 
-export function ExperimentalModes({ options, update }: Props) {
+export function ExperimentalModes({ options, update }: FrontierProps) {
   return (
     <>
       <div class="section-title">{t('experimentalModes')}</div>
       <div class="list">
+        {typeof options.frontierMode === 'boolean' && (
+          <SettingRow title={t('frontierMode')} desc={t('frontierModeDesc')}>
+            <Toggle label={t('frontierMode')} on={options.frontierMode} onChange={(frontierMode) => update({ frontierMode })} />
+          </SettingRow>
+        )}
         {(['signalFires', 'blind'] as const).map((mode) => {
           const title = t(mode === 'blind' ? 'absoluteDarkness' : 'signalFires');
           return (

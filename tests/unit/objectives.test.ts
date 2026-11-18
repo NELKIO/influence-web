@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { attack, checkStuck, concede, createMatch, endAttack, finishEarly, finishTurn } from '../../src/core/engine';
-import type { MatchSettings, MatchState } from '../../src/core/types';
+import { NEUTRAL, SIZE_ORDER, type Field, type FieldSize, type MatchSettings, type MatchState } from '../../src/core/types';
 import { createBot } from '../../src/ai';
 import { stateHash } from '../../src/net/protocol';
-import { battleHash } from '../../src/net/battleProtocol';
-import { applyBattleAction, localizeBattleState } from '../../src/net/battleRules';
+import { battleHash, parseBattleMessage, BATTLE_PROTOCOL_VERSION } from '../../src/net/battleProtocol';
+import { startMatch } from '../../src/core/scenarios';
+import { applyBattleAction, localizeBattleState, previewBattleMatch } from '../../src/net/battleRules';
+import { chooseFrontierPoints } from '../../src/core/objectives';
+import { articulationPoints } from '../../src/core/connectivity';
 import { isMatchState } from '../../src/storage';
 import { expectAllSame, makeRoom, reloadGuest, send } from './battleHelpers';
 
@@ -17,6 +20,101 @@ function board(over: Partial<MatchSettings> = {}) {
   return s;
 }
 const pass = (s: MatchState) => { endAttack(s); finishTurn(s); };
+
+describe('generated frontiers', () => {
+  const settings = (size: FieldSize, count: number, crowded = false, symmetry = true): MatchSettings => ({
+    kind: 'single', size, players: ['human', ...Array.from({ length: count - 1 }, () => 'hunter' as const)],
+    darkness: false, symmetry, crowded, unions: false, shuffle: false, duelRules: false, frontierMode: true,
+  });
+  const distances = (adj: number[][], from: number) => {
+    const d = Array(adj.length).fill(Infinity); d[from] = 0;
+    const queue = [from];
+    for (const i of queue) for (const j of adj[i]) if (d[j] === Infinity) { d[j] = d[i] + 1; queue.push(j); }
+    return d as number[];
+  };
+
+  it('chooses three reachable, separated, neutral non-leaf targets without altering battle dice', () => {
+    for (const size of SIZE_ORDER) for (let count = 2; count <= 6; count++) for (const symmetry of [false, true]) for (const seed of [3, 19]) {
+      const off = startMatch({ ...settings(size, count, false, symmetry), frontierMode: false }, seed);
+      const on = startMatch(settings(size, count, false, symmetry), seed);
+      expect(off.objectives).toBeUndefined();
+      expect(on.objectives).toHaveLength(3);
+      expect(on.objectives).toEqual(startMatch(settings(size, count, false, symmetry), seed).objectives);
+      expect(on.rng).toEqual(off.rng);
+      expect(on.field).toEqual(off.field);
+      expect(on.objectives!.every(i => on.field.cells[i].owner === NEUTRAL && on.field.adj[i].length >= 2 && !on.field.starts.includes(i))).toBe(true);
+      const starts = on.field.cells.flatMap((c, i) => c.owner >= 0 ? [i] : []);
+      for (const target of on.objectives!) expect(starts.every(i => Number.isFinite(distances(on.field.adj, i)[target]))).toBe(true);
+      for (const a of on.objectives!) for (const b of on.objectives!) if (a !== b) expect(distances(on.field.adj, a)[b]).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('does not place a target on a single-cell chokepoint when better choices exist', () => {
+    const state = startMatch(settings('S', 2, false, false), 24699);
+    const cuts = articulationPoints(state.field.adj);
+    expect(cuts.length).toBeGreaterThan(0);
+    expect(state.objectives).toHaveLength(3);
+    expect(state.objectives!.some(i => cuts.includes(i))).toBe(false);
+  });
+
+  it('reserves three neutral targets before an otherwise even Crowded deal', () => {
+    for (const count of [2, 3, 4, 5, 6]) {
+      const on = startMatch(settings('S', count, true), 17);
+      const off = startMatch({ ...settings('S', count, true), frontierMode: false }, 17);
+      expect(on.objectives).toHaveLength(3);
+      expect(on.rng).toEqual(off.rng);
+      expect(on.objectives!.every(i => on.field.cells[i].owner === NEUTRAL && on.field.cells[i].power === 0)).toBe(true);
+      const totals = on.settings.players.map((_, seat) => on.field.cells.filter(c => c.owner === seat).length);
+      expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1);
+      expect(off.field.cells.every(c => c.owner >= 0)).toBe(true);
+    }
+  });
+
+  it('still returns three non-start targets when the only candidates touch each other', () => {
+    const field: Field = {
+      size: 'S', w: 5, h: 1, walls: [], starts: [0, 4],
+      cells: Array.from({ length: 5 }, (_, i) => ({ id: i, x: i, y: 0, maxPower: 8, power: 0, owner: i === 0 ? 0 : i === 4 ? 1 : NEUTRAL })),
+      adj: Array.from({ length: 5 }, (_, i) => [0, 1, 2, 3, 4].filter(j => i !== j)),
+    };
+    expect(chooseFrontierPoints(field).sort()).toEqual([1, 2, 3]);
+  });
+
+  it('validates matching options and targets on saves and online snapshots', () => {
+    const state = startMatch({ ...settings('M', 3), kind: 'battleOnline' }, 41);
+    const wire = (state: unknown) => ({ t: 'bStart', matchId: 'room', seat: 0, seq: 0, state, roster: [] });
+    expect(isMatchState(JSON.parse(JSON.stringify(state)))).toBe(true);
+    expect(parseBattleMessage(JSON.stringify(wire(state)))).not.toBeNull();
+    for (const bad of [
+      { ...state, settings: { ...state.settings, frontierMode: false } },
+      { ...state, settings: { ...state.settings, frontierMode: undefined } },
+      { ...state, settings: { ...state.settings, kind: 'duelOnline' as const }, objectives: undefined },
+      { ...state, settings: { ...state.settings, puzzle: 'titans' }, objectives: undefined },
+      { ...state, objectives: undefined },
+      { ...state, objectives: [0, 0, 0] },
+    ]) {
+      expect(isMatchState(bad)).toBe(false);
+      expect(parseBattleMessage(wire(bad))).toBeNull();
+    }
+    expect(BATTLE_PROTOCOL_VERSION).toBe(8);
+  });
+
+  it('previews exactly the map and seat shuffle that the online host starts', async () => {
+    const room = await makeRoom({ players: ['human', 'online', 'hunter', 'master'], size: 'M', seed: 27, shuffle: true, frontierMode: true });
+    try {
+      const preview = previewBattleMatch(room.host.settings, 27).state;
+      expect(room.host.start()).toBe(true);
+      expect(preview.objectives).toHaveLength(3);
+      expect(preview.objectives).toEqual(room.host.state?.objectives);
+      expect(preview.field).toEqual(room.host.state?.field);
+      expect(preview.settings.players).toEqual(room.host.state?.settings.players);
+      await room.hub.flush();
+      expect(room.guests[0].g.state?.objectives).toEqual(preview.objectives);
+    } finally {
+      room.guests.forEach(g => g.g.dispose());
+      room.host.dispose();
+    }
+  });
+});
 
 describe('hold two of three until your next turn', () => {
   it.each(['crossroads', 'highlands'])('%s: capture and passing the round boundary are not enough', puzzle => {

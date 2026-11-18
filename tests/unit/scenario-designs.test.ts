@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildScenario, isScenarioId, SCENARIOS } from '../../src/core/scenarios';
-import { canAttackFrom, visibleCells } from '../../src/core/engine';
+import { canAttackFrom, exploredCells, visibleCells } from '../../src/core/engine';
+import { hexNeighbours } from '../../src/core/field';
 import type { Field } from '../../src/core/types';
 
-const additions = ['farshore', 'moonvale', 'sparks', 'fireflies', 'crossroads', 'highlands', 'pinwheel'] as const;
+const additions = ['moonvale', 'fireflies', 'crossroads', 'highlands', 'colonies', 'farshore', 'sparks', 'pinwheel'] as const;
 const seeds = [1, 19, 42, 87, 131, 977];
 const owned = (f: Field, p: number) => f.cells.flatMap((c, i) => c.owner === p ? [i] : []);
 
@@ -21,7 +22,41 @@ function distances(f: Field, starts: number[]) {
   return dist;
 }
 
+function normalizedShape(f: Field) {
+  const axial = f.cells.map(c => [c.x - Math.floor(c.y / 2), c.y] as const);
+  const shapes = Array.from({ length: 6 }, (_, turn) => {
+    const points = axial.map(([q, r]) => {
+      for (let i = 0; i < turn; i++) [q, r] = [-r, q + r];
+      return [q, r];
+    });
+    const minQ = Math.min(...points.map(([q]) => q));
+    const minR = Math.min(...points.map(([, r]) => r));
+    return JSON.stringify(points.map(([q, r]) => `${q - minQ},${r - minR}`).sort());
+  });
+  return shapes.sort()[0];
+}
+
+function components(f: Field, p: number): number[][] {
+  const remaining = new Set(owned(f, p));
+  const groups: number[][] = [];
+  while (remaining.size) {
+    const group = [remaining.values().next().value!];
+    remaining.delete(group[0]);
+    for (let i = 0; i < group.length; i++) for (const j of f.adj[group[i]]) if (remaining.delete(j)) group.push(j);
+    groups.push(group);
+  }
+  return groups.sort((a, b) => b.length - a.length);
+}
+
 describe('new scenario designs', () => {
+  it('keeps Night Drop first and the entire frontier batch together, while only hiding Thermopylae from the gallery', () => {
+    expect(SCENARIOS.slice(0, additions.length + 1)).toEqual(['landing', ...additions]);
+    expect(SCENARIOS).not.toContain('thermopylae');
+    expect(isScenarioId('thermopylae')).toBe(false); // no longer selectable in the gallery
+    expect(buildScenario('thermopylae', 1).settings.puzzle).toBe('thermopylae');
+    expect(SCENARIOS).toContain('olympus');
+  });
+
   it('offers 32 different scenarios and still builds retired boards for past games', () => {
     expect(SCENARIOS).toHaveLength(32);
     expect(new Set(SCENARIOS).size).toBe(32);
@@ -61,6 +96,10 @@ describe('new scenario designs', () => {
       const st = buildScenario(id, seed);
       const f = st.field;
       expect(st.settings.darkness).toBe(true);
+      expect(st.settings.blind).toBe(true);
+      const known = exploredCells(st, 0);
+      expect(known).not.toBeNull();
+      expect(known!.filter(Boolean).length).toBeLessThan(f.cells.length / 2);
       for (const p of st.settings.players.keys()) {
         const mine = owned(f, p);
         const scouts = mine.filter(i => f.cells[i].power <= 2);
@@ -117,6 +156,76 @@ describe('new scenario designs', () => {
       }
     }
     expect(layouts.size).toBeGreaterThan(2);
+  });
+
+  it('colonies: balanced neighboring cores face an intermingled off-axis patch of small holdings', () => {
+    for (const seed of seeds) {
+      const { field: f, settings } = buildScenario('colonies', seed);
+      expect(settings.players).toHaveLength(2);
+      const [ours, theirs] = [components(f, 0), components(f, 1)];
+      expect(owned(f, 0).length).toBe(owned(f, 1).length);
+      const power = (p: number) => owned(f, p).reduce((sum, i) => sum + f.cells[i].power, 0);
+      expect(Math.abs(power(0) - power(1))).toBeLessThanOrEqual(8);
+      expect(ours[0].length).toBeGreaterThanOrEqual(7);
+      expect(theirs[0].length).toBeGreaterThanOrEqual(7);
+      expect(Math.min(...ours[0].map(i => distances(f, theirs[0])[i]))).toBeLessThanOrEqual(3);
+      for (const groups of [ours, theirs]) {
+        expect(groups.slice(1).length).toBeGreaterThanOrEqual(4);
+        expect(groups.slice(1).every(g => g.length <= 2)).toBe(true);
+        const far = distances(f, groups[0]);
+        expect(groups.slice(1).every(g => g.every(i => far[i] >= 3))).toBe(true);
+      }
+      const flank = [...ours.slice(1).flat(), ...theirs.slice(1).flat()];
+      expect(flank.filter(i => f.adj[i].some(j => f.cells[j].owner >= 0 && f.cells[j].owner !== f.cells[i].owner)).length)
+        .toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('crossroads and highlands: distinct terrain shapes, not just rotated objective markers', () => {
+    for (const id of ['crossroads', 'highlands'] as const) {
+      const shapes = new Set(Array.from({ length: 18 }, (_, seed) => normalizedShape(buildScenario(id, seed * 37 + 1).field)));
+      expect(shapes.size, id).toBeGreaterThanOrEqual(8);
+    }
+  });
+
+  it('crossroads changes its inner banks, not just the perimeter', () => {
+    const bankProfiles = new Set(Array.from({ length: 24 }, (_, seed) => {
+      const f = buildScenario('crossroads', seed * 37 + 1).field;
+      const midX = Math.floor((f.w - 2) / 2);
+      const occupiedRows = new Set(f.cells.filter(c => c.x === midX).map(c => c.y));
+      const first = Math.min(...occupiedRows), last = Math.max(...occupiedRows);
+      const midY = (first + last) / 2;
+      return Array.from({ length: last - first + 1 }, (_, i) => first + i)
+        .filter(y => !occupiedRows.has(y)).map(y => y - midY).join(',');
+    }));
+    expect(bankProfiles.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('highlands rolls both a single basin and additional inland sinkholes', () => {
+    const basins = Array.from({ length: 24 }, (_, seed) => {
+      const f = buildScenario('highlands', seed * 37 + 1).field;
+      const key = (x: number, y: number) => `${x},${y}`;
+      const land = new Set(f.cells.map(c => key(c.x, c.y)));
+      const empty = new Map<string, [number, number]>();
+      for (let x = -1; x <= f.w; x++) for (let y = -1; y <= f.h; y++) {
+        if (!land.has(key(x, y))) empty.set(key(x, y), [x, y]);
+      }
+      let inland = 0;
+      while (empty.size) {
+        const first = empty.values().next().value!;
+        const queue = [first];
+        empty.delete(key(...first));
+        let reachesEdge = false;
+        for (const [x, y] of queue) {
+          if (x === -1 || y === -1 || x === f.w || y === f.h) reachesEdge = true;
+          for (const n of hexNeighbours(x, y)) if (empty.delete(key(...n))) queue.push(n);
+        }
+        if (!reachesEdge) inland++;
+      }
+      return inland;
+    });
+    expect(basins).toContain(1);
+    expect(basins.some(n => n > 1)).toBe(true);
   });
 
   it('pinwheel: every column can strike the weak rear of a different rival on turn one', () => {

@@ -1,7 +1,7 @@
 import { Rng, randomSeed } from './rng';
 import { generateField } from './field';
 import { splitTerritories } from './splitTerritories';
-import { interruptObjectiveHold, objectiveHandoff } from './objectives';
+import { chooseFrontierPoints, interruptObjectiveHold, objectiveHandoff } from './objectives';
 import {
   DIFFICULTY,
   NEUTRAL,
@@ -40,7 +40,7 @@ export function createMatch(settings: MatchSettings, opts: CreateOptions = {}): 
   const field = opts.field
     ? structuredClone(opts.field)
     : generateField({ size: s.size, symmetry: s.symmetry, players: s.players.length }, rng);
-  if (!opts.keepPlacement) placeStarts(field, s, rng);
+  const objectives = !opts.keepPlacement ? placeStarts(field, s, rng) : undefined;
 
   const n = s.players.length;
   const firstHuman = s.players.findIndex(isHumanType);
@@ -48,6 +48,7 @@ export function createMatch(settings: MatchSettings, opts: CreateOptions = {}): 
     v: 1,
     settings: s,
     field,
+    ...(objectives ? { objectives } : {}),
     seed,
     rng: rng.state(),
     turn: 0,
@@ -105,13 +106,18 @@ function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
     if (p !== undefined) c.power = Math.max(1, Math.min(c.maxPower, p));
   });
   if (comp && !(s.crowded && !s.duelRules)) applyStartComp(field, chosen, comp);
+  const objectives = s.frontierMode && !s.puzzle && !s.duelRules && (s.kind === 'single' || s.kind === 'battleOnline')
+    ? chooseFrontierPoints(field) : undefined;
   if (s.crowded && !s.duelRules) {
     const order = rng.shuffle(field.cells.map((_, i) => i));
-    order.forEach((ci, i) => {
-      field.cells[ci].owner = i % n;
+    let dealt = 0;
+    order.forEach((ci) => {
+      if (objectives?.includes(ci)) return;
+      field.cells[ci].owner = dealt++ % n;
       field.cells[ci].power = 2;
     });
   }
+  return objectives;
 }
 
 /**

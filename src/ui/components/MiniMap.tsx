@@ -121,5 +121,5 @@ export function UnknownMap({ maxHeight = 200 }: { maxHeight?: number }) {
 export function SecretMap({ field, darkness, blind, objectives, maxHeight }: { field: Field; darkness?: boolean; blind?: boolean; objectives?: number[]; maxHeight?: number }) {
   if (blind) return <UnknownMap maxHeight={maxHeight} />;
   if (!darkness) return <MiniMap field={field} objectives={objectives} maxHeight={maxHeight} />;
-  return <MiniMap field={{ ...field, cells: field.cells.map((c) => ({ ...c, owner: -1, power: 0 })) }} maxHeight={maxHeight} />;
+  return <MiniMap field={{ ...field, cells: field.cells.map((c) => ({ ...c, owner: -1, power: 0 })) }} objectives={objectives} maxHeight={maxHeight} />;
 }

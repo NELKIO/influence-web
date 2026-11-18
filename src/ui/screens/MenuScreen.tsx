@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
 import { loadSavedGame, loadSetup, saveGame, setupPlayers, setupToSettings } from '../../storage';
-import { isScenarioId, startMatch } from '../../core/scenarios';
+import { isKnownScenarioId, startMatch } from '../../core/scenarios';
 import { IconArrow, IconChart, IconGear, IconPlay, IconWifi, LogoMark, ModeArt } from '../components/icons';
 import { useDiscardGuard } from '../components/DiscardGuard';
 import { AmbientBoard } from '../components/AmbientBoard';
@@ -53,7 +53,7 @@ export function MenuScreen() {
         ? t('daily')
         : s.kind.startsWith('duel')
           ? t('duels')
-          : isScenarioId(s.puzzle)
+          : isKnownScenarioId(s.puzzle)
             ? t(`puzzle_${s.puzzle}` as 'puzzle_siege')
             : t(`size${s.size}` as 'sizeM');
     return `${kind} · ${t('round', { n: saved.state.turn + 1 })}`;

@@ -1,6 +1,106 @@
 import { expect, test } from '@playwright/test';
 import { fresh, waitGame, expectNoErrors } from './helpers';
 
+test('gallery leads with Night Drop and the new maps, hiding both scout maps', async ({ page }) => {
+  const errors = await fresh(page);
+  await page.getByRole('button', { name: 'Новая битва' }).click();
+  const cards = page.locator('.puzzle-grid [data-scenario]');
+  await expect(cards).toHaveCount(32);
+  const order = await cards.evaluateAll(nodes => nodes.map(n => n.getAttribute('data-scenario')));
+  expect(order[0]).toBe('landing');
+  expect(new Set(order.slice(1, 5))).toEqual(new Set(['moonvale', 'fireflies', 'crossroads', 'highlands']));
+  expect(new Set(order.slice(1, 9))).toEqual(new Set([
+    'moonvale', 'fireflies', 'crossroads', 'highlands', 'colonies', 'farshore', 'sparks', 'pinwheel',
+  ]));
+  expect(order).not.toContain('thermopylae');
+  await expect(page.locator('[data-scenario="colonies"]')).toContainText('Колонии');
+  for (const id of ['moonvale', 'fireflies']) {
+    const card = page.locator(`[data-scenario="${id}"]`);
+    await expect(card.locator('[data-unknown-map]')).toBeVisible();
+    await card.click();
+    const picked = page.getByTestId('scenario-pick');
+    await expect(picked.locator('[data-unknown-map]')).toBeVisible();
+    await expect(picked).not.toContainText(/\d+ клет/);
+  }
+  await page.getByRole('button', { name: /^В бой/ }).first().click();
+  await waitGame(page);
+  expect(await page.evaluate(() => {
+    const { ctrl } = (window as any).__infweb;
+    const known = ctrl.view().known;
+    return ctrl.state.settings.blind && known.some(Boolean) && !known.every(Boolean);
+  })).toBe(true);
+  await expectNoErrors(errors);
+});
+
+test('a saved Thermopylae game remains named and playable after leaving the gallery', async ({ page }) => {
+  const errors = await fresh(page);
+  await page.getByRole('button', { name: /Быстрый старт/ }).click();
+  await waitGame(page);
+  await page.evaluate(() => {
+    const { ctrl } = (window as any).__infweb;
+    const state = structuredClone(ctrl.state);
+    state.settings.puzzle = 'thermopylae';
+    localStorage.setItem('infweb.game', JSON.stringify({ state, initial: state }));
+  });
+  await page.goto('./');
+  const saved = page.locator('.play-btn.cont');
+  await expect(saved).toContainText('Фермопилы');
+  await saved.click();
+  await waitGame(page);
+  expect(await page.evaluate(() => (window as any).__infweb.ctrl.state.settings.puzzle)).toBe('thermopylae');
+  await expectNoErrors(errors);
+});
+
+test('the frontier option is not offered in local or online duels', async ({ page }) => {
+  const errors = await fresh(page, {}, './?transport=bc');
+  await page.getByRole('button', { name: /Дуэли/ }).click();
+  const option = page.getByRole('switch', { name: 'Победа по рубежам', exact: true });
+  const fire = page.getByRole('switch', { name: 'Сигнальные огни', exact: true });
+  await expect(fire).toBeVisible();
+  await expect(option).toHaveCount(0);
+  await page.getByText('Онлайн с другом').click();
+  await expect(fire).toBeVisible();
+  await expect(option).toHaveCount(0);
+  await expectNoErrors(errors);
+});
+
+test('generated frontier mode is opt-in and starts the three points from its map preview', async ({ page }) => {
+  const errors = await fresh(page);
+  await page.getByRole('button', { name: 'Новая битва' }).click();
+  const map = page.locator('.steps button').nth(0);
+  const modes = page.locator('.steps button').nth(2);
+  const preview = page.locator('.map-preview');
+  const points = preview.locator('[data-objective]');
+  const option = page.getByRole('switch', { name: 'Победа по рубежам', exact: true });
+  await expect(points).toHaveCount(0);
+  await modes.click();
+  await expect(option).not.toBeChecked();
+  await option.click();
+  await page.reload();
+  await expect(points).toHaveCount(3);
+  await modes.click();
+  await expect(option).toBeChecked();
+  await page.getByRole('switch', { name: 'Абсолютная тьма' }).click();
+  await map.click();
+  await expect(preview.locator('[data-unknown-map]')).toBeVisible();
+  await expect(points).toHaveCount(0);
+  await modes.click();
+  await page.getByRole('switch', { name: 'Тьма', exact: true }).click();
+  await expect(option).toBeChecked();
+  await map.click();
+  await preview.getByRole('button', { name: 'Другая карта' }).click();
+  await expect(points).toHaveCount(3);
+  const marks = await points.evaluateAll(nodes => nodes.map(n => Number(n.getAttribute('data-objective'))));
+  await page.getByRole('button', { name: /^В бой/ }).first().click();
+  await waitGame(page);
+  const actual = await page.evaluate(() => {
+    const s = (window as any).__infweb.ctrl.state;
+    return { scenario: s.settings.puzzle ?? null, marks: s.objectives };
+  });
+  expect(actual).toEqual({ scenario: null, marks });
+  await expectNoErrors(errors);
+});
+
 for (const scenario of ['crossroads', 'highlands']) {
   test(`reroll ${scenario}: the selected preview is the position actually played and saved`, async ({ page }) => {
     const errors = await fresh(page);

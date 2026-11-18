@@ -3,6 +3,7 @@ import { matchMedal, seatsMedal } from '../../src/medals';
 import { awardMedal, loadMedals } from '../../src/storage';
 import { buildScenario, SCENARIO_META, SCENARIOS, type ScenarioId } from '../../src/core/scenarios';
 import type { MatchEnd, MatchState, PlayerType } from '../../src/core/types';
+import { createDailyMatch } from '../../src/daily';
 
 const mem = new Map<string, string>();
 beforeEach(() => {
@@ -85,6 +86,19 @@ describe('earning a scenario medal', () => {
     const st = finished(DUEL, rec(DUEL), won, 'daily');
     st.settings.dailyId = '2026-10-23';
     expect(matchMedal(st)).toEqual({ id: DUEL, tier: 'medal' });
+  });
+
+  it('keeps Thermopylae medals available in saved games and daily maps without returning the gallery card', () => {
+    const id = 'thermopylae';
+    expect(SCENARIOS).not.toContain(id);
+    const daily = createDailyMatch('2026-10-22');
+    expect(daily.settings.puzzle).toBe(id);
+    daily.ended = won;
+    expect(matchMedal(daily)).toEqual({ id, tier: 'medal' });
+    expect(matchMedal(finished(id, ['human', 'god']))).toEqual({ id, tier: 'gold' });
+    expect(awardMedal(id, 'gold', 12)).toBe('gold');
+    expect(awardMedal(id, 'medal', 14)).toBeNull();
+    expect(loadMedals()[id]).toBeUndefined();
   });
 
   it('ordinary maps earn nothing', () => {

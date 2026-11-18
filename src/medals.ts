@@ -1,5 +1,5 @@
 import { DIFFICULTY, type MatchState, type PlayerType } from './core/types';
-import { isScenarioId, SCENARIO_META, type ScenarioId } from './core/scenarios';
+import { GALLERY_ONLY_RETIRED_SCENARIOS, isKnownScenarioId, isScenarioId, SCENARIO_META, type ScenarioId } from './core/scenarios';
 
 /**
  * Scenario medals. A scenario's medal goes to the only person at the table for a win against
@@ -42,7 +42,9 @@ export function seatsMedal(id: ScenarioId, players: PlayerType[]): MedalTier | N
 export function matchMedal(s: MatchState): { id: ScenarioId; tier: MedalTier } | null {
   const id = s.settings.puzzle;
   const end = s.ended;
-  if (!isScenarioId(id) || !end || !(end.humanWon || (end.winner >= 0 && s.settings.players[end.winner] === 'human'))) return null;
+  // Gallery-only removals don't change the reward from a saved game or map of the day.
+  if (!isKnownScenarioId(id) || (!isScenarioId(id) && !GALLERY_ONLY_RETIRED_SCENARIOS.includes(id))) return null;
+  if (!end || !(end.humanWon || (end.winner >= 0 && s.settings.players[end.winner] === 'human'))) return null;
   const tier = seatsMedal(id, s.settings.players);
   return tier === 'medal' || tier === 'gold' ? { id, tier } : null;
 }

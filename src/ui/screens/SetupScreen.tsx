@@ -6,6 +6,7 @@ import { seatsMedal, type MedalTier } from '../../medals';
 import { hashString, randomSeed } from '../../core/rng';
 import { buildScenario, SCENARIO_META, SCENARIOS, startMatch, type ScenarioConfig, type ScenarioId } from '../../core/scenarios';
 import { prepareHost } from '../battle';
+import { previewBattleMatch } from '../../net/battleRules';
 import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../core/types';
 import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconMoon, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
@@ -65,8 +66,13 @@ export function SetupScreen() {
 
   // the preview IS the match that will start: same map, same start cells
   const preview = useMemo(
-    () => startMatch(setupToSettings(prefs), mapSeed),
-    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.shuffle, players.join(','), opts?.size],
+    () => {
+      const settings = setupToSettings(prefs);
+      return players.includes('online')
+        ? previewBattleMatch({ ...settings, kind: 'battleOnline' }, mapSeed).state
+        : startMatch(settings, mapSeed);
+    },
+    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.frontierMode, prefs.shuffle, players.join(','), opts?.size],
   );
 
   const reroll = () => setMapSeed(old => {
@@ -227,7 +233,7 @@ export function SetupScreen() {
                   ))}
                 </div>
                 <div class="card map-preview">
-                  <SecretMap field={preview.field} darkness={prefs.darkness} blind={prefs.blind} />
+                  <SecretMap field={preview.field} darkness={prefs.darkness} blind={prefs.blind} objectives={preview.objectives} />
                   <div class="map-meta">
                     <div>
                       <div class="title" style={{ fontSize: 14 }}>

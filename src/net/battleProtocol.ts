@@ -33,8 +33,9 @@ import type { AttackRefusal, ConcedeChoice, MatchEnd, MatchSettings, MatchState,
  * 5: GOD takeover and random division of territory.
  * 6: strength-balanced division, signal fires and objective victories.
  * 7: a guest's fire request is bound to the turn it was sent in.
+ * 8: generated frontier targets are included in anonymous battle snapshots.
  */
-export const BATTLE_PROTOCOL_VERSION = 7;
+export const BATTLE_PROTOCOL_VERSION = 8;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =
@@ -233,7 +234,7 @@ function isState(x: unknown): x is MatchState {
     Array.isArray(f.cells) &&
     Array.isArray(f.adj) &&
     validSignalFireCells(x.signalFireCells, x.settings.players.length, f.cells.length) &&
-    validObjectiveFields(x, f.cells, x.settings.players.length, x.settings.puzzle) &&
+    validObjectiveFields(x, f.cells, x.settings.players.length, x.settings) &&
     Array.isArray(x.outAt) &&
     isInt(x.turn) &&
     isInt(x.current) &&

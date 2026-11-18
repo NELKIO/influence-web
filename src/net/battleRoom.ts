@@ -33,7 +33,6 @@
  */
 import * as E from '../core/engine';
 import { randomSeed } from '../core/rng';
-import { startMatch } from '../core/scenarios';
 import type { BotType, ConcedeChoice, FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
 import { BroadcastBattleGuest, BroadcastBattleHost } from './broadcastBattle';
 import { useBroadcastTransport } from './broadcast';
@@ -54,7 +53,7 @@ import {
   type RoomStatus,
   type WireSeat,
 } from './battleProtocol';
-import { applyBattleAction, concedeSeat, localizeBattleState, localizePlayers, shuffledSeatOrder } from './battleRules';
+import { applyBattleAction, concedeSeat, localizeBattleState, localizePlayers, previewBattleMatch } from './battleRules';
 import { Emitter, type Unsubscribe } from './emitter';
 import type { MultiHostTransport } from './hub';
 import { createBattleGuestTransport, createBattleHostTransport, type LinkMode, type NetLinkOptions } from './composite';
@@ -485,12 +484,8 @@ export class BattleHost {
   start(): boolean {
     if (!this.canStart) return false;
     const seed = this.seed ?? randomSeed();
-    const order = shuffledSeatOrder(this.lobby, seed);
-    const players = order.map((i) => this.lobby.players[i]);
+    const { order, state: st } = previewBattleMatch(this.lobby, seed);
     this.seats = order.map((i) => this.seats[i]);
-    // a scenario room builds the scenario's map with these seats; an ordinary one generates a map
-    const st = startMatch({ ...this.lobby, players, shuffle: false }, seed);
-    st.settings.shuffle = this.lobby.shuffle;
     this.state = st;
     this.shadow = structuredClone(st);
     this.matchId = randomId(6);

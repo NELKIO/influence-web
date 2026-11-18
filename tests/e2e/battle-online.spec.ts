@@ -156,6 +156,38 @@ test('online battle over BroadcastChannel: host + 2 guests + bot stay in sync, g
   await playBattle(host, g1, g2, base);
 });
 
+test('generated frontiers: the host preview matches both online boards with shuffle enabled', async ({ context, baseURL }) => {
+  const base = `${baseURL}?transport=bc`;
+  const host = await context.newPage();
+  const guest = await context.newPage();
+  await setup(host, base, { ...HOST_SETUP, players: ['human', 'online'], symmetry: false, shuffle: true, frontierMode: true });
+  await setup(guest, base);
+  await host.bringToFront();
+  await host.getByText('Новая битва').click();
+  const preview = host.locator('.map-preview');
+  const marks = preview.locator('[data-objective]');
+  await expect(marks).toHaveCount(3);
+  const expected = {
+    marks: await marks.evaluateAll(nodes => nodes.map(n => Number(n.getAttribute('data-objective')))),
+    cells: await preview.locator('svg polygon:not([data-objective])').count(),
+  };
+  await host.getByRole('button', { name: /Создать комнату/ }).first().click();
+  await expect(host.getByTestId('room-code')).toHaveText(/^[A-Z0-9]{5}$/);
+  await guest.bringToFront();
+  await guest.goto(`${base}#/join/${await host.getByTestId('room-code').textContent()}`);
+  await expect(guest.getByTestId('roster')).toBeVisible();
+  await host.bringToFront();
+  await host.getByRole('button', { name: 'Начать битву' }).click();
+  for (const page of [host, guest]) {
+    await expect(page.locator('canvas')).toBeVisible();
+    expect(await page.evaluate(() => {
+      const s = (window as any).__infweb.ctrl.state;
+      return { marks: s.objectives, cells: s.field.cells.length };
+    })).toEqual(expected);
+  }
+  expect(await board(guest)).toBe(await board(host));
+});
+
 test('online battle over real WebRTC (PeerJS broker)', async ({ baseURL }, testInfo) => {
   test.skip(!process.env.REAL_P2P || testInfo.project.name !== 'desktop', 'set REAL_P2P=1 on a network that allows WebRTC');
   test.setTimeout(300_000);

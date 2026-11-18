@@ -12,6 +12,19 @@ beforeEach(() => {
   };
 });
 
+describe('frontier setup persistence', () => {
+  it('defaults off, restores boolean opt-in, and excludes fixed scenarios', () => {
+    expect(loadSetup().frontierMode).toBe(false);
+    mem.set('infweb.setup', JSON.stringify({ frontierMode: 'true' }));
+    expect(loadSetup().frontierMode).toBe(false);
+    saveSetup({ ...DEFAULT_SETUP, frontierMode: true });
+    expect(loadSetup().frontierMode).toBe(true);
+    expect(setupToSettings(loadSetup()).frontierMode).toBe(true);
+    expect(startMatch(setupToSettings(loadSetup()), 31).objectives).toHaveLength(3);
+    expect(setupToSettings({ ...loadSetup(), scenario: 'titans' }).frontierMode).toBeUndefined();
+  });
+});
+
 describe('experimental darkness in ordinary setup', () => {
   it('does not opt legacy or malformed preferences into new rules', () => {
     for (const saved of [{ darkness: true }, { darkness: true, signalFires: 'true', blind: 1 }]) {

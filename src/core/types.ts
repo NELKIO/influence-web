@@ -85,6 +85,8 @@ export interface MatchSettings {
   darkness: boolean;
   symmetry: boolean;
   crowded: boolean;
+  /** Three neutral graph-spaced points to capture and hold (generated ordinary battles only). */
+  frontierMode?: boolean;
   unions: boolean;
   shuffle: boolean;
   /** duel rules: income = biggest group, greys first, no unions */

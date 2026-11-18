@@ -68,6 +68,14 @@ class Board {
     this.cells.delete(key(q, r));
   }
 
+  /** Only carve out terrain when the remaining board has a way around every cell. */
+  carve(c: Slot): boolean {
+    this.remove(c.q, c.r);
+    if (this.solid()) return true;
+    this.add(c.q, c.r, c);
+    return false;
+  }
+
   disk(radius: number, center: Ax = [0, 0], o: Partial<Omit<Slot, 'q' | 'r'>> = {}) {
     for (let q = -radius; q <= radius; q++)
       for (let r = -radius; r <= radius; r++) {
@@ -392,22 +400,28 @@ export const CLASSIC_SCENARIOS = [
 /** Later scenarios: battles for three to six players, and the raid (a duel). */
 export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans', 'hollow', 'raid'] as const;
 
-export const NEW_SCENARIOS = ['farshore', 'moonvale', 'sparks', 'fireflies', 'crossroads', 'highlands', 'pinwheel'] as const;
+export const NEW_SCENARIOS = ['moonvale', 'fireflies', 'crossroads', 'highlands', 'colonies', 'farshore', 'sparks', 'pinwheel'] as const;
 
 export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number] | (typeof NEW_SCENARIOS)[number];
 
-/**
- * Scenarios taken out of the game after a review (nothing new compared with the rest). Their builders
- * stay so that past maps of the day keep opening exactly as they were played.
- */
+/** Scenarios retired from both the gallery and all new dailies. Old daily builders remain available. */
 export const RETIRED_SCENARIOS: ScenarioId[] = ['hill', 'ringmap', 'bridges', 'treasury', 'hourglass'];
 
+/** Removed only from the gallery: already-published daily rotations still include Thermopylae. */
+export const GALLERY_ONLY_RETIRED_SCENARIOS: ScenarioId[] = ['thermopylae'];
+
 /** The scenarios in play, in the order of the setup gallery. */
-export const SCENARIOS: ScenarioId[] = [...BATTLE_SCENARIOS, ...NEW_SCENARIOS, ...CLASSIC_SCENARIOS].filter((id) => !RETIRED_SCENARIOS.includes(id));
+export const SCENARIOS: ScenarioId[] = [BATTLE_SCENARIOS[0], ...NEW_SCENARIOS, ...BATTLE_SCENARIOS.slice(1), ...CLASSIC_SCENARIOS]
+  .filter((id) => !RETIRED_SCENARIOS.includes(id) && !GALLERY_ONLY_RETIRED_SCENARIOS.includes(id));
 
 /** A scenario that can be picked (retired ones are not). */
 export function isScenarioId(id: unknown): id is ScenarioId {
   return typeof id === 'string' && (SCENARIOS as string[]).includes(id);
+}
+
+/** A known scenario, including retired ones referenced by existing games. */
+export function isKnownScenarioId(id: unknown): id is ScenarioId {
+  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(SCENARIO_META, id);
 }
 
 /** What a scenario fixes besides the map: the seats and the modes. */
@@ -492,11 +506,12 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   hollow: { players: ['human', 'master', 'god', 'master'], level: 2, size: 'L' },
   raid: { players: ['human', 'master'], level: 4, size: 'L' },
   farshore: { players: ['human', 'master'], level: 3, size: 'L' },
-  moonvale: { players: ['human', 'master', 'hunter'], level: 3, size: 'L', darkness: true },
+  moonvale: { players: ['human', 'master', 'hunter'], level: 3, size: 'L', darkness: true, blind: true },
   sparks: { players: ['human', 'master', 'hunter'], level: 3, size: 'M', crowded: true },
-  fireflies: { players: ['human', 'hunter', 'hunter'], level: 2, size: 'XL', darkness: true },
+  fireflies: { players: ['human', 'hunter', 'hunter'], level: 2, size: 'XL', darkness: true, blind: true },
   crossroads: { players: ['human', 'master'], level: 3, size: 'L' },
   highlands: { players: ['human', 'master', 'hunter'], level: 3, size: 'L' },
+  colonies: { players: ['human', 'master'], level: 3, size: 'L' },
   pinwheel: { players: ['human', 'master', 'hunter'], level: 3, size: 'M' },
 };
 
@@ -543,6 +558,7 @@ export const TUNING: Record<ScenarioId, number> = {
   fireflies: 2,
   crossroads: 6,
   highlands: 6,
+  colonies: 7,
   pinwheel: 8,
 };
 
@@ -574,6 +590,49 @@ export function scenarioSetup(id: ScenarioId, config: ScenarioConfig = {}): { si
     unions: c?.modes.includes('unions') && config.unions !== undefined ? config.unions : !!m.unions,
   };
 }
+
+/** Frozen map builders for published dailies: gallery terrain can evolve without altering a date. */
+const LEGACY_FRONTIER_BUILDERS = {
+  crossroads(rng: Rng, k: number) {
+    const b = new Board();
+    const reach = 4 + rng.int(2);
+    const halfWidth = 7 + rng.int(2);
+    const gap = 2 + rng.int(2);
+    for (let r = -reach - 1; r <= reach + 1; r++) {
+      for (let x = -halfWidth; x <= halfWidth; x++) {
+        if (Math.abs(r) === 2 && Math.abs(x) <= gap) continue;
+        b.add(x - Math.floor(r / 2), r, { max: rollMax(rng) });
+      }
+    }
+    for (const r of [-reach, 0, reach]) {
+      const x = rng.range(-1, Math.abs(r) % 2 ? 1 : 2);
+      b.set(x - Math.floor(r / 2), r, { objective: true, max: 12 });
+    }
+    for (const p of [0, 1]) for (const inset of [0, 1]) {
+      b.set((p ? 1 : -1) * (halfWidth - inset), 0, { owner: p, power: p ? 5 : kp(rng, k) });
+    }
+    return b;
+  },
+  highlands(rng: Rng, k: number, seats: number) {
+    const b = new Board();
+    const reach = 4 + rng.int(2);
+    const lake = 1 + rng.int(2);
+    const turn = rng.int(6);
+    b.disk(reach + 2);
+    for (const c of b.all()) {
+      if (hexDist([c.q, c.r], [0, 0]) <= lake) b.remove(c.q, c.r);
+      else c.max = rollMax(rng);
+    }
+    for (let p = 0; p < seats; p++) {
+      const side = turn + 2 * p;
+      const peak = rot([reach, 0], side);
+      for (const c of b.all()) if (hexDist([c.q, c.r], peak) <= 1) Object.assign(c, { max: 12, power: 2 });
+      b.set(...peak, { objective: true, power: 3 });
+      for (const at of [[reach, 0], [reach + 1, 0]] as Ax[]) b.set(...rot(at, side + 1), { owner: p, power: p ? 5 : kp(rng, k) });
+    }
+    return b;
+  },
+};
 
 const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: FieldSize, extras: BuildExtras) => Board> = {
   /** You hold a small core in the middle; a ring of enemy cells surrounds you. Break out. */
@@ -1129,15 +1188,16 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     return b;
   },
 
-  /** A duel across three broad crossings. Two gaps keep the northern and southern routes separate. */
+  /** Three broad approaches through straight, staggered, or double bands of rough terrain. */
   crossroads(rng, k) {
     const b = new Board();
     const reach = 4 + rng.int(2);
     const halfWidth = 7 + rng.int(2);
     const gap = 2 + rng.int(2);
+    const banks = [[-2, 2], [-3, 2], [-3, -2, 2, 3]][rng.int(3)];
     for (let r = -reach - 1; r <= reach + 1; r++) {
       for (let x = -halfWidth; x <= halfWidth; x++) {
-        if (Math.abs(r) === 2 && Math.abs(x) <= gap) continue;
+        if (banks.includes(r) && Math.abs(x) <= gap) continue;
         b.add(x - Math.floor(r / 2), r, { max: rollMax(rng) });
       }
     }
@@ -1149,6 +1209,10 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     for (const p of [0, 1]) for (const inset of [0, 1]) {
       b.set((p ? 1 : -1) * (halfWidth - inset), 0, { owner: p, power: p ? 5 : kp(rng, k) });
     }
+    // Uneven outer banks and clearings distinguish the three broad approaches between games.
+    const edges = rng.shuffle(b.all().filter(c =>
+      Math.abs(c.r) >= 3 && Math.abs(c.q + Math.floor(c.r / 2)) >= halfWidth - 1));
+    for (const c of edges.slice(0, 3 + rng.int(9))) b.carve(c);
     return b;
   },
 
@@ -1163,12 +1227,49 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
       if (hexDist([c.q, c.r], [0, 0]) <= lake) b.remove(c.q, c.r);
       else c.max = rollMax(rng);
     }
+    const protectedLand = (c: Slot) => Array.from({ length: seats }, (_, p) => turn + 2 * p).some(side =>
+      hexDist([c.q, c.r], rot([reach, 0], side)) <= 2 ||
+      hexDist([c.q, c.r], rot([reach + 1, 0], side + 1)) <= 1);
+    if (rng.bool()) {
+      // Keep a continuous outer ridge, but punctuate the interior with isolated sinkholes.
+      const inland = rng.shuffle(b.all().filter(c => !protectedLand(c)));
+      let holes = 1 + rng.int(3);
+      for (const c of inland) {
+        if (holes === 0) break;
+        if (!DIRS.every(([dq, dr]) => b.get(c.q + dq, c.r + dr))) continue;
+        if (b.carve(c)) holes--;
+      }
+    } else {
+      // A single basin with coves and a ragged outer ridge.
+      const coves = rng.shuffle(b.all().filter(c => hexDist([c.q, c.r], [0, 0]) === lake + 1 && !protectedLand(c)));
+      const rim = rng.shuffle(b.all().filter(c => hexDist([c.q, c.r], [0, 0]) === reach + 2 && !protectedLand(c)));
+      for (const c of [...coves.slice(0, 1 + rng.int(4)), ...rim.slice(0, 3 + rng.int(8))]) b.carve(c);
+    }
     for (let p = 0; p < seats; p++) {
       const side = turn + 2 * p;
       const peak = rot([reach, 0], side);
       for (const c of b.all()) if (hexDist([c.q, c.r], peak) <= 1) Object.assign(c, { max: 12, power: 2 });
       b.set(...peak, { objective: true, power: 3 });
       for (const at of [[reach, 0], [reach + 1, 0]] as Ax[]) b.set(...rot(at, side + 1), { owner: p, power: p ? 5 : kp(rng, k) });
+    }
+    return b;
+  },
+
+  /** Two neighboring strongholds face each other; many small rival colonies share the southern flank. */
+  colonies(rng, k) {
+    const b = new Board();
+    b.disk(8);
+    for (const c of b.all()) c.max = rollMax(rng);
+    const turn = rng.int(6);
+    for (const p of [0, 1]) {
+      const home = rot([p ? 3 : -3, -2], turn);
+      for (const c of b.all()) if (hexDist([c.q, c.r], home) <= 2)
+        Object.assign(c, { owner: p, power: p ? 7 : kp(rng, k) });
+    }
+    // Paired single-cell flags: the gap between pairs prevents the flank becoming another solid front.
+    for (const r of [4, 6]) for (const q of [-5, -2, 1]) {
+      b.set(...rot([q, r], turn), { owner: 0, power: 2 });
+      b.set(...rot([q + 1, r], turn), { owner: 1, power: 2 });
     }
     return b;
   },
@@ -1405,14 +1506,16 @@ export function landingOrderComp(seats: number, _size: FieldSize, given?: OrderC
  * recommended seat types (seat 0 is you; as many seats as recommended, or any number the scenario
  * allows when it is configurable); `config` picks the size and modes of a configurable scenario.
  */
-export function buildScenario(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig): MatchState {
+function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig, historical = false): MatchState {
   const meta = SCENARIO_META[id];
   const seats = players ?? meta.players;
   if (!seatsFit(id, seats.length)) throw new Error(`${id}: ${meta.players.length} seats, got ${seats.length}`);
   const { size, unions } = scenarioSetup(id, config);
   const rng = new Rng(seed);
   const comp = id === 'landing' ? landingOrderComp(seats.length, size, config?.orderComp) : null;
-  const board = BUILDERS[id](rng, knob ?? scenarioKnob(id, size), seats.length, size, { comp, even: !!config?.even });
+  const legacyBuilder = historical && (id === 'crossroads' || id === 'highlands') ? LEGACY_FRONTIER_BUILDERS[id] : null;
+  const board = legacyBuilder ? legacyBuilder(rng, knob ?? scenarioKnob(id, size), seats.length) :
+    BUILDERS[id](rng, knob ?? scenarioKnob(id, size), seats.length, size, { comp, even: !!config?.even });
   board.unchoke();
   const { field, objectives } = board.toField(size);
   const state = createMatch(
@@ -1427,13 +1530,23 @@ export function buildScenario(id: ScenarioId, seed: number, knob?: number, playe
       shuffle: false,
       duelRules: false,
       puzzle: id,
-      ...(meta.blind ? { blind: true } : {}),
+      ...(meta.blind && !(historical && (id === 'moonvale' || id === 'fireflies')) ? { blind: true } : {}),
       ...(comp ? { orderComp: comp } : {}),
     },
     { field, keepPlacement: true, seed: seed ^ 0x5bd1e995 },
   );
   if (objectives.length) state.objectives = objectives;
   return state;
+}
+
+/** Gallery and battle setup: the current designs and exploration rules. */
+export function buildScenario(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig): MatchState {
+  return buildScenarioInternal(id, seed, knob, players, config);
+}
+
+/** All previously scheduled dates keep their original maps and rules, including future dates. */
+export function buildDailyScenario(id: ScenarioId, seed: number): MatchState {
+  return buildScenarioInternal(id, seed, undefined, undefined, undefined, true);
 }
 
 /**

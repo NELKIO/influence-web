@@ -121,6 +121,7 @@ export interface SetupPrefs extends DarknessOptions {
   players: PlayerType[];
   symmetry: boolean;
   crowded: boolean;
+  frontierMode: boolean;
   unions: boolean;
   shuffle: boolean;
   /** a scenario fixes the map, the seats and the modes (null: an ordinary map with the settings above) */
@@ -142,6 +143,7 @@ export const DEFAULT_SETUP: SetupPrefs = {
   blind: false,
   symmetry: true,
   crowded: false,
+  frontierMode: false,
   unions: false,
   shuffle: true,
   scenario: null,
@@ -173,7 +175,7 @@ export function loadSetup(): SetupPrefs {
   if (isSize(saved.size)) s.size = saved.size;
   s.players = cleanSeats(saved.players) ?? s.players;
   Object.assign(s, readDarkness(saved));
-  for (const k of ['symmetry', 'crowded', 'unions', 'shuffle'] as const) {
+  for (const k of ['symmetry', 'crowded', 'frontierMode', 'unions', 'shuffle'] as const) {
     if (typeof saved[k] === 'boolean') s[k] = saved[k] as boolean;
   }
   // shuffling became the default in setup revision 2: an older save held 'off' only because it was the default then
@@ -248,6 +250,7 @@ export function setupToSettings(s: SetupPrefs): MatchSettings {
     ...matchDarkness(s),
     symmetry: s.symmetry,
     crowded: s.crowded,
+    ...(s.frontierMode ? { frontierMode: true } : {}),
     unions: s.unions,
     shuffle: s.shuffle,
     duelRules: false,
@@ -274,7 +277,7 @@ export function isMatchState(st: unknown): st is MatchState {
   if (f.adj.length !== f.cells.length || !Array.isArray(f.starts) || !Array.isArray(f.walls)) return false;
   for (const c of f.cells) if (!isObj(c) || !isNum(c.power) || !isNum(c.maxPower) || !isNum(c.owner) || !isNum(c.x) || !isNum(c.y)) return false;
   if (!validSignalFireCells(st.signalFireCells, players.length, f.cells.length)) return false;
-  if (!validObjectiveFields(st, f.cells, players.length, set.puzzle)) return false;
+  if (!validObjectiveFields(st, f.cells, players.length, set)) return false;
   if (!f.adj.every((a) => Array.isArray(a))) return false;
   if (!isNum(st.turn) || !isNum(st.current) || st.current < 0 || st.current >= players.length) return false;
   if (st.phase !== 'attack' && st.phase !== 'power') return false;

@@ -166,7 +166,7 @@ function isState(x: unknown): x is MatchState {
     Array.isArray(f.cells) &&
     Array.isArray(f.adj) &&
     validSignalFireCells(x.signalFireCells, x.settings.players.length, f.cells.length) &&
-    validObjectiveFields(x, f.cells, x.settings.players.length, x.settings.puzzle) &&
+    validObjectiveFields(x, f.cells, x.settings.players.length, x.settings) &&
     isInt(x.turn) &&
     isInt(x.current) &&
     (x.phase === 'attack' || x.phase === 'power')

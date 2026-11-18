@@ -9,7 +9,7 @@
  */
 import * as E from '../core/engine';
 import { Rng } from '../core/rng';
-import { isScenarioId, SCENARIO_META } from '../core/scenarios';
+import { isScenarioId, SCENARIO_META, startMatch } from '../core/scenarios';
 import type { ConcedeChoice, FightEvent, MatchEnd, MatchSettings, MatchState, PlayerType, UnionEvent } from '../core/types';
 import type { BattleAction } from './battleProtocol';
 
@@ -69,6 +69,13 @@ export function shuffledSeatOrder(settings: MatchSettings, seed: number): number
   if (!settings.shuffle || n < 2 || fixed) return order;
   const rng = new Rng((seed ^ 0x5bd1e995) >>> 0);
   return rng.shuffle(order);
+}
+
+export function previewBattleMatch(settings: MatchSettings, seed: number): { order: number[]; state: MatchState } {
+  const order = shuffledSeatOrder(settings, seed);
+  const state = startMatch({ ...settings, players: order.map(i => settings.players[i]), shuffle: false }, seed);
+  state.settings.shuffle = settings.shuffle;
+  return { order, state };
 }
 
 export type ApplyOutcome =

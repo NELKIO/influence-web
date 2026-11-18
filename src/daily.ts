@@ -1,5 +1,5 @@
 import { Rng, hashString } from './core/rng';
-import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, type ScenarioId } from './core/scenarios';
+import { buildDailyScenario, CLASSIC_SCENARIOS, SCENARIO_META, type ScenarioId } from './core/scenarios';
 import { createMatch, withFreshDice } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -173,9 +173,9 @@ export function dailySeed(id: string): number {
 export function createDailyMatch(id: string): MatchState {
   const k = dailyKind(id);
   if (k.kind === 'puzzle') {
-    // the scenario as the battle setup recommends it; the seed of the day fixes the map (and the night drop's landing spots)
-    // every day, past ones too, plays with the turn-order compensation (the scenario of a day never changes)
-    const st = buildScenario(k.scenario, dailySeed(id));
+    // Preserve the published map and rules for every scheduled date, even when the gallery design evolves.
+    // The day's seed also fixes Night Drop's landing spots and turn-order compensation.
+    const st = buildDailyScenario(k.scenario, dailySeed(id));
     st.settings = { ...st.settings, kind: 'daily', dailyId: id };
     return st;
   }
