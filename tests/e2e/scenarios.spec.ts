@@ -418,6 +418,39 @@ test('two-seat moonless valley: the first mover is told it sits out its first at
   await expectNoErrors(errors);
 });
 
+test('three-seat moonless valley with frontiers: the turn goes round the table, never twice to you', async ({ page }) => {
+  const errors = await fresh(page, { confirmEnd: false });
+  await page.evaluate(() =>
+    localStorage.setItem('infweb.setup', JSON.stringify({ shuffle: false, rev: 2, scenario: 'moonvale', scenarioConfig: { moonvale: { frontierMode: true, frontierPoints: 6, frontierWin: 4 } } })),
+  );
+  await page.reload();
+  await openSetup(page);
+  await page.getByRole('button', { name: /^В бой/ }).first().click();
+  await waitGame(page);
+  // every seat that gets the turn, in order
+  await page.evaluate(() => {
+    const w = window as any;
+    const c = w.__infweb.ctrl;
+    w.__seats = [c.state.current];
+    c.subscribe(() => {
+      if (w.__seats[w.__seats.length - 1] !== c.state.current) w.__seats.push(c.state.current);
+    });
+  });
+  const state = () => page.evaluate(() => { const s = (window as any).__infweb.ctrl.state; return { current: s.current, phase: s.phase, players: s.settings.players.length, objectives: s.objectives?.length }; });
+  expect(await state()).toMatchObject({ current: 0, players: 3, objectives: 6 });
+  for (let turn = 0; turn < 3; turn++) {
+    await expect.poll(async () => (await state()).current, { timeout: 30000 }).toBe(0);
+    // end the attack, then the turn (the reinforcement is spread over your cells)
+    await page.locator('.end-btn').click();
+    await expect.poll(async () => (await state()).phase).toBe('power');
+    await page.locator('.end-btn').click();
+    await expect.poll(async () => (await state()).current).not.toBe(0);
+  }
+  await expect.poll(async () => (await state()).current, { timeout: 30000 }).toBe(0);
+  expect(await page.evaluate(() => (window as any).__seats)).toEqual([0, 1, 2, 0, 1, 2, 0, 1, 2, 0]);
+  await expectNoErrors(errors);
+});
+
 for (const id of ['moonvale', 'fireflies'] as const) {
   test(`${id}: frontier victory and signal fires can be switched on, and the match plays with them`, async ({ page }) => {
     const errors = await fresh(page, { confirmEnd: false });

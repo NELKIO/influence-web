@@ -2536,14 +2536,13 @@ export function landingOrderComp(seats: number, _size: FieldSize, given?: OrderC
 const SEAT_COMP: Partial<Record<ScenarioId, (seats: number) => OrderComp | null>> = {
   olympus: (n) => defaultOrderComp(n, 1),
   highlands: (n) => defaultOrderComp(n, 1),
-  // two seats: the first mover sits out its first attack, with 4 more income (46 : 34 of 80);
-  // more seats: a snake order (three seats: 30 / 26 / 24 of 80)
-  moonvale: (n) => n === 2 ? { skip: 1, bonus: [4, 0] } : { order: 'snake' },
+  // The turn passes round the table in seat order, always: a changed order (a snake, every other round
+  // backwards) gave a seat two whole turns in a row, which players read as a broken turn order.
+  // two seats: the first mover sits out its first attack, with 4 more income (46 : 34 of 80)
+  moonvale: (n) => n === 2 ? { skip: 1, bonus: [4, 0] } : null,
   // two seats: the first mover sits out its first attack (without: 40 of 40 for it; with: 51 : 69 of 120);
-  // three or four: a snake order (26 / 23 / 31 of 80; 18 / 21 / 18 / 23); five or six, where a snake
-  // hands the game to the last seats (6: 4 / 8 / 11 / 16 / 20 / 21 of 80), the first two sit out their
-  // first attack (5: 21 / 15 / 21 / 15 / 8 of 80; 6: 33 / 16 / 26 / 14 / 11 / 20 of 120)
-  fireflies: (n) => n === 2 ? { skip: 1, bonus: [0, 1] } : n <= 4 ? { order: 'snake' } : { skip: 2 },
+  // five or six: the first two sit out their first attack (5: 21 / 15 / 21 / 15 / 8 of 80; 6: 33 / 16 / 26 / 14 / 11 / 20 of 120)
+  fireflies: (n) => n === 2 ? { skip: 1, bonus: [0, 1] } : n <= 4 ? null : { skip: 2 },
   // three seats: 3 extra cells' worth per later seat (without: 16 / 15 / 9 of 40; with: 12 / 11 / 17)
   archipelago: (n) => defaultOrderComp(n, n === 3 ? 3 : 1),
 };

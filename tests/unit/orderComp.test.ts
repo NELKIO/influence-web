@@ -135,15 +135,40 @@ describe('turn-order compensation in ordinary battles', () => {
     expect(scenarioOrderComp('siege', 2)).toBeNull();
   });
 
+  it('every scenario passes the turn round the table in seat order: never two turns in a row', () => {
+    for (const id of SCENARIOS) {
+      for (const n of [2, 3, 4, 5, 6]) {
+        let st;
+        try {
+          st = buildScenario(id, 13, undefined, seats(n));
+        } catch {
+          continue; // the scenario does not take this many seats
+        }
+        const seq: number[] = [];
+        for (let k = 0; k < 4 * n; k++) {
+          seq.push(st.current);
+          finishTurn(st);
+        }
+        expect(seq, `${id}, ${n} seats`).toEqual(Array.from({ length: 4 * n }, (_, k) => k % n));
+      }
+    }
+    // the night valley with frontiers, as reported: you, the bots, you
+    const st = buildScenario('moonvale', 5, undefined, undefined, { frontierMode: true, frontierPoints: 6, frontierWin: 4 });
+    const seq: number[] = [];
+    for (let k = 0; k < 9; k++) {
+      seq.push(st.current);
+      finishTurn(st);
+    }
+    expect(seq).toEqual([0, 1, 2, 0, 1, 2, 0, 1, 2]);
+  });
+
   it('the moonless valley evens the race to the clearings by seat count (measured with bots on the server)', () => {
     // two seats: the first mover sits out its first attack but gets 4 more income
     expect(scenarioOrderComp('moonvale', 2)).toEqual({ skip: 1, bonus: [4, 0] });
-    // more seats: every other round is played backwards
-    for (const n of [3, 4, 5, 6]) expect(scenarioOrderComp('moonvale', n)).toEqual({ order: 'snake' });
-    const st = startMatch({ ...base, size: 'L', players: seats(4), puzzle: 'moonvale', darkness: true, blind: true }, 9);
-    expect(roundOrder(st.settings, 1)).toEqual([3, 2, 1, 0]);
+    // more seats: the plain round, nobody ever moves twice in a row
+    for (const n of [3, 4, 5, 6]) expect(scenarioOrderComp('moonvale', n)).toBeNull();
     expect(scenarioOrderComp('fireflies', 2)).toEqual({ skip: 1, bonus: [0, 1] });
-    for (const n of [3, 4]) expect(scenarioOrderComp('fireflies', n)).toEqual({ order: 'snake' });
+    for (const n of [3, 4]) expect(scenarioOrderComp('fireflies', n)).toBeNull();
     for (const n of [5, 6]) expect(scenarioOrderComp('fireflies', n)).toEqual({ skip: 2 });
     expect(scenarioOrderComp('archipelago', 3)).toEqual({ bonus: [0, 3, 6] });
     expect(scenarioOrderComp('archipelago', 6)).toEqual(defaultOrderComp(6));

@@ -325,7 +325,20 @@ export function loadSavedGame(): SavedGame | null {
   if (!isObj(g) || !isMatchState(g.state) || g.state.ended) return null;
   // the round-0 copy only serves "restart on this map": the current state stands in for a broken one
   const initial = isMatchState(g.initial) ? g.initial : structuredClone(g.state);
-  return { state: g.state, initial };
+  return { state: plainOrder(g.state), initial: plainOrder(initial) };
+}
+
+/**
+ * The turn passes round the table in seat order: a game started when the night valleys and fireflies
+ * still played some rounds backwards (two turns in a row for a seat) resumes in the plain round.
+ */
+function plainOrder(st: MatchState): MatchState {
+  const c = st.settings.orderComp;
+  if (!c || c === 'off' || !('order' in c)) return st;
+  const { order: _order, ...rest } = c;
+  if (Object.keys(rest).length) st.settings.orderComp = rest;
+  else delete st.settings.orderComp;
+  return st;
 }
 
 export function saveGame(g: SavedGame | null) {

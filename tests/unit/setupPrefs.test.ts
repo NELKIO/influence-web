@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { loadSavedGame, saveGame, loadSetup, saveSetup, setupPlayers, setupToSettings, DEFAULT_SETUP, frontierMajority, frontierWinChoice, frontierWinOf } from '../../src/storage';
 import { objectiveWinCount } from '../../src/core/objectives';
 import { SCENARIO_META, startMatch } from '../../src/core/scenarios';
+import { finishTurn } from '../../src/core/engine';
 
 const mem = new Map<string, string>();
 beforeEach(() => {
@@ -60,6 +61,28 @@ describe('frontier setup persistence', () => {
     expect(loadSetup().frontierWin).toBeNull();
     mem.set('infweb.setup', JSON.stringify({ frontierPoints: 5, frontierWin: 'x' }));
     expect(loadSetup().frontierWin).toBeNull();
+  });
+});
+
+describe('a game saved with a changed turn order', () => {
+  it('resumes in the plain round: the other compensations stay', () => {
+    const game = startMatch({ ...setupToSettings({ ...DEFAULT_SETUP, scenario: 'moonvale' }) }, 21);
+    // as the valley was started before: every other round backwards, here the second round
+    game.settings.orderComp = { order: 'snake', bonus: [0, 1, 2] };
+    game.turn = 1;
+    game.current = 0;
+    const initial = structuredClone(game);
+    initial.turn = 0;
+    saveGame({ state: game, initial });
+    const g = loadSavedGame()!;
+    expect(g.state.settings.orderComp).toEqual({ bonus: [0, 1, 2] });
+    expect(g.initial.settings.orderComp).toEqual({ bonus: [0, 1, 2] });
+    finishTurn(g.state);
+    expect([g.state.turn, g.state.current]).toEqual([1, 1]);
+    // nothing else to say: the order is plain again
+    game.settings.orderComp = { order: 'snake' };
+    saveGame({ state: game, initial: game });
+    expect(loadSavedGame()!.state.settings.orderComp).toBeUndefined();
   });
 });
 
