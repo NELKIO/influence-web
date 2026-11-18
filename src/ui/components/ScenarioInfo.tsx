@@ -24,6 +24,16 @@ export function scenarioDesc(id: ScenarioId, daily: boolean): string {
   return daily && DAILY_LEGACY_DESC.has(id) ? t(`puzzleDescDaily_${id}` as 'puzzleDescDaily_sparks') : t(`puzzleDesc_${id}` as 'puzzleDesc_siege');
 }
 
+/** Scenarios whose description is too long for the hint at the start of a match: they have a short one. */
+/** Scenarios whose full description is too long for the start-of-match hint: they get a short one. */
+export const BRIEF: ReadonlySet<ScenarioId> = new Set<ScenarioId>(['moonvale', 'olympus', 'highlands', 'colonies', 'crossroads', 'sparks', 'hollow', 'titans', 'raid', 'archipelago', 'fireflies', 'pinwheel']);
+
+/** What the hint at the start of a match says: the short version of the description where there is one. */
+export function scenarioBrief(id: ScenarioId, daily: boolean): string {
+  if (daily && DAILY_LEGACY_DESC.has(id)) return scenarioDesc(id, true);
+  return BRIEF.has(id) ? t(`puzzleBrief_${id}` as 'puzzleBrief_olympus') : scenarioDesc(id, false);
+}
+
 /** The rules a scenario fixes by itself (unions only when it plays with them whatever you choose). */
 export function metaRules(m: ScenarioMeta): RuleKey[] {
   return ruleKeys({ varied: m.varied, blind: m.blind, darkness: m.darkness, objectives: m.objectives, crowded: m.crowded, unions: m.unions });

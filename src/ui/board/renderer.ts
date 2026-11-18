@@ -583,13 +583,16 @@ export class BoardRenderer {
       ctx.strokeStyle = owner < 0 ? '#2c3038' : inactive ? mix(col, '#0b0c0f', 0.6) : shade(col, 0.22);
       ctx.stroke();
 
-      // A diamond on the upper rim marks the point without covering its power or owner shape.
+      // A gold hexagon inside the cell marks the point, as on the previews; it rings the power number
+      // and leaves the owner's colour around it. A dark halo keeps it readable on a yellow cell.
       if (v.state.objectives?.includes(i)) {
-        polyPath(ctx, x, y - r * 0.77, Math.max(2, r * 0.24), 4, 0);
-        ctx.fillStyle = '#ffe5a4';
-        ctx.fill();
-        ctx.strokeStyle = '#17191f';
-        ctx.lineWidth = Math.max(1, r * 0.07);
+        hexPath(ctx, x, y, r * 0.7);
+        ctx.strokeStyle = 'rgba(16,18,22,0.55)';
+        ctx.lineWidth = Math.max(2.5, r * 0.17);
+        ctx.stroke();
+        hexPath(ctx, x, y, r * 0.7);
+        ctx.strokeStyle = '#ffcf78';
+        ctx.lineWidth = Math.max(1.5, r * 0.09);
         ctx.stroke();
       }
 

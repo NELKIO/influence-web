@@ -8,6 +8,7 @@ import { BATTLE_SCENARIOS, CLASSIC_SCENARIOS, DAILY_LEGACY_DESC, SCENARIOS, SCEN
 import { SIZES } from '../../src/core/types';
 import { PALETTES } from '../../src/ui/theme';
 import { SPEED_MS } from '../../src/storage';
+import { BRIEF } from '../../src/ui/components/ScenarioInfo';
 
 const SRC = join(__dirname, '../../src');
 const dicts = { ru: ru as Record<string, string>, en: en as Record<string, string> };
@@ -152,6 +153,7 @@ describe('keys used in the code', () => {
     puzzle_: allScenarios,
     puzzleDesc_: allScenarios,
     puzzleDescDaily_: [...DAILY_LEGACY_DESC],
+    puzzleBrief_: [...BRIEF],
     player_: playerTypes,
     desc_: seatTypes,
     size: Object.keys(SIZES),

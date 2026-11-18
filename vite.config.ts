@@ -7,7 +7,8 @@ export default defineConfig({
   base: '/influence-web/',
   plugins: [preact(), swPrecache()],
   worker: { format: 'es' },
-  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+  // shown as "2.0" rather than "2.0.0": a zero patch number says nothing to a player
+  define: { __APP_VERSION__: JSON.stringify(pkg.version.replace(/\.0$/, '')) },
   test: {
     include: ['tests/unit/**/*.test.ts'],
     environment: 'node',

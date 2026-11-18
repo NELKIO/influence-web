@@ -125,8 +125,9 @@ test('the chosen scenario states its goal and rules; "another map" is offered ex
     expect(new Set(chips.map((c) => c.top)).size, id).toBe(1);
     expect(chips.filter((c) => c.clipped), id).toEqual([]);
     await expect(page.getByTestId('scenario-goal'), id).toContainText(m.objectives ? 'удержать 2 из 3 контрольных точек' : 'победить всех соперников');
-    await expect(page.getByTestId('scenario-reroll'), id).toHaveCount(m.varied ? 1 : 0);
-    if (m.varied) await expect(page.getByTestId('scenario-reroll')).toHaveText(m.blind ? 'Новая высадка' : 'Другая карта');
+    // a map nobody can see is new every time anyway: nothing to reroll
+    await expect(page.getByTestId('scenario-reroll'), id).toHaveCount(m.varied && !m.blind ? 1 : 0);
+    if (m.varied && !m.blind) await expect(page.getByTestId('scenario-reroll')).toHaveAccessibleName('Другая карта');
   }
   await expectNoErrors(errors);
 });
@@ -152,20 +153,28 @@ test('"another map" changes the preview, and the match starts on the map preview
   await expectNoErrors(errors);
 });
 
-test('a hidden map: a new drop reveals nothing in the preview', async ({ page }) => {
+test('a hidden map: the preview reveals nothing and offers no reroll, each launch drops you on a new map', async ({ page }) => {
   const id = SCENARIOS.find((s) => SCENARIO_META[s].blind && SCENARIO_META[s].varied)!;
-  const errors = await fresh(page);
-  await openSetup(page);
-  await page.locator(`[data-scenario="${id}"]`).click();
-  const pick = page.getByTestId('scenario-pick');
+  const errors = await fresh(page, { confirmEnd: false });
+  const maps: string[] = [];
   for (let i = 0; i < 2; i++) {
-    await page.getByRole('button', { name: 'Новая высадка' }).click();
+    await page.goto('./');
+    await openSetup(page);
+    await page.locator(`[data-scenario="${id}"]`).click();
+    const pick = page.getByTestId('scenario-pick');
     await expect(pick.locator('[data-unknown-map]')).toHaveCount(1);
     await expect(pick.locator('[data-objective]')).toHaveCount(0);
     await expect(pick.locator('polygon[fill^="var(--p"]')).toHaveCount(0);
     await expect(pick).not.toContainText(/\d+ клет/);
+    await expect(page.getByTestId('scenario-reroll')).toHaveCount(0);
+    await expect(pick.locator('[data-tag="blind"]')).toContainText('Абсолютная тьма');
+    await page.getByRole('button', { name: /^В бой/ }).first().click();
+    // the second launch replaces the first match: the app asks first
+    if (i) await page.locator('.modal').getByRole('button', { name: 'Начать новую' }).click();
+    await waitGame(page);
+    maps.push((await matchMap(page)).cells);
   }
-  await expect(pick.locator('[data-tag="blind"]')).toContainText('Абсолютная тьма');
+  expect(maps[0]).not.toBe(maps[1]);
   await expectNoErrors(errors);
 });
 

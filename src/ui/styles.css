@@ -2960,8 +2960,34 @@ button {
   gap: 10px;
 }
 
+/* the chips and, at the right end of the same line, "another map" */
+.pick-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  container-type: inline-size;
+}
+
+.pick-foot .chips {
+  flex: 1;
+}
+
 .reroll-btn {
-  align-self: flex-start;
+  flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* where the line is short the button keeps only its icon (its name is in the tooltip) */
+@container (max-width: 470px) {
+  .reroll-btn .reroll-label {
+    display: none;
+  }
+  .reroll-btn {
+    width: 42px;
+    padding: 0;
+    justify-content: center;
+  }
 }
 
 .pick-map {

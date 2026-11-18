@@ -207,15 +207,32 @@ export function SetupScreen() {
                 </div>
                 <div class="desc">{t(`puzzleDesc_${scenario}` as 'puzzleDesc_siege')}</div>
                 <GoalLine text={goal} />
-                {/* one line: who plays and how big the map is (an uncharted one says so by its darkness chip), then the rules */}
-                <div class="chips one-line">
-                  <span class="chip">
-                    <IconUsers width={14} height={14} /> {playersLabel(players.length)}
-                    {!meta.blind && <> · {t('mapCells', { n: preview.field.cells.length })}</>}
-                  </span>
-                  {pickRules.map((k) => (
-                    <RuleChip key={k} k={k} />
-                  ))}
+                {/* one line: who plays and how big the map is (an uncharted one says so by its darkness chip), then the
+                    rules; a changing map that you can see has "another map" at the right end of the same line */}
+                <div class="pick-foot">
+                  <div class="chips one-line">
+                    <span class="chip">
+                      <IconUsers width={14} height={14} /> {playersLabel(players.length)}
+                      {!meta.blind && <> · {t('mapCells', { n: preview.field.cells.length })}</>}
+                    </span>
+                    {pickRules.map((k) => (
+                      <RuleChip key={k} k={k} />
+                    ))}
+                  </div>
+                  {meta.varied && !meta.blind && (
+                    <button
+                      class="btn small reroll-btn"
+                      data-testid="scenario-reroll"
+                      aria-label={t('reroll')}
+                      title={t('reroll')}
+                      onClick={() => {
+                        sfx.click();
+                        reroll();
+                      }}
+                    >
+                      <IconRestart width={16} height={16} /> <span class="reroll-label">{t('reroll')}</span>
+                    </button>
+                  )}
                 </div>
                 {conf && opts && conf.sizes.length > 1 && (
                   <div class="scenario-size" data-testid="scenario-size">
@@ -226,18 +243,6 @@ export function SetupScreen() {
                       onChange={(size) => configure({ size })}
                     />
                   </div>
-                )}
-                {meta.varied && (
-                  <button
-                    class="btn small reroll-btn"
-                    data-testid="scenario-reroll"
-                    onClick={() => {
-                      sfx.click();
-                      reroll();
-                    }}
-                  >
-                    <IconRestart width={16} height={16} /> {t(meta.blind ? 'rerollBlind' : 'reroll')}
-                  </button>
                 )}
                 <MedalStatus have={medals[scenario]?.tier ?? null} seats={seatsMedal(scenario, players)} free={!!conf} />
               </div>
@@ -277,16 +282,19 @@ export function SetupScreen() {
                         </div>
                       )}
                     </div>
-                    <button
-                      class="btn small"
-                      aria-label={t('reroll')}
-                      onClick={() => {
-                        sfx.click();
-                        reroll();
-                      }}
-                    >
-                      <IconRestart width={16} height={16} /> {t('reroll')}
-                    </button>
+                    {/* nothing to reroll on a map nobody can see: a new one is dealt every time anyway */}
+                    {!prefs.blind && (
+                      <button
+                        class="btn small"
+                        aria-label={t('reroll')}
+                        onClick={() => {
+                          sfx.click();
+                          reroll();
+                        }}
+                      >
+                        <IconRestart width={16} height={16} /> {t('reroll')}
+                      </button>
+                    )}
                   </div>
                 </div>
               </>

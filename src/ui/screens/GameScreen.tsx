@@ -16,7 +16,7 @@ import { Medal } from '../components/Medal';
 import { createMatch, withFreshDice } from '../../core/engine';
 import { createDailyAttempt } from '../../daily';
 import { isKnownScenarioId, isScenarioId, SCENARIO_META, startMatch } from '../../core/scenarios';
-import { goalText, ruleKeys, RulesList, scenarioDesc } from '../components/ScenarioInfo';
+import { goalText, ruleKeys, RulesList, scenarioBrief, scenarioDesc } from '../components/ScenarioInfo';
 import { orderCompHint } from '../orderHint';
 import { Modal } from '../components/controls';
 import {
@@ -29,6 +29,7 @@ import {
   IconInfo,
   IconPause,
   IconPlay,
+  IconPoint,
   IconRestart,
   IconZoomIn,
   IconZoomOut,
@@ -182,7 +183,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
     const orderHint = orderCompHint(ctrl.state.settings.orderComp);
     const atStart = ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack';
     if (pz && !online?.remoteDriven && atStart) {
-      const goal = `${t(`puzzle_${pz}` as 'puzzle_siege')}: ${scenarioDesc(pz, ctrl.state.settings.kind === 'daily')}`;
+      const goal = `${t(`puzzle_${pz}` as 'puzzle_siege')}: ${scenarioBrief(pz, ctrl.state.settings.kind === 'daily')}`;
       ctrl.showHint(orderHint ? `${goal} ${orderHint}` : goal, undefined, orderHint ? 9000 : 6000);
     } else if (orderHint && atStart) ctrl.showHint(orderHint, undefined, 5000);
     if (isSaveable(ctrl.state) && !ctrl.state.ended) saveGame({ state: ctrl.state, initial: launch.initial });
@@ -397,6 +398,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
               const seats = holders.length ? holders : [cur];
               return seats.map((seat) => (
                 <div key={seat}>
+                  <IconPoint width={11} height={11} aria-hidden="true" style={{ color: '#ffcf78', verticalAlign: '-1px', marginRight: 5 }} />
                   {t(holders.length ? 'objectivePending' : 'objectiveGoal', {
                     name: playerName(s.settings, seat), n: objectiveCount(s, seat), total: s.objectives!.length, k: objectiveWinCount(s),
                   })}
