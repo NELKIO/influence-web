@@ -342,6 +342,21 @@ function landingDrops(rng: Rng, radius: number, spacing: number, seats: number):
   throw new Error('night drop: no room for the drops');
 }
 
+/** Drop spots on any land: cells with all six neighbours, at least `spacing` apart (null: they don't fit). */
+function wildDrops(rng: Rng, b: Board, spacing: number, n: number): Ax[] | null {
+  const inland = b.all().filter((c) => DIRS.every(([dq, dr]) => b.get(c.q + dq, c.r + dr))).map(axOf);
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const drops: Ax[] = [];
+    for (let p = 0; p < n; p++) {
+      const far = inland.filter((c) => drops.every((o) => hexDist(c, o) >= spacing));
+      if (!far.length) break;
+      drops.push(rng.pick(far));
+    }
+    if (drops.length === n) return drops;
+  }
+  return null;
+}
+
 /** Extra cells and grey guards of the order compensation around the night drop's squads (no randomness). */
 function landingComp(b: Board, squads: Ax[][], comp: OrderComp) {
   const ring = (squad: Ax[]) => {
@@ -608,7 +623,7 @@ export function scenarioSetup(id: ScenarioId, config: ScenarioConfig = {}): { si
  * Scenarios whose map of the day differs in rules or layout from the gallery version: the day keeps
  * the old description (puzzleDescDaily_<id>) next to its frozen map.
  */
-export const DAILY_LEGACY_DESC: ReadonlySet<ScenarioId> = new Set<ScenarioId>(['sparks', 'olympus', 'highlands', 'moonvale', 'crossroads', 'colonies']);
+export const DAILY_LEGACY_DESC: ReadonlySet<ScenarioId> = new Set<ScenarioId>(['sparks', 'olympus', 'highlands', 'moonvale', 'crossroads', 'colonies', 'fireflies']);
 
 type LegacyBuilder = (rng: Rng, k: number, seats: number) => Board;
 
@@ -948,13 +963,21 @@ function symToSide(syms: Sym[], side: number): Sym {
 }
 
 /** One try at a moonless valley in the seats' own frame (null: rejected, roll again). */
-function moonvaleAttempt(rng: Rng, k: number, seats: number, radius: number, syms: Sym[]): Board | null {
-  const b = new Board();
-  b.disk(radius);
+function moonvaleAttempt(rng: Rng, k: number, seats: number, radius: number, syms: Sym[], plain: boolean): Board | null {
+  // wild land of a new shape every time (the last resort: the plain disk), the camps out on its edge
+  const camp0: Ax[] = plain ? [[radius - 1, 0], [radius - 2, 0], [radius - 2, 1]] : [[radius, 0], [radius - 1, 0], [radius - 1, 1]];
+  let b: Board;
+  if (plain) {
+    b = new Board();
+    b.disk(radius);
+  } else {
+    const wild = wildLand(rng, syms, radius, rng.pick(WILD_STYLES), camp0);
+    if (!wild) return null;
+    b = wild;
+  }
   // the valley is mostly poor ground, so that the clearings stand out
   symmetricMaxes(b, rng, syms, 0.12);
   const sides = seatSides(seats, 0);
-  const camp0: Ax[] = [[radius - 1, 0], [radius - 2, 0], [radius - 2, 1]];
   // every place a camp could be (five seats: the sixth stays empty, but nothing is built there)
   const anyCamp = syms.flatMap((f) => camp0.map(f));
   const camps = sides.map((side) => camp0.map(symToSide(syms, side)));
@@ -965,15 +988,18 @@ function moonvaleAttempt(rng: Rng, k: number, seats: number, radius: number, sym
   const glades = b.all().filter((c) => {
     const spots = orbit(ax(c), syms);
     return spots.length * 2 >= syms.length && apart(spots, 3) && spots.every((g) => anyCamp.every((a) => hexDist(g, a) >= 4)) &&
-      hexDist(ax(c), [0, 0]) >= 2 && hexDist(ax(c), [0, 0]) <= radius - 1;
+      hexDist(ax(c), [0, 0]) >= 2 && hexDist(ax(c), [0, 0]) <= radius - 1 &&
+      spots.every((g) => diskCells(g, 1).every((a) => b.get(...a)));
   });
   if (!glades.length) return null;
   const glade = ax(rng.pick(glades));
   const glades0 = orbit(glade, syms);
-  // the scout: one step from its clearing, off the rim, three clear of every camp and every other scout
+  // the scout: one step from its clearing (over land, not across a bay), off the rim, three clear of
+  // every camp and every other scout
+  const toGlade = boardDistances(b, [glade]);
   const scouts = b.all().filter((c) => {
     const spots = orbit(ax(c), syms);
-    return hexDist(ax(c), glade) === 2 && hexDist(ax(c), [0, 0]) <= radius - 2 && spots.length === syms.length && apart(spots, 3) &&
+    return hexDist(ax(c), glade) === 2 && toGlade.get(key(c.q, c.r)) === 2 && hexDist(ax(c), [0, 0]) <= radius - 2 && spots.length === syms.length && apart(spots, 3) &&
       spots.every((s) => anyCamp.every((a) => hexDist(s, a) >= 3) && glades0.every((g) => hexDist(s, g) >= 2));
   });
   if (!scouts.length) return null;
@@ -992,9 +1018,11 @@ function moonvaleAttempt(rng: Rng, k: number, seats: number, radius: number, sym
   else core.forEach((c) => Object.assign(c, { max: 12, power: hexDist(ax(c), [0, 0]) ? 3 : 5 }));
   if (!b.solid()) return null;
   // ridges with passes and small lakes make corridors, ruins guard some of them
-  symmetricRidges(b, rng, syms, keep, 1 + rng.int(3), (c) => near(c, anyCamp, 1) || near(c, scouts0, 1) || near(c, glades0, 1));
+  const clear = (c: Slot) => near(c, anyCamp, 1) || near(c, scouts0, 1) || near(c, glades0, 1);
+  symmetricRidges(b, rng, syms, keep, 1 + rng.int(3), clear);
   const land = b.cells.size;
-  for (let i = 0; i < Math.round(land / 10 / syms.length); i++) {
+  if (!plain) symmetricWalls(b, rng, syms, Math.round(land / 16 / syms.length), clear);
+  for (let i = 0; i < Math.round(land / (plain ? 10 : 16) / syms.length); i++) {
     const c = rng.pick(b.all());
     symmetricDig(b, syms, ax(c), keep);
   }
@@ -1084,6 +1112,193 @@ function symmetricLand(rng: Rng, syms: Sym[], radius: number, style: LandStyle):
     }
   }
   return b;
+}
+
+// ---------------------------------------------------------------- wild land of the dark scenarios
+
+/**
+ * Silhouettes of the lands in the dark: winding valleys (broad wandering trails), a ragged continent
+ * with bays and inland lakes, or islands strung together by causeways.
+ */
+type WildStyle = 'valleys' | 'continent' | 'isles';
+const WILD_STYLES: readonly WildStyle[] = ['valleys', 'continent', 'isles'];
+
+const diskCount = (r: number) => 3 * r * (r + 1) + 1;
+const stepAx = (a: Ax, d: number): Ax => [a[0] + DIRS[d][0], a[1] + DIRS[d][1]];
+
+/**
+ * A ragged land with about as many cells as a disk of this radius but spread wider, so that its shape
+ * can't be guessed from a corner of it; kept by the symmetries (one symmetry: none at all). The
+ * `anchors` and their neighbours are always land. Null when it came out in pieces or the wrong size.
+ */
+function wildLand(rng: Rng, syms: Sym[], radius: number, style: WildStyle, anchors: Ax[]): Board | null {
+  const reach = radius + 2;
+  const target = Math.round(diskCount(radius) * (1 + rng.float() * 0.12));
+  const land = new Set<string>();
+  const inside = (a: Ax) => hexDist(a, [0, 0]) <= reach;
+  const put = (a: Ax) => { for (const o of orbit(a, syms)) if (inside(o)) land.add(key(...o)); };
+  const has = (a: Ax) => land.has(key(...a));
+  const fixed = anchors.flatMap((a) => diskCells(a, 1));
+  fixed.forEach(put);
+  const homeward = (a: Ax) => [0, 1, 2, 3, 4, 5].sort((x, y) => hexDist(stepAx(a, x), [0, 0]) - hexDist(stepAx(a, y), [0, 0]))[0];
+  if (style === 'valleys') {
+    // broad trails wander out from the anchors and the middle, turning now and then, until the land is big enough
+    const starts: Ax[] = [[0, 0], ...anchors];
+    for (let trail = 0; land.size < target && trail < 60; trail++) {
+      let at: Ax = trail < starts.length ? starts[trail] : rng.pick([...land]).split(',').map(Number) as Ax;
+      let dir = rng.int(6);
+      for (let s = 0; s < 2 * radius && land.size < target; s++) {
+        const turn = rng.float();
+        dir = (dir + (turn < 0.2 ? 1 : turn < 0.4 ? 5 : 0)) % 6;
+        if (hexDist(stepAx(at, dir), [0, 0]) > reach - 1) dir = homeward(at);
+        at = stepAx(at, dir);
+        put(at);
+        for (let d = 0; d < 6; d++) if (rng.float() < 0.45) put(stepAx(at, d));
+      }
+    }
+  } else if (style === 'continent') {
+    // noise, denser in the middle, settled by a few rounds of "land where most neighbours are land"
+    const rolled = new Set<string>();
+    for (const a of diskCells([0, 0], reach)) {
+      if (rolled.has(key(...a))) continue;
+      const spots = orbit(a, syms);
+      spots.forEach((o) => rolled.add(key(...o)));
+      const d = hexDist(a, [0, 0]) / reach;
+      if (rng.float() < 0.78 - 0.5 * d * d) spots.forEach((o) => land.add(key(...o)));
+    }
+    fixed.forEach(put);
+    for (let round = 0; round < 3; round++) {
+      const next = new Set<string>();
+      for (const a of diskCells([0, 0], reach)) {
+        const n = DIRS.filter(([dq, dr]) => has([a[0] + dq, a[1] + dr])).length;
+        if (n >= 4 || (has(a) && n >= 3)) next.add(key(...a));
+      }
+      land.clear();
+      next.forEach((k) => land.add(k));
+      fixed.forEach(put);
+    }
+    // deep bays bitten out of the coast, so that it never settles into a round blob
+    const fixedKeys = new Set(fixed.flatMap((a) => orbit(a, syms)).map((a) => key(...a)));
+    for (let bay = 2 + rng.int(3) + Math.floor(radius / 4); bay > 0; bay--) {
+      const coast = [...land].map((k) => k.split(',').map(Number) as Ax).filter((a) => hexDist(a, [0, 0]) >= radius - 1);
+      if (!coast.length) break;
+      let at = rng.pick(coast);
+      for (let s = 0, depth = 1 + rng.int(3); s <= depth; s++) {
+        for (const c of diskCells(at, 1)) for (const o of orbit(c, syms)) if (!fixedKeys.has(key(...o))) land.delete(key(...o));
+        at = stepAx(at, homeward(at));
+      }
+    }
+  } else {
+    // round islands joined to their nearest neighbour by a causeway two cells wide
+    const centres: Ax[] = [];
+    const join = (from: Ax, to: Ax) => {
+      const n = hexDist(from, to);
+      for (let s = 0; s <= n; s++) {
+        const p = roundAx(from[0] + ((to[0] - from[0]) * s) / n, from[1] + ((to[1] - from[1]) * s) / n);
+        put(p);
+        put(stepAx(p, 0));
+        put(stepAx(p, 1));
+      }
+    };
+    const isle = (c: Ax) => {
+      diskCells(c, 1 + rng.int(2)).forEach(put);
+      const near = centres.filter((o) => key(...o) !== key(...c)).sort((x, y) => hexDist(x, c) - hexDist(y, c))[0];
+      if (near) join(c, near);
+      for (const o of orbit(c, syms)) centres.push(o);
+    };
+    isle([0, 0]);
+    anchors.forEach(isle);
+    for (let n = 0; land.size < target && n < 40; n++) {
+      const c = rng.pick(diskCells([0, 0], reach - 1));
+      if (centres.some((o) => hexDist(o, c) < 4)) continue;
+      isle(c);
+    }
+  }
+  // keep the piece the anchors (or the middle) stand on, and only if the symmetries keep it whole
+  const from = anchors.length ? anchors[0] : [...land].map((k) => k.split(',').map(Number) as Ax).sort((x, y) => hexDist(x, [0, 0]) - hexDist(y, [0, 0]))[0];
+  if (!from || !has(from)) return null;
+  const piece = new Set([key(...from)]);
+  const queue: Ax[] = [from];
+  while (queue.length) {
+    const a = queue.pop()!;
+    for (let d = 0; d < 6; d++) {
+      const n = stepAx(a, d);
+      if (has(n) && !piece.has(key(...n))) {
+        piece.add(key(...n));
+        queue.push(n);
+      }
+    }
+  }
+  const b = new Board();
+  for (const k of piece) b.add(...(k.split(',').map(Number) as Ax));
+  if (fixed.some((a) => !b.get(...a))) return null;
+  if (b.all().some((c) => orbit(axOf(c), syms).some((o) => !b.get(...o)))) return null;
+  // a cell that alone holds two parts together gets company, so the land never hangs on one cell
+  for (let step = 0; step < 80; step++) {
+    const { keys, adj } = b.graph();
+    const cuts = articulationPoints(adj);
+    if (!cuts.length) break;
+    const [q, r] = keys[cuts[0]].split(',').map(Number);
+    for (let d = 0; d < 6; d++) symmetricAdd(b, syms, stepAx([q, r], d));
+  }
+  const size = b.cells.size;
+  return b.solid() && size >= target * 0.85 && size <= target * 1.4 ? b : null;
+}
+
+/**
+ * Short walls of one or two edges scattered over the land, copied by the symmetries; none touches a
+ * `clear` cell and none may leave a cell holding the land together.
+ */
+function symmetricWalls(b: Board, rng: Rng, syms: Sym[], count: number, clear: (s: Slot) => boolean) {
+  const pool = b.all().filter((c) => !clear(c));
+  for (let tries = 0, made = 0; made < count && tries < count * 4 && pool.length; tries++) {
+    const c = rng.pick(pool);
+    const d = rng.int(6);
+    const sides: Ax[] = rng.bool() ? [stepAx(axOf(c), d)] : [stepAx(axOf(c), d), stepAx(axOf(c), (d + 1) % 6)];
+    const edges: [Ax, Ax][] = [];
+    for (const to of sides) {
+      const s = b.get(...to);
+      if (!s || clear(s)) continue;
+      for (const f of syms) edges.push([f(axOf(c)), f(to)]);
+    }
+    if (!edges.length) continue;
+    const before = b.walls.length;
+    const seen = new Set(b.walls.map(([x, y]) => [x, y].sort().join('|')));
+    for (const [x, y] of edges) {
+      const id = [key(...x), key(...y)].sort().join('|');
+      if (!seen.has(id)) {
+        seen.add(id);
+        b.wall(x, y);
+      }
+    }
+    if (!b.solid()) b.walls.length = before;
+    else made++;
+  }
+}
+
+/**
+ * Dress a dark land like the night drop's: rich ground here and there, inland pools, short walls,
+ * sometimes a ridge with a pass, and armed ruins out in the wild. `keep` cells stay as they are, no
+ * wall touches a `clear` one.
+ */
+function darkTerrain(b: Board, rng: Rng, syms: Sym[], keep: (s: Slot) => boolean, clear: (s: Slot) => boolean) {
+  symmetricMaxes(b, rng, syms, 0.25);
+  const land = b.cells.size;
+  const free = () => b.all().filter((c) => !keep(c));
+  for (let i = 1 + rng.int(2); i > 0; i--) {
+    const spots = free();
+    if (spots.length) for (const at of diskCells(axOf(rng.pick(spots)), 1)) symmetricSet(b, syms, at, (s) => { if (!keep(s)) s.max = 12; });
+  }
+  for (let i = 0; i < Math.round(land / 24 / syms.length); i++) {
+    const spots = free();
+    if (spots.length) for (const at of rng.shuffle(diskCells(axOf(rng.pick(spots)), rng.int(2)))) symmetricDig(b, syms, at, keep);
+  }
+  symmetricWalls(b, rng, syms, Math.round(land / 14 / syms.length), clear);
+  if (rng.int(3) === 0) symmetricRidges(b, rng, syms, keep, 1, clear);
+  for (const c of rng.shuffle(free().filter((c) => c.power === 0 && c.owner === NEUTRAL)).slice(0, Math.round((b.cells.size * 0.06) / syms.length))) {
+    const power = 2 + rng.int(3);
+    symmetricSet(b, syms, axOf(c), (s) => { if (!keep(s) && s.owner === NEUTRAL) s.power = Math.min(s.max, power); });
+  }
 }
 
 /** How the land between the seats is dressed: one of five characters, so maps differ in how they play. */
@@ -2004,8 +2219,8 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     const radius = scoutRadius('moonvale', size, seats === 5 ? 6 : seats);
     const turn = rng.int(6);
     const syms = seatSymmetries(seats);
-    for (let attempt = 0; attempt < 30; attempt++) {
-      const b = moonvaleAttempt(rng, k, seats, radius, syms);
+    for (let attempt = 0; attempt < 90; attempt++) {
+      const b = moonvaleAttempt(rng, k, seats, radius, syms, attempt >= 60);
       if (b) {
         b.rotate(turn);
         return b;
@@ -2019,9 +2234,29 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     return firstDesign((plain) => sparksAttempt(rng, k, plain), 'sparks');
   },
 
-  /** No squads and no stronghold: only little pools of light, each with an open escape route. */
+  /**
+   * No squads and no stronghold: only little pools of light scattered over a wild land of a new shape
+   * every time (winding valleys, a ragged continent or islands), with pools, walls and armed ruins out
+   * in the dark. Every scout lands on open ground with a way out in every direction.
+   */
   fireflies(rng, k, seats, size) {
     const radius = scoutRadius('fireflies', size, seats);
+    const syms = [turnSym(0)];
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const b = wildLand(rng, syms, radius, rng.pick(WILD_STYLES), []);
+      if (!b) continue;
+      const drops = wildDrops(rng, b, 3, 3 * seats);
+      if (!drops) continue;
+      darkTerrain(b, rng, syms, (c) => nearAny(axOf(c), drops, 2), (c) => nearAny(axOf(c), drops, 1));
+      // the rugged land takes away much of a strong player's edge: one of your scouts is a little
+      // stronger (bot matches: Master as you wins about as often as on the old open disk)
+      rng.shuffle(drops).forEach((at, i) => {
+        const owner = i % seats;
+        b.set(...at, { owner, power: owner ? 2 : kp(rng, k) + (i === 0 ? 1 : 0), max: 8 });
+      });
+      return b;
+    }
+    // the last resort: the plain disk
     const b = new Board();
     b.disk(radius);
     for (const c of b.all()) c.max = rollMax(rng);

@@ -104,8 +104,10 @@ describe('new scenario designs', () => {
       expect(known!.filter(Boolean).length).toBeLessThan(f.cells.length / 2);
       for (const p of st.settings.players.keys()) {
         const mine = owned(f, p);
-        const scouts = mine.filter(i => f.cells[i].power <= 2);
+        // fireflies: one of your scouts is a little stronger
+        const scouts = mine.filter(i => f.cells[i].power <= (id === 'fireflies' && p === 0 ? 3 : 2));
         expect(scouts.length).toBe(id === 'moonvale' ? 1 : mine.length);
+        if (id === 'fireflies') expect(mine.filter(i => f.cells[i].power === 3).length).toBe(p === 0 ? 1 : 0);
         if (id === 'fireflies') expect(scouts.length).toBeGreaterThanOrEqual(3);
         for (const i of scouts) {
           const d = distances(f, [i]);
@@ -295,6 +297,27 @@ describe('new scenario designs', () => {
     const sizes = (['L', 'XL', 'XXL'] as const).map(size => buildScenario(id, 117, undefined, players, { size }).field.cells.length);
     expect(sizes[0]).toBeLessThan(sizes[1]);
     expect(sizes[1]).toBeLessThan(sizes[2]);
+  });
+
+  for (const id of ['moonvale', 'fireflies'] as const) it(`${id}: wild land of a new shape every launch, not a plain hexagon`, () => {
+    for (const n of [2, 3, 6]) {
+      const players = Array.from({ length: n }, (_, p) => SCENARIO_META[id].players[p % 3]);
+      const shapes = new Set<string>();
+      const coast: number[] = [];
+      for (let seed = 1; seed <= 12; seed++) {
+        const f = buildScenario(id, seed * 31, undefined, players).field;
+        shapes.add(normalizedShape(f));
+        // cells with fewer than six land neighbours (bays, lakes, headlands), against a plain hexagon
+        // of as many cells, whose rim is its only coast
+        const land = new Set(f.cells.map(c => `${c.x},${c.y}`));
+        const shore = f.cells.filter(c => hexNeighbours(c.x, c.y).some(([x, y]) => !land.has(`${x},${y}`))).length;
+        const r = (Math.sqrt(12 * f.cells.length - 3) - 3) / 6;
+        coast.push(shore / (6 * r));
+      }
+      expect(shapes.size, `${id} ${n}`).toBeGreaterThanOrEqual(11);
+      expect(Math.min(...coast), `${id} ${n}`).toBeGreaterThanOrEqual(1.3);
+      expect(coast.reduce((a, b) => a + b) / coast.length, `${id} ${n}`).toBeGreaterThanOrEqual(1.8);
+    }
   });
 
   it('redesigned maps never hang on a single cell', () => {
