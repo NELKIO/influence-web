@@ -5,6 +5,7 @@ import { FreakBot } from './freak';
 import { GodBot, type GodBotOptions } from './godBot';
 import { HunterBot } from './hunter';
 import { MasterBot, type MasterBotOptions } from './masterBot';
+import { withObjectiveTactics } from './objectiveTactics';
 import type { Bot } from './types';
 
 export interface CreateBotOptions {
@@ -17,6 +18,10 @@ export interface CreateBotOptions {
 }
 
 export function createBot(type: BotType, opts: CreateBotOptions = {}): Bot {
+  return withObjectiveTactics(baseBot(type, opts));
+}
+
+function baseBot(type: BotType, opts: CreateBotOptions): Bot {
   switch (type) {
     case 'freak':
       return new FreakBot(opts.seed);

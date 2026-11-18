@@ -1,5 +1,7 @@
 import { Rng, randomSeed } from './rng';
 import { generateField } from './field';
+import { splitTerritories } from './splitTerritories';
+import { interruptObjectiveHold, objectiveHandoff } from './objectives';
 import {
   DIFFICULTY,
   NEUTRAL,
@@ -413,6 +415,7 @@ export function attack(state: MatchState, from: number, to: number, forced?: { w
   if (win && defOwnerBefore >= 0 && !isAlive(state, defOwnerBefore)) {
     eliminated = defOwnerBefore;
     state.outAt[defOwnerBefore] = state.turn;
+    clearSignalFire(state, defOwnerBefore);
   }
   state.selected = win ? to : from;
   if (win) explore(state);
@@ -443,7 +446,10 @@ export function applyFight(state: MatchState, ev: FightEvent): FightEvent | Atta
 export function endAttack(state: MatchState): UnionEvent | null {
   if (state.ended || state.phase !== 'attack') return null;
   const union = state.settings.unions ? maybeUnite(state) : null;
-  if (union) explore(state);
+  if (union) {
+    interruptObjectiveHold(state);
+    explore(state);
+  }
   state.phase = 'power';
   state.selected = -1;
   state.powerLeft = incomeFor(state, state.current);
@@ -493,6 +499,7 @@ export function finishTurn(state: MatchState): void {
   state.phase = 'attack';
   state.selected = -1;
   const n = state.settings.players.length;
+  const previous = state.current;
   const comp = state.settings.orderComp;
   if (comp && comp !== 'off' && comp.order) {
     // a changed order within the round: the next seat alive in this round's order, else the first of the next round's
@@ -515,9 +522,11 @@ export function finishTurn(state: MatchState): void {
     state.current = next;
   }
   const next = state.current;
+  clearSignalFire(state, next);
   if (isHuman(state, next)) state.viewer = next;
   const cap = state.settings.spectate;
   if (cap && state.turn >= cap) state.ended = { winner: -1, humanWon: false, reason: 'cap', turn: state.turn };
+  else objectiveHandoff(state, previous);
 }
 
 /** Whether the bots left on the board can fight on without people (at least two, no person). */
@@ -565,6 +574,7 @@ function maybeUnite(state: MatchState): UnionEvent | null {
     if (share(cur) + share(cand) > 1.3 * share(leader)) continue;
     for (const c of state.field.cells) if (c.owner === cand) c.owner = cur;
     state.outAt[cand] = state.turn;
+    clearSignalFire(state, cand);
     return { type: 'union', absorber: cur, absorbed: cand };
   }
   return null;
@@ -574,6 +584,8 @@ function maybeUnite(state: MatchState): UnionEvent | null {
 
 export function checkEnd(state: MatchState): void {
   if (state.ended) return;
+  // Fights and both local/online concession paths call this after changing owners.
+  interruptObjectiveHold(state);
   const alive = alivePlayers(state);
   const humans = alive.filter((p) => isPersonType(state.settings.players[p]));
   if (alive.length <= 1) {
@@ -609,6 +621,7 @@ export function checkStuck(state: MatchState): StuckOffer | null {
   if (total <= 0.8 * max) return null;
   const mine = cellCount(state, state.current);
   const percent = (mine / state.field.cells.length) * 100;
+  if (state.objectives) return state.objectiveHolder === undefined ? { percent, enough: false, draw: true } : null;
   // alone against bots (the original rule): a fair share of the field wins, less loses
   if (humansAlive(state).length <= 1) return { percent, enough: percent >= 100 / alive.length };
   // with other people still in the match the leader takes it; a first place shared by a person is a draw
@@ -632,7 +645,12 @@ function leadersOf(state: MatchState): number[] {
 }
 
 export function finishEarly(state: MatchState, offer: StuckOffer): void {
+  if (state.ended) return;
   const end = { reason: 'early' as const, turn: state.turn };
+  if (state.objectives) {
+    if (state.objectiveHolder === undefined) state.ended = { ...end, winner: -1, humanWon: false, draw: true };
+    return;
+  }
   if (offer.enough) {
     state.ended = { ...end, winner: state.current, humanWon: true };
   } else if (offer.draw) {
@@ -658,6 +676,7 @@ export function concede(state: MatchState, loser: number, recipient?: ConcedeCho
     const { settings } = state;
     if (settings.kind === 'duelOnline' || !isPersonType(settings.players[loser]) || !others.length) return false;
     state.settings = { ...settings, players: settings.players.map((p, i) => i === loser ? 'god' : p) };
+    clearSignalFire(state, loser);
     state.godTakeovers = [...(state.godTakeovers ?? []), loser];
     if (canSpectate(state)) state.settings.spectate = state.turn + 80;
     if (state.viewer === loser) state.viewer = nextHumanAfter(state, loser);
@@ -666,14 +685,17 @@ export function concede(state: MatchState, loser: number, recipient?: ConcedeCho
   }
   if (recipient === 'split' ? !others.length : recipient !== undefined && !others.includes(recipient)) return false;
   if (recipient === undefined && others.length <= 1) {
+    clearSignalFire(state, loser);
     const winner = others[0] ?? -1;
     state.ended = { winner, humanWon: winner >= 0 && isHuman(state, winner), reason: 'concede', turn: state.turn };
     return true;
   }
   if (recipient === 'split') {
     const rng = new Rng((state.seed ^ Math.imul(state.turn + 1, 0x9e3779b9) ^ Math.imul(loser + 1, 0x85ebca6b)) >>> 0);
-    const seats = rng.shuffle(others);
-    rng.shuffle(cellsOf(state, loser)).forEach((cell, i) => { state.field.cells[cell].owner = seats[i % seats.length]; });
+    const order = roundOrder(state.settings, state.turn);
+    const upcoming = order.slice(order.indexOf(state.current)).concat(roundOrder(state.settings, state.turn + 1));
+    const seats = [...new Set(upcoming.filter(p => others.includes(p)))];
+    splitTerritories(state.field.cells, cellsOf(state, loser), seats, rng);
   } else {
     for (const c of state.field.cells) {
       if (c.owner !== loser) continue;
@@ -682,6 +704,7 @@ export function concede(state: MatchState, loser: number, recipient?: ConcedeCho
     }
   }
   state.outAt[loser] = state.turn;
+  clearSignalFire(state, loser);
   if (recipient !== undefined) {
     explore(state);
     // Online spectators stay in the same room; the host runs the remaining bots.
@@ -705,22 +728,54 @@ export function concede(state: MatchState, loser: number, recipient?: ConcedeCho
 
 // ---------------------------------------------------------------- darkness
 
-/** Cells visible to `viewer` under darkness (all cells when darkness is off). */
-export function visibleCells(state: MatchState, viewer = state.viewer): Uint8Array {
+/** Fire range follows enabled passages, not hex distance through walls. */
+export function canLightSignalFire(state: MatchState, cell?: number): boolean {
+  return !!(state.settings.darkness && state.settings.signalFires && !state.ended &&
+    (state.signalFireCells?.[state.current] ?? -1) < 0 &&
+    (cell === undefined || (Number.isInteger(cell) && state.field.cells[cell]?.owner === state.current)));
+}
+
+export function lightSignalFire(state: MatchState, cell: number): boolean {
+  if (!Number.isInteger(cell) || !canLightSignalFire(state, cell)) return false;
+  const sources = state.signalFireCells ??= new Array<number>(state.settings.players.length).fill(-1);
+  sources[state.current] = cell;
+  explore(state);
+  return true;
+}
+
+export function clearSignalFire(state: MatchState, seat: number): void {
+  if (state.signalFireCells) state.signalFireCells[seat] = -1;
+}
+
+/** Actual live sight shared by both the renderer and exploration memory (no spectator overrides). */
+function seatSight(state: MatchState, viewer: number): Uint8Array {
   const { cells, adj } = state.field;
   const vis = new Uint8Array(cells.length);
-  // the fog lifts when the match is over: everyone sees how the map really looked
-  if (!state.settings.darkness || viewer < 0 || state.ended || (humansAlive(state).length === 0 && state.settings.kind !== 'duelOnline')) {
-    vis.fill(1);
-    return vis;
-  }
   cells.forEach((c, i) => {
     if (c.owner === viewer) {
       vis[i] = 1;
       for (const n of adj[i]) vis[n] = 1;
     }
   });
+  if (state.settings.signalFires) state.signalFireCells?.forEach((source, seat) => {
+    if (source < 0) return;
+    vis[source] = 1;
+    if (seat !== viewer) return;
+    for (const near of adj[source]) {
+      vis[near] = 1;
+      for (const far of adj[near]) vis[far] = 1;
+    }
+  });
   return vis;
+}
+
+/** Cells visible to `viewer` under darkness (all cells when darkness is off). */
+export function visibleCells(state: MatchState, viewer = state.viewer): Uint8Array {
+  // the fog lifts when the match is over: everyone sees how the map really looked
+  if (!state.settings.darkness || viewer < 0 || state.ended || (humansAlive(state).length === 0 && state.settings.kind !== 'duelOnline')) {
+    return new Uint8Array(state.field.cells.length).fill(1);
+  }
+  return seatSight(state, viewer);
 }
 
 // ---------------------------------------------------------------- exploration fog
@@ -729,19 +784,17 @@ export function visibleCells(state: MatchState, viewer = state.viewer): Uint8Arr
 export function explore(state: MatchState): void {
   const s = state.settings;
   if (!s.blind || !s.darkness) return;
-  const { cells, adj } = state.field;
+  const { cells } = state.field;
   const explored = (state.explored ??= []);
   s.players.forEach((p, seat) => {
     if (!isPersonType(p)) return;
     const row = (explored[seat] ?? '').padEnd(cells.length, '0').split('');
     let grew = !explored[seat];
-    cells.forEach((c, i) => {
-      if (c.owner !== seat) return;
-      for (const j of [i, ...adj[i]])
-        if (row[j] !== '1') {
-          row[j] = '1';
-          grew = true;
-        }
+    seatSight(state, seat).forEach((visible, i) => {
+      if (visible && row[i] !== '1') {
+        row[i] = '1';
+        grew = true;
+      }
     });
     if (grew) explored[seat] = row.join('');
   });

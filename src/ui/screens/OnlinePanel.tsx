@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { t } from '../../i18n';
-import { Modal, Seg, SettingRow, Toggle, TopBar } from '../components/controls';
+import { Modal, Seg, TopBar } from '../components/controls';
+import { DarknessRow, ExperimentalModes } from '../components/ExperimentalModes';
 import type { DuelOptions } from './DuelsScreen';
 import { inviteUrl, isValidCode, normalizeCode, type DuelSession } from '../../net';
 import { errorText, launchOnline } from '../online';
@@ -39,22 +40,17 @@ function deadGuest(id: string): boolean {
 }
 
 export function OnlinePanel({
-  opts: initial,
+  opts,
   onOpts,
   join,
   onBack,
 }: {
   opts: DuelOptions;
   /** the options changed (the duels screen keeps them) */
-  onOpts?: (o: DuelOptions) => void;
+  onOpts: (patch: Partial<DuelOptions>) => void;
   join?: string;
   onBack: () => void;
 }) {
-  const [opts, setOptsState] = useState<DuelOptions>(initial);
-  const setOpts = (o: DuelOptions) => {
-    setOptsState(o);
-    onOpts?.(o);
-  };
   const [view, setView] = useState<View>({ kind: 'lobby' });
   const [code, setCode] = useState(join ?? '');
   const [, setTick] = useState(0);
@@ -99,7 +95,7 @@ export function OnlinePanel({
       setErr(t('duelTooMany', { n: MAX_DUELS }));
       return;
     }
-    const { id } = hostDuel({ size: opts.size, darkness: opts.darkness, turnTime: opts.turnTime });
+    const { id } = hostDuel(opts);
     setView({ kind: 'room', id });
   };
 
@@ -231,7 +227,7 @@ export function OnlinePanel({
                 <Seg<FieldSize>
                   value={opts.size}
                   options={(['M', 'L', 'XL'] as FieldSize[]).map((v) => ({ value: v, label: t(`size${v}` as 'sizeM') }))}
-                  onChange={(v) => setOpts({ ...opts, size: v })}
+                  onChange={(v) => onOpts({ size: v })}
                 />
               </div>
               <div class="list-item" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
@@ -239,13 +235,12 @@ export function OnlinePanel({
                 <Seg<number>
                   value={opts.turnTime}
                   options={TURN_TIMES.map((v) => ({ value: v, label: v ? t('minutes', { n: v / 60 }) : '∞' }))}
-                  onChange={(v) => setOpts({ ...opts, turnTime: v })}
+                  onChange={(v) => onOpts({ turnTime: v })}
                 />
               </div>
-              <SettingRow title={t('darkness')} desc={t('darknessDesc')}>
-                <Toggle on={opts.darkness} onChange={(v) => setOpts({ ...opts, darkness: v })} />
-              </SettingRow>
+              <DarknessRow options={opts} update={onOpts} />
             </div>
+            <ExperimentalModes options={opts} update={onOpts} />
             <button class="btn red" onClick={host}>
               {t('duelCreate')}
             </button>

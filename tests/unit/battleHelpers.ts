@@ -30,6 +30,7 @@ export interface RoomOptions {
   size?: FieldSize;
   seed?: number;
   darkness?: boolean;
+  signalFires?: boolean;
   shuffle?: boolean;
   unions?: boolean;
   duelRules?: boolean;
@@ -47,6 +48,7 @@ export function battleSettings(o: RoomOptions): MatchSettings {
     size: o.size ?? 'S',
     players: [...o.players],
     darkness: o.darkness ?? false,
+    ...(o.signalFires && { signalFires: true }),
     symmetry: true,
     crowded: false,
     unions: o.unions ?? false,

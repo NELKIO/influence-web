@@ -602,6 +602,10 @@ export class BattleHost {
     } else {
       if (st.current !== seat) return { ok: false, reason: 'notYourTurn' };
       switch (req.t) {
+        case 'signalFire':
+          if (!E.lightSignalFire(st, req.cell)) return { ok: false, reason: 'bad' };
+          push(req);
+          break;
         case 'attack': {
           const ev = E.attack(st, req.from, req.to);
           if (typeof ev === 'string') return { ok: false, reason: ev };
@@ -1364,6 +1368,7 @@ export class BattleGuest {
     }
     if (!this.connected || !this.welcomed) return no('offline');
     if (st.current !== this.seat) return no('notYourTurn');
+    if (req.t === 'signalFire' && !E.canLightSignalFire(st, req.cell)) return no('bad');
     if (req.t === 'attack') {
       const r = E.checkAttack(st, req.from, req.to);
       if (r) return no(r);

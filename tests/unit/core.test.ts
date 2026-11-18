@@ -286,7 +286,6 @@ describe('daily map', () => {
     expect(JSON.stringify(a.field)).toBe(JSON.stringify(b.field));
     expect(dailyKind(PUZZLE_ANCHOR).kind).toBe('puzzle');
     const kinds: string[] = [];
-    const scenarios = new Set<string>();
     // a window that crosses the anchor: past days use the same scheme
     for (let i = -6; i < 52; i++) {
       const d = new Date(2026, 9, 21 + i);
@@ -299,17 +298,15 @@ describe('daily map', () => {
       expect(dailyLevel(id)).toBeGreaterThanOrEqual(2);
       expect(dailyLevel(id)).toBeLessThanOrEqual(4);
       if (k.kind === 'puzzle') {
-        if (i >= 0) scenarios.add(k.scenario);
         expect(m.settings.puzzle).toBe(k.scenario);
       } else {
         expect(m.settings.symmetry).toBe(true);
         expect(m.settings.players.slice(1)).toContain('master');
       }
     }
-    // three puzzles, then a battle; the anchor (i = 0) is a puzzle; one full cycle covers every scenario once
+    // Three puzzles, then a battle; the anchor (i = 0) is a puzzle. Cycle membership
+    // is tested separately in scenarios.test.ts, starting at the correct era boundary.
     kinds.forEach((k, j) => expect(k).toBe((((j - 6) % 4) + 4) % 4 === 3 ? 'battle' : 'puzzle'));
-    const { ROTATION } = await import('../../src/daily');
-    expect(scenarios.size).toBe(ROTATION.length);
   });
 });
 

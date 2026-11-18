@@ -129,7 +129,7 @@ export function DailyScreen() {
             </div>
             <div style={{ width: 120, flex: 'none' }}>
               {/* a scenario in darkness gives away neither the starts nor (under exploration fog) the map */}
-              <SecretMap field={preview.field} darkness={!!puzzle && cfg.darkness} blind={cfg.blind} maxHeight={130} />
+              <SecretMap field={preview.field} darkness={!!puzzle && cfg.darkness} blind={cfg.blind} objectives={preview.objectives} maxHeight={130} />
             </div>
           </div>
           {puzzle && (

@@ -9,7 +9,8 @@ import { prepareHost } from '../battle';
 import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../core/types';
 import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconMoon, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
-import { MiniMap, SecretMap } from '../components/MiniMap';
+import { SecretMap } from '../components/MiniMap';
+import { DarknessRow, ExperimentalModes } from '../components/ExperimentalModes';
 import { Medal } from '../components/Medal';
 import { sfx } from '../../audio/sfx';
 import { useDiscardGuard } from '../components/DiscardGuard';
@@ -20,9 +21,9 @@ const LEVEL: Partial<Record<PlayerType, number>> = { dummy: 1, hunter: 2, master
 const playersLabel = (n: number) => t(n >= 5 ? 'playersCountMany' : 'playersCount', { n });
 
 /** Picture of a scenario's map: in darkness without the starts, under exploration fog not even the shape. */
-function ScenarioMap({ id, field, maxHeight }: { id: ScenarioId; field: Field; maxHeight: number }) {
+function ScenarioMap({ id, field, objectives, maxHeight }: { id: ScenarioId; field: Field; objectives?: number[]; maxHeight: number }) {
   const m = SCENARIO_META[id];
-  return <SecretMap field={field} darkness={m.darkness} blind={m.blind} maxHeight={maxHeight} />;
+  return <SecretMap field={field} darkness={m.darkness} blind={m.blind} objectives={objectives} maxHeight={maxHeight} />;
 }
 
 const medalLabel = (tier: MedalTier | null) => t(tier === 'gold' ? 'medalGoldTitle' : tier ? 'medalTitle' : 'medalNone');
@@ -154,7 +155,7 @@ export function SetupScreen() {
           <>
             {scenario && meta ? (
               <div class="card scenario-pick" data-testid="scenario-pick">
-                <ScenarioMap id={scenario} field={preview.field} maxHeight={220} />
+                <ScenarioMap id={scenario} field={preview.field} objectives={preview.objectives} maxHeight={220} />
                 <div class="scenario-head">
                   <div class="grow">
                     <div class="kicker">{t('scenarioKicker')}</div>
@@ -165,6 +166,17 @@ export function SetupScreen() {
                   </button>
                 </div>
                 <div class="desc">{t(`puzzleDesc_${scenario}` as 'puzzleDesc_siege')}</div>
+                {preview.objectives && (
+                  <button class="btn small" onClick={() => {
+                    sfx.click();
+                    setMapSeed(old => {
+                      const seed = randomSeed();
+                      return seed === old ? (old + 1) >>> 0 : seed;
+                    });
+                  }}>
+                    <IconRestart width={16} height={16} /> {t('reroll')}
+                  </button>
+                )}
                 {conf && opts && conf.sizes.length > 1 && (
                   <div class="scenario-size" data-testid="scenario-size">
                     <Seg
@@ -211,21 +223,23 @@ export function SetupScreen() {
                   ))}
                 </div>
                 <div class="card map-preview">
-                  <MiniMap field={preview.field} />
+                  <SecretMap field={preview.field} darkness={prefs.darkness} blind={prefs.blind} />
                   <div class="map-meta">
                     <div>
                       <div class="title" style={{ fontSize: 14 }}>
-                        {preview.field.layout
-                          ? t(`layout_${preview.field.layout}` as 'layout_ring')
-                          : prefs.symmetry
-                            ? t('layout_mirror')
-                            : t('layout_random')}
+                        {prefs.blind
+                          ? t('scenarioUncharted')
+                          : preview.field.layout
+                            ? t(`layout_${preview.field.layout}` as 'layout_ring')
+                            : t(prefs.symmetry ? 'layout_mirror' : 'layout_random')}
                       </div>
-                      <div class="desc">
-                        {t('mapCells', { n: preview.field.cells.length })}
-                        {preview.field.layout &&
-                          ` · ${t(players.length === 3 ? 'layoutFair3' : players.length === 6 ? 'layoutFair6' : 'layoutFair5')}`}
-                      </div>
+                      {!prefs.blind && (
+                        <div class="desc">
+                          {t('mapCells', { n: preview.field.cells.length })}
+                          {preview.field.layout &&
+                            ` · ${t(players.length === 3 ? 'layoutFair3' : players.length === 6 ? 'layoutFair6' : 'layoutFair5')}`}
+                        </div>
+                      )}
                     </div>
                     <button
                       class="btn small"
@@ -258,7 +272,7 @@ export function SetupScreen() {
                 const tier = medals[id]?.tier ?? null;
                 return (
                   <button key={id} class={`puzzle-card ${on ? 'on' : ''}`} aria-pressed={on} data-scenario={id} onClick={() => pickScenario(id)}>
-                    <ScenarioMap id={id} field={samples[id].field} maxHeight={84} />
+                    <ScenarioMap id={id} field={samples[id].field} objectives={samples[id].objectives} maxHeight={84} />
                     <span class="medal-badge" data-medal={tier ?? 'none'} title={medalLabel(tier)}>
                       <Medal tier={tier} size={22} label={medalLabel(tier)} />
                     </span>
@@ -399,20 +413,21 @@ export function SetupScreen() {
               )}
             </>
           ) : (
-            <div class="list">
-              <SettingRow title={t('darkness')} desc={t('darknessDesc')}>
-                <Toggle on={prefs.darkness} onChange={(v) => update({ darkness: v })} />
-              </SettingRow>
-              <SettingRow title={t('symmetry')} desc={t('symmetryDesc2')}>
-                <Toggle on={prefs.symmetry} onChange={(v) => update({ symmetry: v })} />
-              </SettingRow>
-              <SettingRow title={t('crowded')} desc={t('crowdedDesc')}>
-                <Toggle on={prefs.crowded} onChange={(v) => update({ crowded: v })} />
-              </SettingRow>
-              <SettingRow title={t('unions')} desc={persons > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
-                <Toggle on={persons < 2 && prefs.unions} disabled={persons > 1} onChange={(v) => update({ unions: v })} />
-              </SettingRow>
-            </div>
+            <>
+              <div class="list">
+                <DarknessRow options={prefs} update={update} />
+                <SettingRow title={t('symmetry')} desc={t('symmetryDesc2')}>
+                  <Toggle on={prefs.symmetry} onChange={(v) => update({ symmetry: v })} />
+                </SettingRow>
+                <SettingRow title={t('crowded')} desc={t('crowdedDesc')}>
+                  <Toggle on={prefs.crowded} onChange={(v) => update({ crowded: v })} />
+                </SettingRow>
+                <SettingRow title={t('unions')} desc={persons > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
+                  <Toggle on={persons < 2 && prefs.unions} disabled={persons > 1} onChange={(v) => update({ unions: v })} />
+                </SettingRow>
+              </div>
+              <ExperimentalModes options={prefs} update={update} />
+            </>
           ))}
 
         <div class="footer-actions">

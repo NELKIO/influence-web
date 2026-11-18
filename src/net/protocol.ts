@@ -15,12 +15,15 @@
  * `seq` numbers every game action of a match (1, 2, 3...). Both sides keep a short log so that,
  * after a reconnect, the side that is ahead re-sends the actions the other side missed.
  */
+import { mixSignalFires, validSignalFireCells } from '../core/signalFires';
+import { mixObjectives, validObjectiveFields } from '../core/objectives';
 import type { MatchEnd, MatchState } from '../core/types';
 
-/** 4: a duel concession transfers territory only when explicitly requested. */
-export const PROTOCOL_VERSION = 4;
+/** 5: optional signal fires are replayed by both peers. */
+export const PROTOCOL_VERSION = 5;
 
 export type DuelAction =
+  | { t: 'signalFire'; cell: number }
   | { t: 'attack'; from: number; to: number; win: boolean }
   | { t: 'endAttack' }
   | { t: 'power'; cell: number; amount: number }
@@ -158,10 +161,12 @@ function isState(x: unknown): x is MatchState {
   return (
     x.v === 1 &&
     isObj(x.settings) &&
-    Array.isArray((x.settings as Record<string, unknown>).players) &&
+    Array.isArray(x.settings.players) &&
     isObj(f) &&
-    Array.isArray((f as Record<string, unknown>).cells) &&
-    Array.isArray((f as Record<string, unknown>).adj) &&
+    Array.isArray(f.cells) &&
+    Array.isArray(f.adj) &&
+    validSignalFireCells(x.signalFireCells, x.settings.players.length, f.cells.length) &&
+    validObjectiveFields(x, f.cells, x.settings.players.length, x.settings.puzzle) &&
     isInt(x.turn) &&
     isInt(x.current) &&
     (x.phase === 'attack' || x.phase === 'power')
@@ -171,6 +176,8 @@ function isState(x: unknown): x is MatchState {
 export function isDuelAction(x: unknown): x is DuelAction {
   if (!isObj(x)) return false;
   switch (x.t) {
+    case 'signalFire':
+      return isInt(x.cell) && x.cell >= 0;
     case 'attack':
       return isInt(x.from) && isInt(x.to) && typeof x.win === 'boolean';
     case 'power':
@@ -251,6 +258,8 @@ export function stateHash(state: MatchState): string {
   mix(state.current + 1);
   mix(state.phase === 'attack' ? 1 : 2);
   mix(state.powerLeft);
+  mixSignalFires(state, mix);
+  mixObjectives(state, mix);
   for (const c of state.field.cells) {
     mix(c.owner + 1);
     mix(c.power);

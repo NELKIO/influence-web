@@ -10,6 +10,7 @@
  * Slot numbering is identical on both sides (slot 0 moves first). Locally the own slot has type
  * 'human' and the opponent 'remote'.
  */
+import { matchDarkness } from '../core/darknessOptions';
 import * as E from '../core/engine';
 import { Rng, randomSeed } from '../core/rng';
 import type { AttackRefusal, FieldSize, FightEvent, MatchEnd, MatchSettings, MatchState } from '../core/types';
@@ -44,6 +45,8 @@ export interface DuelError {
 export interface DuelConfig {
   size: FieldSize;
   darkness: boolean;
+  signalFires?: boolean;
+  blind?: boolean;
   symmetry: boolean;
   /** seconds per turn, 0 = unlimited */
   turnTime: number;
@@ -205,7 +208,7 @@ export function duelSettings(config: DuelConfig, localSlot: number): MatchSettin
     kind: 'duelOnline',
     size: config.size,
     players: localSlot === 0 ? ['human', 'remote'] : ['remote', 'human'],
-    darkness: config.darkness,
+    ...matchDarkness(config),
     symmetry: config.symmetry,
     crowded: false,
     unions: false,
@@ -284,7 +287,7 @@ export class DuelSession {
     const transport = opts.transport ?? createDuelHostTransport({ ...netOpts(opts), clientId, code: opts.code });
     const config: DuelConfig = {
       size: opts.size ?? DEFAULT_CONFIG.size,
-      darkness: opts.darkness ?? DEFAULT_CONFIG.darkness,
+      ...matchDarkness(opts),
       symmetry: opts.symmetry ?? DEFAULT_CONFIG.symmetry,
       turnTime: Math.max(0, Math.floor(opts.turnTime ?? DEFAULT_CONFIG.turnTime)),
     };
@@ -477,6 +480,12 @@ export class DuelSession {
   }
 
   // ------------------------------------------------------------------ public API: actions
+
+  lightSignalFire(cell: number): boolean {
+    if (!this.canAct || !E.lightSignalFire(this.state!, cell)) return false;
+    this.commit({ t: 'signalFire', cell });
+    return true;
+  }
 
   /** Attack from own cell. Resolves locally and sends the outcome. */
   attack(from: number, to: number): FightEvent | AttackRefusal | 'notYourTurn' {
@@ -926,7 +935,7 @@ export class DuelSession {
     this.round = round;
     this.config = {
       size: st.settings.size,
-      darkness: st.settings.darkness,
+      ...matchDarkness(st.settings),
       symmetry: st.settings.symmetry,
       turnTime: st.settings.turnTime ?? 0,
     };
@@ -962,6 +971,9 @@ export class DuelSession {
     let fight: FightEvent | null = null;
     let power: { cell: number; amount: number } | null = null;
     switch (a.t) {
+      case 'signalFire':
+        if (!E.lightSignalFire(st, a.cell)) return this.conflict('illegal signal fire');
+        break;
       case 'attack': {
         const refusal = E.checkAttack(st, a.from, a.to);
         if (refusal) return this.conflict(`illegal attack ${a.from}->${a.to}: ${refusal}`);
@@ -1037,8 +1049,8 @@ export class DuelSession {
       const same = st.ended.winner === end.winner && st.ended.reason === end.reason;
       if (same || this.role === 'host') return;
     }
-    if (!st.ended && end.reason === 'concede' && end.territoriesTransferred === true && (end.winner === 0 || end.winner === 1)) {
-      E.concede(st, 1 - end.winner, end.winner);
+    if (!st.ended && end.reason === 'concede' && (end.winner === 0 || end.winner === 1)) {
+      E.concede(st, 1 - end.winner, end.territoriesTransferred ? end.winner : undefined);
     }
     st.ended = { ...end, humanWon: end.winner === this.localSlot };
     this.afterChange();

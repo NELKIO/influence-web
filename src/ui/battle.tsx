@@ -298,6 +298,7 @@ function guestBinding(guest: BattleGuest): OnlineBinding {
   return {
     remoteDriven: true,
     driver: {
+      lightSignalFire: async cell => (await guest.request({ t: 'signalFire', cell })).ok,
       attack: (from, to) => {
         void guest.request({ t: 'attack', from, to });
         return 'pending';

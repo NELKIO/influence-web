@@ -218,6 +218,7 @@ describe('hot-seat darkness: the seat looking at the board goes out', () => {
     const m = make(s);
     const b1 = m.script(1);
     m.c.start();
+    m.c.dismissHandover();
     await flushAll();
     b1.answer({ from: y, to: x });
     await flushAll();
@@ -225,9 +226,9 @@ describe('hot-seat darkness: the seat looking at the board goes out', () => {
     expect(s.field.cells[x].owner).toBe(1);
     expect(s.viewer).toBe(2);
     expect(m.c.overlay).toEqual({ kind: 'handover', next: 2 });
-    // the board is not black for the new viewer
-    expect([...m.c.view().visible].some(Boolean)).toBe(true);
+    expect([...m.c.view().visible].some(Boolean)).toBe(false);
     m.c.dismissHandover();
+    expect([...m.c.view().visible].some(Boolean)).toBe(true);
     b1.answer(null);
     await flushAll();
     // seat 2's turn: the device is already in their hands, no second hand-over

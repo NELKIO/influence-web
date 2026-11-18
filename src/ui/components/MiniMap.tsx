@@ -2,7 +2,7 @@ import { cellCenter, cellRadius } from '../board/renderer';
 import type { Field } from '../../core/types';
 
 /** Static SVG thumbnail of a field: owned cells in player colours (faint when empty), the rest as empty hexes. */
-export function MiniMap({ field, starts: startCells = [], maxHeight = 200 }: { field: Field; starts?: number[]; maxHeight?: number }) {
+export function MiniMap({ field, starts: startCells = [], objectives, maxHeight = 200 }: { field: Field; starts?: number[]; objectives?: number[]; maxHeight?: number }) {
   const pts = field.cells.map((c) => cellCenter(c.x, c.y));
   const xs = pts.map((p) => p[0]);
   const ys = pts.map((p) => p[1]);
@@ -34,6 +34,9 @@ export function MiniMap({ field, starts: startCells = [], maxHeight = 200 }: { f
           />
         );
       })}
+      {objectives?.map(i => (
+        <polygon key={`target${i}`} data-objective={i} points={hex(pts[i][0], pts[i][1], 0.45)} fill="none" stroke="#ffcf78" stroke-width="0.19" />
+      ))}
       {/* walls: a short bar across the gap between two cells, like on the board */}
       {field.walls.map(([i, j], k) => {
         const [ax, ay] = pts[i];
@@ -115,8 +118,8 @@ export function UnknownMap({ maxHeight = 200 }: { maxHeight?: number }) {
  * A map as a player may see it before a scenario starts: in darkness without anybody on it, under
  * exploration fog not even its shape.
  */
-export function SecretMap({ field, darkness, blind, maxHeight }: { field: Field; darkness?: boolean; blind?: boolean; maxHeight?: number }) {
+export function SecretMap({ field, darkness, blind, objectives, maxHeight }: { field: Field; darkness?: boolean; blind?: boolean; objectives?: number[]; maxHeight?: number }) {
   if (blind) return <UnknownMap maxHeight={maxHeight} />;
-  if (!darkness) return <MiniMap field={field} maxHeight={maxHeight} />;
+  if (!darkness) return <MiniMap field={field} objectives={objectives} maxHeight={maxHeight} />;
   return <MiniMap field={{ ...field, cells: field.cells.map((c) => ({ ...c, owner: -1, power: 0 })) }} maxHeight={maxHeight} />;
 }

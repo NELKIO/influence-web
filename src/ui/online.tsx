@@ -41,6 +41,7 @@ function makeBinding(session: DuelSession): OnlineBinding {
   const matchId = session.matchId;
   const driver: MatchDriver = {
     attack: (f, to) => session.attack(f, to),
+    lightSignalFire: cell => session.lightSignalFire(cell),
     endAttack: () => {
       session.endAttack();
       return null;

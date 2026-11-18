@@ -175,7 +175,7 @@ export function canCreate(): boolean {
   return listSlots().length < MAX_DUELS;
 }
 
-export function hostDuel(opts: { size: 'M' | 'L' | 'XL' | 'S' | 'XXL'; darkness: boolean; turnTime: number }): { id: string; session: DuelSession } {
+export function hostDuel(opts: Omit<net.DuelConfig, 'symmetry'>): { id: string; session: DuelSession } {
   const id = addSlot();
   const storage = storageFor(id);
   const s = DuelSession.host({

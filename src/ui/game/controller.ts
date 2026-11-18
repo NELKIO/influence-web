@@ -5,6 +5,8 @@ import {
   attack,
   autoPower,
   canAttackFrom,
+  canLightSignalFire,
+  lightSignalFire,
   checkAttack,
   checkStuck,
   concede,
@@ -43,6 +45,7 @@ export type Overlay =
 
 /** A move as applied to the state (fights carry their outcome so it can be replayed elsewhere). */
 export type AppliedMove =
+  | { t: 'signalFire'; cell: number }
   | { t: 'attack'; from: number; to: number; win: boolean }
   | { t: 'endAttack' }
   | { t: 'power'; cell: number; amount: number }
@@ -58,6 +61,7 @@ export interface Hint {
 export interface MatchDriver {
   /** perform a local human attack; returns the fight or a refusal */
   attack(from: number, to: number): FightEvent | string;
+  lightSignalFire(cell: number): boolean | Promise<boolean>;
   endAttack(): UnionEvent | null;
   addPower(cell: number, amount: number): number;
   autoPower(): Map<number, number>;
@@ -131,6 +135,8 @@ export class GameController {
    * seat looking at the board went out); -1 when nothing is pending.
    */
   private pendingHandover = -1;
+  pickingFire = false;
+  firePending = false;
   private driver: MatchDriver;
   private opts: ControllerOptions;
   private fx: typeof sfx;
@@ -149,6 +155,12 @@ export class GameController {
 
   private localDriver(): MatchDriver {
     return {
+      lightSignalFire: (cell) => {
+        const seat = this.state.current;
+        if (!lightSignalFire(this.state, cell)) return false;
+        this.report(seat, { t: 'signalFire', cell });
+        return true;
+      },
       attack: (f, t) => {
         const seat = this.state.current;
         const ev = attack(this.state, f, t);
@@ -217,6 +229,7 @@ export class GameController {
 
   /** External state replacement (online sync). */
   replaceState(state: MatchState) {
+    this.pickingFire = false;
     this.state = state;
     this.epoch++;
     this.ensureBots();
@@ -254,11 +267,17 @@ export class GameController {
     return this.state.viewer;
   }
 
+  private get needsDarkHandover(): boolean {
+    const s = this.state;
+    return !s.ended && s.settings.darkness && !this.opts.background && this.humansCount > 1 &&
+      isHuman(s, s.viewer) && this.handoverDone !== s.viewer && isAlive(s, s.viewer);
+  }
+
   view(): BoardView {
     const s = this.state;
     let visible = visibleCells(s, s.viewer);
     let known = exploredCells(s, s.viewer);
-    if (this.pendingHandover >= 0 && s.settings.darkness && !s.ended) {
+    if ((this.needsDarkHandover || this.pendingHandover >= 0 || this.overlay.kind === 'handover') && s.settings.darkness && !s.ended) {
       // the device has not been handed over yet: show nothing of the next person's view
       visible = new Uint8Array(visible.length);
       known = new Uint8Array(visible.length);
@@ -333,11 +352,45 @@ export class GameController {
 
   // ------------------------------------------------------------ human input
 
+  get canChooseFire(): boolean {
+    return this.isLocalTurn && !this.running && !this.firePending && this.overlay.kind === 'none' && canLightSignalFire(this.state);
+  }
+
+  toggleFirePicker() {
+    if (!this.canChooseFire) return;
+    this.pickingFire = !this.pickingFire;
+    this.state.selected = -1;
+    this.emit();
+  }
+
+  private placeFire(cell: number) {
+    if (!canLightSignalFire(this.state, cell)) {
+      this.showHint(this.opts.t('fireOwnOnly'));
+      return;
+    }
+    this.pickingFire = false;
+    const { turn, current } = this.state;
+    const done = (ok: boolean) => {
+      this.firePending = false;
+      if (this.disposed) return;
+      if (!ok && this.isLocalTurn && this.state.turn === turn && this.state.current === current) this.showHint(this.opts.t('fireNotLit'));
+      else this.saveAndEmit();
+    };
+    const result = this.driver.lightSignalFire(cell);
+    if (typeof result === 'boolean') done(result);
+    else {
+      this.firePending = true;
+      this.emit();
+      void result.then(done, () => done(false));
+    }
+  }
+
   tap(cell: number) {
     const s = this.state;
     if (!this.isLocalTurn || this.overlay.kind !== 'none' || this.running) return;
     const c = s.field.cells[cell];
     if (!c) return;
+    if (this.pickingFire) return this.placeFire(cell);
     if (s.phase === 'attack') {
       if (c.owner === s.current) {
         s.selected = s.selected === cell && !canAttackFrom(s, cell) ? -1 : cell;
@@ -383,6 +436,7 @@ export class GameController {
     if (!this.isLocalTurn || this.overlay.kind !== 'none' || this.running) return;
     const c = s.field.cells[cell];
     if (!c) return;
+    if (this.pickingFire) return this.placeFire(cell);
     if (s.phase === 'power') {
       if (c.owner !== s.current) return;
       const added = this.driver.addPower(cell, c.maxPower - c.power);
@@ -437,7 +491,7 @@ export class GameController {
   /** End-turn button. `force` skips confirmations (long press). */
   endButton(force = false) {
     const s = this.state;
-    if (!this.isLocalTurn || this.running) return;
+    if (!this.isLocalTurn || this.running || this.pickingFire || this.firePending) return;
     if (this.overlay.kind !== 'none' && this.overlay.kind !== 'confirmEndAttack' && this.overlay.kind !== 'confirmAuto') return;
     if (s.phase === 'attack') {
       // confirm only when some cell could still attack
@@ -477,6 +531,9 @@ export class GameController {
   dismissHandover() {
     if (this.overlay.kind !== 'handover') return;
     this.handoverDone = this.overlay.next;
+    this.hover = -1;
+    this.hint = null;
+    this.pickingFire = false;
     this.overlay = { kind: 'none' };
     this.fx.turn();
     this.emit();
@@ -485,6 +542,7 @@ export class GameController {
 
   pause() {
     if (this.overlay.kind !== 'none' && this.overlay.kind !== 'result') return;
+    this.pickingFire = false;
     this.paused = true;
     this.overlay = { kind: 'pause' };
     this.emit();
@@ -546,7 +604,7 @@ export class GameController {
       this.renderer?.fight(ev.from, ev.to, ev.win, playerColor(winnerSlot), playerColor(ev.player));
       if (ev.win) this.fx.capture();
       else this.fx.fail();
-      this.renderer?.ensureVisible(ev.to);
+      this.renderer?.ensureVisible(vis[ev.to] ? ev.to : ev.from);
     }
     if (local || isHuman(this.state, ev.defOwnerBefore)) this.vibrate(ev.win ? 10 : [10, 40, 10]);
     if (ev.eliminated !== null) {
@@ -643,6 +701,7 @@ export class GameController {
     }
     // the seat looking at the board may have gone out
     this.fixViewer();
+    if (this.needsDarkHandover && this.overlay.kind !== 'handover') this.pendingHandover = s.viewer;
     this.showPendingHandover();
     if (this.paused || this.overlay.kind !== 'none') return;
     const cur = s.current;
@@ -650,12 +709,6 @@ export class GameController {
       if (this.opts.background) return;
       // hot-seat: a new human takes over the device
       if (humansAlive(s).length > 1 && this.handoverDone !== cur && s.phase === 'attack' && s.powerLeft === 0) {
-        if (s.settings.darkness) {
-          // in darkness the board must stay hidden until the next player is ready
-          this.overlay = { kind: 'handover', next: cur };
-          this.emit();
-          return;
-        }
         this.handoverDone = cur;
         this.fx.turn();
         this.showHint(this.opts.t('handoverNext', { name: this.name(cur) }), playerColor(cur), 1800);

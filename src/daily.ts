@@ -1,5 +1,5 @@
 import { Rng, hashString } from './core/rng';
-import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, SCENARIOS, type ScenarioId } from './core/scenarios';
+import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, type ScenarioId } from './core/scenarios';
 import { createMatch, withFreshDice } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -66,6 +66,14 @@ function classicPuzzle(i: number): ScenarioId {
   return order[((i % len) + len) % len];
 }
 
+// Start after release day, including in time zones ahead of UTC.
+export const FRONTIERS_ROTATION_START = '2026-11-20';
+
+const OCTOBER_CATALOG: ScenarioId[] = [
+  'landing', 'laststand', 'olympus', 'titans', 'raid',
+  ...CLASSIC_SCENARIOS.filter(id => id !== 'hill' && id !== 'ringmap'),
+];
+
 /**
  * Rotations after the classic one. Each starts on a day nobody has seen yet and keeps a fixed list,
  * so adding a scenario never changes a day that is already out: it joins with a new switch. Every
@@ -77,7 +85,11 @@ const ERAS: { from: string; salt: string; scenarios: ScenarioId[] }[] = [
   // the raid joins (Hollow lands is a party map and stays out of the map of the day)
   { from: '2026-10-24', salt: 'puzzle-cycle-raid', scenarios: ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS, 'raid'] },
   // after the review: only the scenarios still in play (retired ones keep their past days)
-  { from: '2026-10-25', salt: 'puzzle-cycle-curated', scenarios: SCENARIOS.filter((id) => id !== 'hollow') },
+  { from: '2026-10-25', salt: 'puzzle-cycle-curated', scenarios: OCTOBER_CATALOG },
+  { from: FRONTIERS_ROTATION_START, salt: 'puzzle-cycle-frontiers', scenarios: [
+    ...OCTOBER_CATALOG.filter(id => id !== 'bridges' && id !== 'treasury' && id !== 'hourglass'),
+    'farshore', 'moonvale', 'sparks', 'fireflies', 'crossroads', 'highlands', 'pinwheel',
+  ] },
 ];
 
 /** the scenarios the map of the day currently rotates through */

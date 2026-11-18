@@ -23,6 +23,7 @@ export function concedeSeat(state: MatchState, seat: number, recipient?: Concede
       c.power = 0;
     }
   }
+  E.clearSignalFire(state, seat);
   state.outAt[seat] = state.turn;
   const wasCurrent = state.current === seat;
   E.checkEnd(state);
@@ -94,6 +95,8 @@ export function applyBattleAction(state: MatchState, seat: number, a: BattleActi
   if (a.t === 'concede') return concedeSeat(state, seat, a.to) ? { ok: true } : bad('concede: seat not alive');
   if (seat !== state.current) return bad(`${a.t} by seat ${seat}, current is ${state.current}`);
   switch (a.t) {
+    case 'signalFire':
+      return E.lightSignalFire(state, a.cell) ? { ok: true } : bad('illegal signal fire');
     case 'attack': {
       const refusal = E.checkAttack(state, a.from, a.to);
       if (refusal) return bad(`illegal attack ${a.from}->${a.to}: ${refusal}`);

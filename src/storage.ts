@@ -1,3 +1,6 @@
+import { matchDarkness, readDarkness, type DarknessOptions } from './core/darknessOptions';
+import { validSignalFireCells } from './core/signalFires';
+import { validObjectiveFields } from './core/objectives';
 import type { Lang } from './i18n';
 import { SIZE_ORDER, type FieldSize, type MatchKind, type MatchSettings, type MatchState, type PlayerType } from './core/types';
 import { isScenarioId, scenarioSetup, SCENARIO_META, seatsFit, type ScenarioConfig, type ScenarioId } from './core/scenarios';
@@ -113,10 +116,9 @@ export function saveSettings(s: Settings) {
 
 // ---------------------------------------------------------------- battle setup
 
-export interface SetupPrefs {
+export interface SetupPrefs extends DarknessOptions {
   size: FieldSize;
   players: PlayerType[];
-  darkness: boolean;
   symmetry: boolean;
   crowded: boolean;
   unions: boolean;
@@ -136,6 +138,8 @@ export const DEFAULT_SETUP: SetupPrefs = {
   size: 'M',
   players: ['human', 'hunter', 'master', 'hunter'],
   darkness: false,
+  signalFires: false,
+  blind: false,
   symmetry: true,
   crowded: false,
   unions: false,
@@ -168,7 +172,8 @@ export function loadSetup(): SetupPrefs {
   const s: SetupPrefs = { ...DEFAULT_SETUP, players: [...DEFAULT_SETUP.players], scenarioSeats: {}, scenarioConfig: {} };
   if (isSize(saved.size)) s.size = saved.size;
   s.players = cleanSeats(saved.players) ?? s.players;
-  for (const k of ['darkness', 'symmetry', 'crowded', 'unions', 'shuffle'] as const) {
+  Object.assign(s, readDarkness(saved));
+  for (const k of ['symmetry', 'crowded', 'unions', 'shuffle'] as const) {
     if (typeof saved[k] === 'boolean') s[k] = saved[k] as boolean;
   }
   // shuffling became the default in setup revision 2: an older save held 'off' only because it was the default then
@@ -240,7 +245,7 @@ export function setupToSettings(s: SetupPrefs): MatchSettings {
     kind: 'single',
     size: s.size,
     players: [...s.players],
-    darkness: s.darkness,
+    ...matchDarkness(s),
     symmetry: s.symmetry,
     crowded: s.crowded,
     unions: s.unions,
@@ -268,6 +273,8 @@ export function isMatchState(st: unknown): st is MatchState {
   if (!isObj(f) || !isNum(f.w) || !isNum(f.h) || !Array.isArray(f.cells) || !f.cells.length || !Array.isArray(f.adj)) return false;
   if (f.adj.length !== f.cells.length || !Array.isArray(f.starts) || !Array.isArray(f.walls)) return false;
   for (const c of f.cells) if (!isObj(c) || !isNum(c.power) || !isNum(c.maxPower) || !isNum(c.owner) || !isNum(c.x) || !isNum(c.y)) return false;
+  if (!validSignalFireCells(st.signalFireCells, players.length, f.cells.length)) return false;
+  if (!validObjectiveFields(st, f.cells, players.length, set.puzzle)) return false;
   if (!f.adj.every((a) => Array.isArray(a))) return false;
   if (!isNum(st.turn) || !isNum(st.current) || st.current < 0 || st.current >= players.length) return false;
   if (st.phase !== 'attack' && st.phase !== 'power') return false;

@@ -97,6 +97,8 @@ export interface MatchSettings {
   puzzle?: string;
   /** exploration fog (with darkness): cells a person has never seen are not shown at all */
   blind?: boolean;
+  /** Under darkness, each seat may manually light one owned cell per own turn. */
+  signalFires?: boolean;
   /**
    * The people are out and the bots fight on to show who would have won: the match goes on without
    * people and ends at the latest when this round starts (reason 'cap', nobody won).
@@ -164,8 +166,14 @@ export interface MatchState {
    * some point. Bots have no entry.
    */
   explored?: string[];
+  /** Active source by lighting seat; -1 = unused. Cleared on entry to that seat's next turn. */
+  signalFireCells?: number[];
   /** cell index of the currently selected cell (UI convenience, kept in state for bots/continuation) */
   selected: number;
+  /** Three marked field indices on Crossroads and Highlands. */
+  objectives?: number[];
+  /** Seat that ended its turn controlling at least two points and has not lost that majority. */
+  objectiveHolder?: number;
   chronicle: Chronicle;
   /** per slot: eliminated at round (or -1) */
   outAt: number[];
@@ -183,7 +191,7 @@ export interface MatchEnd {
   humanWon: boolean;
   /** an early finish with the first place shared by people: a draw (winner -1, not a defeat) */
   draw?: boolean;
-  reason: 'elimination' | 'early' | 'concede' | 'timeout' | 'cap';
+  reason: 'elimination' | 'early' | 'concede' | 'timeout' | 'cap' | 'objective';
   /** A duel concession that transfers the loser's cells, also replayed on reconnect. */
   territoriesTransferred?: true;
   turn: number;

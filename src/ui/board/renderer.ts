@@ -470,6 +470,7 @@ export class BoardRenderer {
       return x > -s * 2 && y > -s * 2 && x < this.cssW + s * 2 && y < this.cssH + s * 2;
     };
 
+    const sources = new Set(v.state.settings.darkness && v.state.settings.signalFires && !v.state.ended ? v.state.signalFireCells : []);
     // --- links. Thin hairlines for every passage, thick "bridges" between cells of one owner.
     ctx.lineCap = 'round';
     for (let i = 0; i < cells.length; i++) {
@@ -582,6 +583,31 @@ export class BoardRenderer {
       ctx.strokeStyle = owner < 0 ? '#2c3038' : inactive ? mix(col, '#0b0c0f', 0.6) : shade(col, 0.22);
       ctx.stroke();
 
+      // A diamond on the upper rim marks the point without covering its power or owner shape.
+      if (v.state.objectives?.includes(i)) {
+        polyPath(ctx, x, y - r * 0.77, Math.max(2, r * 0.24), 4, 0);
+        ctx.fillStyle = '#ffe5a4';
+        ctx.fill();
+        ctx.strokeStyle = '#17191f';
+        ctx.lineWidth = Math.max(1, r * 0.07);
+        ctx.stroke();
+      }
+
+      // A lit source gets the same flame on every device. Never mark a fogged cell or the radius.
+      if (sources.has(i)) {
+        const f = Math.max(3, r * 0.44);
+        const fx = x + r * 0.65, fy = y - r * 0.65;
+        ctx.beginPath();
+        ctx.moveTo(fx, fy - f);
+        ctx.quadraticCurveTo(fx - f * 1.6, fy + f, fx, fy + f);
+        ctx.quadraticCurveTo(fx + f * 1.25, fy + f, fx, fy - f);
+        ctx.fillStyle = '#ffc45c';
+        ctx.fill();
+        ctx.strokeStyle = '#392516';
+        ctx.lineWidth = Math.max(1, f * 0.16);
+        ctx.stroke();
+      }
+
       // number
       // owned cells always show their number, even 0 (puzzles start some cells empty)
       if ((c.power > 0 || owner >= 0) && s > 6) {
@@ -680,7 +706,7 @@ export class BoardRenderer {
         const [ax, ay] = P(e.from);
         const [bx, by] = P(e.to);
         const ease = (u: number) => 1 - (1 - u) * (1 - u);
-        if (t < 0.4) {
+        if (t < 0.4 && v.visible[e.from] && v.visible[e.to]) {
           // projectile with a short tail in the attacker's colour
           const u = ease(t / 0.4);
           const hx = ax + (bx - ax) * u;
@@ -701,7 +727,7 @@ export class BoardRenderer {
           ctx.beginPath();
           ctx.arc(hx, hy, Math.max(1.5, s * 0.1), 0, Math.PI * 2);
           ctx.fill();
-        } else if (v.visible[e.to]) {
+        } else if (t >= 0.4 && v.visible[e.to]) {
           const k = (t - 0.4) / 0.6;
           const r = this.radiusOf(e.to) * s;
           // impact flash on the target

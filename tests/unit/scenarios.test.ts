@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { BATTLE_SCENARIOS, buildScenario, isScenarioId, RETIRED_SCENARIOS, SCENARIO_META, SCENARIOS, startMatch } from '../../src/core/scenarios';
 import { isConnected } from '../../src/core/field';
 import { articulationPoints, chokePoints } from '../../src/core/connectivity';
-import { createDailyMatch, dailyKind, dailyLevel, dailySeed, dayId, ROTATION } from '../../src/daily';
+import { createDailyMatch, dailyKind, dailyLevel, dailySeed, dayId, FRONTIERS_ROTATION_START, parseDay, ROTATION } from '../../src/daily';
 import { runMatch } from '../../src/ai/arena';
 import { createBot } from '../../src/ai';
 import type { BotType } from '../../src/core/types';
+
+function frontierDay(offset: number) {
+  const d = parseDay(FRONTIERS_ROTATION_START);
+  d.setDate(d.getDate() + offset);
+  return dayId(d);
+}
+
 
 describe('puzzle scenarios', () => {
   for (const id of SCENARIOS) {
@@ -152,12 +159,13 @@ describe('scenarios as battle presets', () => {
   });
 
   it('the map of the day rotates through every scenario, played as the setup recommends it', () => {
-    // from the latest switch on (Oct 24, a battle day), one stretch of puzzle days covers each scenario
+    // From the new rotation on, one cycle covers each curated scenario exactly once.
+    for (const id of ['farshore', 'fireflies', 'crossroads', 'highlands']) expect(ROTATION).toContain(id);
     expect(ROTATION).toContain('raid');
     expect(ROTATION).not.toContain('hollow');
     const seen: string[] = [];
     for (let i = 0; seen.length < ROTATION.length; i++) {
-      const id = dayId(new Date(2026, 9, 24 + i));
+      const id = frontierDay(i);
       const k = dailyKind(id);
       if (k.kind !== 'puzzle') continue;
       seen.push(k.scenario);
@@ -167,7 +175,7 @@ describe('scenarios as battle presets', () => {
       expect(dailyLevel(id)).toBe(SCENARIO_META[k.scenario].level);
       expect(JSON.stringify(m.field)).toBe(JSON.stringify(buildScenario(k.scenario, dailySeed(id)).field));
     }
-    expect(new Set(seen).size).toBe(ROTATION.length);
+    expect(seen.sort()).toEqual([...ROTATION].sort());
     // past days keep the scenario people played (the classic rotation); the switch brings a new one
     const days: Record<string, string> = {
       '2026-09-01': 'archipelago',
@@ -178,7 +186,11 @@ describe('scenarios as battle presets', () => {
       '2026-10-24': 'battle',
       '2026-10-25': 'treasury',
       '2026-10-29': 'landing',
+      '2026-10-27': 'hourglass',
       '2026-10-31': 'raid',
+      '2026-11-07': 'siege',
+      '2026-11-16': 'titans',
+      '2026-11-18': 'hive',
     };
     for (const [day, id] of Object.entries(days)) {
       const k = dailyKind(day);
@@ -221,7 +233,7 @@ describe('retired scenarios', () => {
     }
     // the next three years of the map of the day never bring them back
     for (let d = 0; d < 3 * 365; d++) {
-      const k = dailyKind(dayId(new Date(2026, 9, 25 + d)));
+      const k = dailyKind(frontierDay(d));
       if (k.kind === 'puzzle') expect(RETIRED_SCENARIOS).not.toContain(k.scenario);
     }
     // a past day that had one keeps it

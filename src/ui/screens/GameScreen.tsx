@@ -7,6 +7,7 @@ import { getSettings, navigate, updateSettings, useSettings, type Launch, type R
 import { playerName } from '../names';
 import { playerColor } from '../theme';
 import { alivePlayers, anyAttackLeft, canSpectate, cellCount, isPersonType, scoreOf, spectateCopy } from '../../core/engine';
+import { objectiveCount } from '../../core/objectives';
 import type { ConcedeChoice, MatchState } from '../../core/types';
 import { countGame } from '../../sitestats';
 import { addRecord, awardMedal, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
@@ -182,8 +183,11 @@ export function GameScreen({ launch }: { launch: Launch }) {
     (window as unknown as { __infweb?: unknown }).__infweb = { ctrl, renderer: r };
     ctrl.start();
     const key = (e: KeyboardEvent) => {
+      // Let the focused fire button handle Enter/Space as a native action, not the end-turn shortcut.
+      if ((e.key === 'Enter' || e.key === ' ') && (e.target as HTMLElement)?.closest?.('[data-testid="signal-fire"]')) return;
       if (e.key === 'Escape') {
         if (ctrl.overlay.kind === 'pause') ctrl.resume();
+        else if (ctrl.pickingFire) ctrl.toggleFirePicker();
         else if (ctrl.overlay.kind === 'none') ctrl.pause();
         else if (ctrl.overlay.kind === 'confirmAuto' || ctrl.overlay.kind === 'confirmEndAttack') ctrl.closeOverlay();
       } else if ((e.key === 'Enter' || e.key === ' ') && ctrl.overlay.kind === 'none') {
@@ -248,6 +252,8 @@ export function GameScreen({ launch }: { launch: Launch }) {
     statusText = t('statusGameOver');
   } else if (!local) {
     statusText = s.settings.players[cur] === 'remote' ? t('statusWaitRemote') : t('statusWait', { name: playerName(s.settings, cur) });
+  } else if (ctrl.pickingFire) {
+    statusText = t('fireChoose');
   } else if (s.phase === 'power') {
     statusText = orderBonus(cur) > 0 ? t('statusPowerBonus', { n: s.powerLeft, b: orderBonus(cur) }) : t('statusPower', { n: s.powerLeft });
   } else if (!anyAttackLeft(s)) {
@@ -258,7 +264,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
     statusText = t('statusSelect');
   }
 
-  const endDisabled = !local || !!s.ended || ctrl.busy;
+  const endDisabled = !local || !!s.ended || ctrl.busy || ctrl.pickingFire || ctrl.firePending;
   const pulse = local && s.phase === 'attack' && !anyAttackLeft(s);
 
   const toggleZoom = () => {
@@ -290,6 +296,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
     // the seats keep the order they were given at the start (no new shuffle: the placement belongs to them)
     const fresh = createMatch({ ...init.settings, shuffle: false }, { field: init.field, keepPlacement: true, seed: init.seed });
     fresh.settings = init.settings;
+    if (init.objectives) fresh.objectives = init.objectives; // same points; a new attempt has no pending hold
     // the same map and starts, but new dice: a restart must not replay the same fights
     withFreshDice(fresh);
     navigate({ name: 'game', launch: { state: fresh, initial: launch.initial } });
@@ -356,6 +363,13 @@ export function GameScreen({ launch }: { launch: Launch }) {
             );
           })}
         </div>
+        {s.objectives && !s.ended && (
+          <div class="hud-row" data-testid="objective-hud" role="status" style={{ justifyContent: 'center', textAlign: 'center', fontSize: 13 }}>
+            {t(s.objectiveHolder === undefined ? 'objectiveGoal' : 'objectivePending', {
+              name: playerName(s.settings, s.objectiveHolder ?? cur), n: objectiveCount(s, s.objectiveHolder ?? cur),
+            })}
+          </div>
+        )}
         {online?.Extra && <online.Extra ctrl={ctrl} />}
       </div>
       {ctrl.hint && (
@@ -385,6 +399,12 @@ export function GameScreen({ launch }: { launch: Launch }) {
                 </div>
               )}
               <div class="text">{statusText}</div>
+              {s.settings.darkness && s.settings.signalFires && local && ov.kind === 'none' && (
+                <button class="btn ghost small speed-btn" data-testid="signal-fire" title={t('fireChoose')}
+                  aria-pressed={ctrl.pickingFire} disabled={!ctrl.canChooseFire} onClick={() => ctrl.toggleFirePicker()}>
+                  {t(ctrl.pickingFire ? 'fireCancel' : (s.signalFireCells?.[cur] ?? -1) >= 0 ? 'fireLit' : 'fireLight')}
+                </button>
+              )}
               {/* at instant speed the bots already move as fast as they can */}
               {s.settings.spectate && !s.ended && settings.speed !== 'instant' && (
                 <button
@@ -462,7 +482,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
       {ov.kind === 'stuck' && (
         <Modal>
           <h2>{t('earlyTitle')}</h2>
-          <p>{t(ov.offer.enough ? 'earlyWin' : ov.offer.draw ? 'earlyDraw' : 'earlyLose', { p: Math.round(ov.offer.percent) })}</p>
+          <p>{t(s.objectives ? 'objectiveDrawOffer' : ov.offer.enough ? 'earlyWin' : ov.offer.draw ? 'earlyDraw' : 'earlyLose', { p: Math.round(ov.offer.percent) })}</p>
           <div class="row">
             <button class="btn ghost" onClick={() => ctrl.acceptStuck(false)}>
               {t('keepPlaying')}
@@ -723,12 +743,13 @@ function ResultModal({
           </div>
         </div>
       )}
+      {end.reason === 'objective' && <p data-testid="objective-result">{t('objectiveVictory', { name: playerName(s.settings, end.winner) })}</p>}
       {end.reason === 'concede' && s.settings.kind === 'duelOnline' && end.humanWon && <p>{t('oppConceded')}</p>}
       {end.reason === 'timeout' && end.humanWon && <p>{t('timeoutWin')}</p>}
       {spectate && <p class="muted" style={{ textAlign: 'center', margin: 0 }}>{t('spectateNote')}</p>}
       {draw && (
         <p class="muted" style={{ textAlign: 'center', margin: 0 }} data-testid="draw-note">
-          {t('drawNote')}
+          {t(s.objectives ? 'objectiveDraw' : 'drawNote')}
         </p>
       )}
       <div class="result-stats">

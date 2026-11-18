@@ -21,6 +21,8 @@
  * `seq` numbers the applied actions of a match (1, 2, 3, ...). The host keeps a log of recent ones so a
  * guest that missed a few gets them re-sent; otherwise it gets a full `bSync`.
  */
+import { mixSignalFires, validSignalFireCells } from '../core/signalFires';
+import { mixObjectives, validObjectiveFields } from '../core/objectives';
 import { isPersonType } from '../core/engine';
 import type { AttackRefusal, ConcedeChoice, MatchEnd, MatchSettings, MatchState, PlayerType } from '../core/types';
 
@@ -29,11 +31,13 @@ import type { AttackRefusal, ConcedeChoice, MatchEnd, MatchSettings, MatchState,
  * 3: multipath links (direct + relays together, own reliability layer) and presence (bPresence, WireSeat.hidden).
  * 4: a concession can transfer the seat's cells to a chosen opponent.
  * 5: GOD takeover and random division of territory.
+ * 6: strength-balanced division, signal fires and objective victories.
  */
-export const BATTLE_PROTOCOL_VERSION = 5;
+export const BATTLE_PROTOCOL_VERSION = 6;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =
+  | { t: 'signalFire'; cell: number }
   | { t: 'attack'; from: number; to: number; win: boolean }
   | { t: 'endAttack' }
   | { t: 'power'; cell: number; amount: number }
@@ -54,6 +58,7 @@ export interface AppliedAction {
 
 /** What a guest may ask the host to do for its own seat. */
 export type BattleRequest =
+  | { t: 'signalFire'; cell: number }
   | { t: 'attack'; from: number; to: number }
   | { t: 'endAttack' }
   | { t: 'addPower'; cell: number; amount: number }
@@ -220,10 +225,12 @@ function isState(x: unknown): x is MatchState {
   return (
     x.v === 1 &&
     isObj(x.settings) &&
-    isPlayers((x.settings as Record<string, unknown>).players) &&
+    isPlayers(x.settings.players) &&
     isObj(f) &&
-    Array.isArray((f as Record<string, unknown>).cells) &&
-    Array.isArray((f as Record<string, unknown>).adj) &&
+    Array.isArray(f.cells) &&
+    Array.isArray(f.adj) &&
+    validSignalFireCells(x.signalFireCells, x.settings.players.length, f.cells.length) &&
+    validObjectiveFields(x, f.cells, x.settings.players.length, x.settings.puzzle) &&
     Array.isArray(x.outAt) &&
     isInt(x.turn) &&
     isInt(x.current) &&
@@ -240,6 +247,8 @@ const isConcedeChoice = (x: unknown): x is ConcedeChoice | undefined =>
 export function isBattleAction(x: unknown): x is BattleAction {
   if (!isObj(x)) return false;
   switch (x.t) {
+    case 'signalFire':
+      return isInt(x.cell) && x.cell >= 0;
     case 'attack':
       return isInt(x.from) && isInt(x.to) && typeof x.win === 'boolean';
     case 'power':
@@ -261,6 +270,8 @@ export function isBattleAction(x: unknown): x is BattleAction {
 export function isBattleRequest(x: unknown): x is BattleRequest {
   if (!isObj(x)) return false;
   switch (x.t) {
+    case 'signalFire':
+      return isInt(x.cell) && x.cell >= 0;
     case 'attack':
       return isInt(x.from) && isInt(x.to);
     case 'addPower':
@@ -296,7 +307,7 @@ export function parseBattleMessage(x: unknown): BattleMessage | null {
           isInt(x.seat) &&
           isStr(x.status) &&
           isObj(x.settings) &&
-          isPlayers((x.settings as Record<string, unknown>).players) &&
+          isPlayers(x.settings.players) &&
           isRoster(x.roster) &&
           isNullableStr(x.matchId)
         );
@@ -357,6 +368,8 @@ export function battleHash(state: MatchState): string {
   mix(state.current + 1);
   mix(state.phase === 'attack' ? 1 : 2);
   mix(state.powerLeft);
+  mixSignalFires(state, mix);
+  mixObjectives(state, mix);
   for (const p of state.settings.players) mixStr(isPersonType(p) ? 'P' : p);
   for (const o of state.outAt) mix(o + 1);
   for (const p of state.godTakeovers ?? []) mix(p + 1);

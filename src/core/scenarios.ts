@@ -19,6 +19,7 @@ interface Slot {
   max: number;
   owner: number;
   power: number;
+  objective?: boolean;
 }
 
 const DIRS: Ax[] = [
@@ -51,7 +52,7 @@ class Board {
   walls: [string, string][] = [];
 
   add(q: number, r: number, o: Partial<Omit<Slot, 'q' | 'r'>> = {}) {
-    this.cells.set(key(q, r), { q, r, max: o.max ?? 8, owner: o.owner ?? NEUTRAL, power: o.power ?? 0 });
+    this.cells.set(key(q, r), { q, r, max: 8, owner: NEUTRAL, power: 0, ...o });
   }
 
   get(q: number, r: number) {
@@ -233,7 +234,7 @@ class Board {
     }
   }
 
-  toField(size: FieldSize): Field {
+  toField(size: FieldSize): { field: Field; objectives: number[] } {
     const list = this.all();
     const minR = Math.min(...list.map((c) => c.r));
     const yShift = minR % 2 === 0 ? -minR : -minR + 1;
@@ -267,7 +268,9 @@ class Board {
     const pairs = geometricPairs(w, cells).filter(([a, b]) => !wallSet.has(`${Math.min(a, b)},${Math.max(a, b)}`));
     const adj = buildAdjacency(cells.length, pairs);
     const starts = cells.slice(0, 5).map((_, i) => i);
-    return { size, w, h, cells, adj, walls: walls.filter(([a, b]) => geometricPairs(w, [cells[a], cells[b]]).length > 0), starts };
+    const field = { size, w, h, cells, adj, walls: walls.filter(([a, b]) => geometricPairs(w, [cells[a], cells[b]]).length > 0), starts };
+    // The engine addresses cells by their index AFTER sorting, not by Cell.id or axial insertion order.
+    return { field, objectives: off.flatMap(({ c }, i) => c.objective ? [i] : []) };
   }
 }
 
@@ -389,16 +392,18 @@ export const CLASSIC_SCENARIOS = [
 /** Later scenarios: battles for three to six players, and the raid (a duel). */
 export const BATTLE_SCENARIOS = ['landing', 'laststand', 'olympus', 'titans', 'hollow', 'raid'] as const;
 
-export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number];
+export const NEW_SCENARIOS = ['farshore', 'moonvale', 'sparks', 'fireflies', 'crossroads', 'highlands', 'pinwheel'] as const;
+
+export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number] | (typeof NEW_SCENARIOS)[number];
 
 /**
  * Scenarios taken out of the game after a review (nothing new compared with the rest). Their builders
  * stay so that past maps of the day keep opening exactly as they were played.
  */
-export const RETIRED_SCENARIOS: ScenarioId[] = ['hill', 'ringmap'];
+export const RETIRED_SCENARIOS: ScenarioId[] = ['hill', 'ringmap', 'bridges', 'treasury', 'hourglass'];
 
 /** The scenarios in play, in the order of the setup gallery. */
-export const SCENARIOS: ScenarioId[] = [...BATTLE_SCENARIOS, ...CLASSIC_SCENARIOS].filter((id) => !RETIRED_SCENARIOS.includes(id));
+export const SCENARIOS: ScenarioId[] = [...BATTLE_SCENARIOS, ...NEW_SCENARIOS, ...CLASSIC_SCENARIOS].filter((id) => !RETIRED_SCENARIOS.includes(id));
 
 /** A scenario that can be picked (retired ones are not). */
 export function isScenarioId(id: unknown): id is ScenarioId {
@@ -486,6 +491,13 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   olympus: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 3, size: 'L' },
   hollow: { players: ['human', 'master', 'god', 'master'], level: 2, size: 'L' },
   raid: { players: ['human', 'master'], level: 4, size: 'L' },
+  farshore: { players: ['human', 'master'], level: 3, size: 'L' },
+  moonvale: { players: ['human', 'master', 'hunter'], level: 3, size: 'L', darkness: true },
+  sparks: { players: ['human', 'master', 'hunter'], level: 3, size: 'M', crowded: true },
+  fireflies: { players: ['human', 'hunter', 'hunter'], level: 2, size: 'XL', darkness: true },
+  crossroads: { players: ['human', 'master'], level: 3, size: 'L' },
+  highlands: { players: ['human', 'master', 'hunter'], level: 3, size: 'L' },
+  pinwheel: { players: ['human', 'master', 'hunter'], level: 3, size: 'M' },
 };
 
 /**
@@ -524,6 +536,14 @@ export const TUNING: Record<ScenarioId, number> = {
   titans: 6,
   hollow: 0,
   raid: 3.45,
+  // Design defaults (not simulation-calibrated). Sparks deals the same hand to every seat.
+  farshore: 5,
+  moonvale: 7,
+  sparks: 7,
+  fireflies: 2,
+  crossroads: 6,
+  highlands: 6,
+  pinwheel: 8,
 };
 
 /** Knobs of a configurable scenario on its other sizes (TUNING holds the one of the default size). */
@@ -1043,6 +1063,135 @@ const BUILDERS: Record<ScenarioId, (rng: Rng, k: number, seats: number, size: Fi
     return b;
   },
 
+  /** Two secure inland bases, but both players already have a stake on both distant shores. */
+  farshore(rng, k) {
+    const b = new Board();
+    b.disk(6);
+    const coast = 4 + rng.int(2);
+    const turn = rng.int(6);
+    for (const c of b.all()) c.max = rollMax(rng);
+    for (const p of [0, 1]) {
+      const home = rot([5, 0], turn + 3 * p);
+      for (const c of b.all()) if (hexDist([c.q, c.r], home) <= 1) Object.assign(c, { owner: p, power: p ? 4 : kp(rng, k) });
+      // Four alternating flags on each shore; a garrison faces a weak neighbour at either end.
+      for (let j = 0; j < 4; j++) {
+        const at = rot([j - 4, coast], turn + 3 * p);
+        b.set(...at, { owner: (p + j) % 2, power: j === 0 || j === 3 ? 6 : 2 });
+      }
+    }
+    return b;
+  },
+
+  /** Each seat has a fighting squad on the rim and a lone pair of eyes out in the valley. */
+  moonvale(rng, k, seats) {
+    const b = new Board();
+    b.disk(6);
+    for (const c of b.all()) c.max = rollMax(rng);
+    const turn = rng.int(6);
+    const scout: Ax = [2, -3 - rng.int(2)];
+    for (let p = 0; p < seats; p++) {
+      const side = turn + 2 * p;
+      for (const at of [[5, 0], [4, 0], [4, 1]] as Ax[]) b.set(...rot(at, side), { owner: p, power: p ? 6 : kp(rng, k) });
+      b.set(...rot(scout, side), { owner: p, power: 2 });
+    }
+    return b;
+  },
+
+  /** Deal shuffled triples around a little central hole: same forces, capacities and exposure for every seat. */
+  sparks(rng, k) {
+    const b = new Board();
+    b.disk(4);
+    b.remove(0, 0);
+    const triples: Ax[][] = [];
+    for (const c of b.all()) {
+      const triple = [0, 2, 4].map(turn => rot([c.q, c.r], turn));
+      // Choose one representative of each rotational orbit.
+      if (triple.every(([q, r]) => q > c.q || (q === c.q && r >= c.r))) triples.push(triple);
+    }
+    rng.shuffle(triples).forEach((triple, n) => {
+      const first = rng.int(3);
+      const power = n % 4 === 0 ? kp(rng, k) : 1 + rng.int(2);
+      const max = rollMax(rng);
+      triple.forEach((at, i) => b.set(...at, { owner: (first + i) % 3, power, max }));
+    });
+    return b;
+  },
+
+  /** No squads and no stronghold: only little pools of light, each with an open escape route. */
+  fireflies(rng, k, seats) {
+    const b = new Board();
+    b.disk(7);
+    for (const c of b.all()) c.max = rollMax(rng);
+    rng.shuffle(landingDrops(rng, 7, 3, 3 * seats)).forEach((at, i) => {
+      const owner = i % seats;
+      b.set(...at, { owner, power: owner ? 2 : kp(rng, k) });
+    });
+    return b;
+  },
+
+  /** A duel across three broad crossings. Two gaps keep the northern and southern routes separate. */
+  crossroads(rng, k) {
+    const b = new Board();
+    const reach = 4 + rng.int(2);
+    const halfWidth = 7 + rng.int(2);
+    const gap = 2 + rng.int(2);
+    for (let r = -reach - 1; r <= reach + 1; r++) {
+      for (let x = -halfWidth; x <= halfWidth; x++) {
+        if (Math.abs(r) === 2 && Math.abs(x) <= gap) continue;
+        b.add(x - Math.floor(r / 2), r, { max: rollMax(rng) });
+      }
+    }
+    for (const r of [-reach, 0, reach]) {
+      // Odd rows sit half a hex to the right: keep every crossing within one hex of the midline.
+      const x = rng.range(-1, Math.abs(r) % 2 ? 1 : 2);
+      b.set(x - Math.floor(r / 2), r, { objective: true, max: 12 });
+    }
+    for (const p of [0, 1]) for (const inset of [0, 1]) {
+      b.set((p ? 1 : -1) * (halfWidth - inset), 0, { owner: p, power: p ? 5 : kp(rng, k) });
+    }
+    return b;
+  },
+
+  /** Three high plateaus around a lake. Each camp sits between two summits, not on one. */
+  highlands(rng, k, seats) {
+    const b = new Board();
+    const reach = 4 + rng.int(2);
+    const lake = 1 + rng.int(2);
+    const turn = rng.int(6);
+    b.disk(reach + 2);
+    for (const c of b.all()) {
+      if (hexDist([c.q, c.r], [0, 0]) <= lake) b.remove(c.q, c.r);
+      else c.max = rollMax(rng);
+    }
+    for (let p = 0; p < seats; p++) {
+      const side = turn + 2 * p;
+      const peak = rot([reach, 0], side);
+      for (const c of b.all()) if (hexDist([c.q, c.r], peak) <= 1) Object.assign(c, { max: 12, power: 2 });
+      b.set(...peak, { objective: true, power: 3 });
+      for (const at of [[reach, 0], [reach + 1, 0]] as Ax[]) b.set(...rot(at, side + 1), { owner: p, power: p ? 5 : kp(rng, k) });
+    }
+    return b;
+  },
+
+  /** Three columns chase each other along the rim. The neutral inner lane is a shortcut home. */
+  pinwheel(rng, k, seats) {
+    const b = new Board();
+    const rim = 4 + rng.int(2);
+    const turn = rng.int(6);
+    b.disk(rim);
+    for (const c of b.all()) {
+      if (hexDist([c.q, c.r], [0, 0]) < rim - 2) b.remove(c.q, c.r);
+      else c.max = rollMax(rng);
+    }
+    for (let p = 0; p < seats; p++) for (let arc = 0; arc < 2; arc++) {
+      for (let i = 0; i < rim; i++) {
+        const head = arc === 1 && i >= rim - 2;
+        b.set(...rot([rim - i, i], turn + 2 * p + arc), { owner: p, power: head ? (p ? 6 : kp(rng, k)) : 1 });
+      }
+    }
+    return b;
+  },
+
   // ------------------------------------------------------------ battles for three to six players
 
   /**
@@ -1265,8 +1414,8 @@ export function buildScenario(id: ScenarioId, seed: number, knob?: number, playe
   const comp = id === 'landing' ? landingOrderComp(seats.length, size, config?.orderComp) : null;
   const board = BUILDERS[id](rng, knob ?? scenarioKnob(id, size), seats.length, size, { comp, even: !!config?.even });
   board.unchoke();
-  const field = board.toField(size);
-  return createMatch(
+  const { field, objectives } = board.toField(size);
+  const state = createMatch(
     {
       kind: 'single',
       size,
@@ -1283,6 +1432,8 @@ export function buildScenario(id: ScenarioId, seed: number, knob?: number, playe
     },
     { field, keepPlacement: true, seed: seed ^ 0x5bd1e995 },
   );
+  if (objectives.length) state.objectives = objectives;
+  return state;
 }
 
 /**

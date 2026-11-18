@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { loadSetup, saveSetup, setupPlayers, setupToSettings, DEFAULT_SETUP } from '../../src/storage';
+import { loadSavedGame, saveGame, loadSetup, saveSetup, setupPlayers, setupToSettings, DEFAULT_SETUP } from '../../src/storage';
 import { SCENARIO_META, startMatch } from '../../src/core/scenarios';
 
 const mem = new Map<string, string>();
@@ -10,6 +10,39 @@ beforeEach(() => {
     setItem: (k: string, v: string) => void mem.set(k, v),
     removeItem: (k: string) => void mem.delete(k),
   };
+});
+
+describe('experimental darkness in ordinary setup', () => {
+  it('does not opt legacy or malformed preferences into new rules', () => {
+    for (const saved of [{ darkness: true }, { darkness: true, signalFires: 'true', blind: 1 }]) {
+      mem.set('infweb.setup', JSON.stringify(saved));
+      expect(loadSetup()).toMatchObject({ signalFires: false, blind: false });
+      expect(setupToSettings(loadSetup())).not.toHaveProperty('signalFires');
+    }
+  });
+
+  it.each(['signalFires', 'blind'] as const)('restores %s independently with its prerequisite', (mode) => {
+    mem.set('infweb.setup', JSON.stringify({ [mode]: true }));
+    const prefs = loadSetup();
+    expect(prefs).toMatchObject({ darkness: true, [mode]: true });
+    saveSetup(prefs);
+    const settings = setupToSettings(loadSetup());
+    expect(settings).toMatchObject({ darkness: true, [mode]: true });
+    expect(settings).not.toHaveProperty(mode === 'blind' ? 'signalFires' : 'blind');
+    const game = startMatch(settings, 12);
+    saveGame({ state: game, initial: structuredClone(game) });
+    expect(loadSavedGame()?.state.settings).toEqual(game.settings);
+    expect(loadSavedGame()?.initial.settings).toEqual(game.settings);
+  });
+
+  it('never imports the ordinary experiments into a scenario', () => {
+    const prefs = { ...DEFAULT_SETUP, darkness: true, blind: true, signalFires: true };
+    for (const scenario of ['titans', 'landing'] as const) {
+      const settings = setupToSettings({ ...prefs, scenario });
+      expect(settings.signalFires).toBeUndefined();
+      expect(!!settings.blind).toBe(scenario === 'landing');
+    }
+  });
 });
 
 describe('setup with a scenario', () => {
