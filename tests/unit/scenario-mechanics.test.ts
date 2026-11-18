@@ -34,6 +34,14 @@ function centred(f: Field) {
   return (i: number) => [ax[i][0] - mq, ax[i][1] - mr] as const;
 }
 
+/** Axial position around the mean of all cells, the centre of any turn that maps the land onto itself. */
+function centroid(f: Field) {
+  const ax = f.cells.map(c => [c.x - Math.floor(c.y / 2), c.y] as const);
+  const mq = ax.reduce((s, a) => s + a[0], 0) / ax.length;
+  const mr = ax.reduce((s, a) => s + a[1], 0) / ax.length;
+  return (i: number) => [ax[i][0] - mq, ax[i][1] - mr] as const;
+}
+
 const lineup = (id: ScenarioId, n: number): PlayerType[] => Array.from({ length: n }, (_, p) => p ? SCENARIO_META[id].players[1 + (p - 1) % (SCENARIO_META[id].players.length - 1)] : 'human');
 
 describe('objective puzzles', () => {
@@ -64,7 +72,8 @@ describe('sparks: hold two sparks on a fully taken map', () => {
     for (const seed of seeds) {
       const st = buildScenario('sparks', seed);
       const f = st.field;
-      expect(SCENARIO_META.sparks).toMatchObject({ objectives: true, varied: true, crowded: true });
+      expect(SCENARIO_META.sparks).toMatchObject({ objectives: true, varied: true });
+      expect(SCENARIO_META.sparks.crowded).toBeFalsy();
       expect(f.cells.every(c => c.owner >= 0)).toBe(true);
       const sparks = st.objectives!;
       expect(sparks).toHaveLength(3);
@@ -78,8 +87,8 @@ describe('sparks: hold two sparks on a fully taken map', () => {
         expect(f.adj[i].every(j => f.cells[j].owner === c.owner)).toBe(true);
         expect(`${c.power}/${c.maxPower}`).toBe(`${f.cells[sparks[0]].power}/${f.cells[sparks[0]].maxPower}`);
       }
-      const at = centred(f);
-      const radius = (i: number) => { const [q, r] = at(i); return Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)); };
+      const at = centroid(f);
+      const radius = (i: number) => { const [q, r] = at(i); return Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)).toFixed(6); };
       expect(new Set(sparks.map(radius)).size).toBe(1);
       // every seat is as far from each rival spark as the others are
       const reach = sparks.map(i => distances(f, [i]));

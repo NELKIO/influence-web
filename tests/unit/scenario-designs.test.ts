@@ -125,7 +125,7 @@ describe('new scenario designs', () => {
   it('sparks: no grey land or other modes, every seat gets the same mix of power and capacity', () => {
     for (const seed of seeds) {
       const { field: f, settings } = buildScenario('sparks', seed);
-      expect(settings).toMatchObject({ crowded: true, darkness: false, unions: false });
+      expect(settings).toMatchObject({ crowded: false, darkness: false, unions: false });
       expect(f.cells.every(c => c.owner >= 0)).toBe(true);
       const hand = (p: number) => owned(f, p).map(i => `${f.cells[i].power}/${f.cells[i].maxPower}`).sort();
       for (const p of settings.players.keys()) {
@@ -190,8 +190,8 @@ describe('new scenario designs', () => {
     }
   });
 
-  it('crossroads and highlands: distinct terrain shapes, not just rotated objective markers', () => {
-    for (const id of ['crossroads', 'highlands'] as const) {
+  it('rerolls give distinct terrain shapes, not just rotated objective markers', () => {
+    for (const id of ['crossroads', 'highlands', 'colonies', 'olympus', 'sparks'] as const) {
       const shapes = new Set(Array.from({ length: 18 }, (_, seed) => normalizedShape(buildScenario(id, seed * 37 + 1).field)));
       expect(shapes.size, id).toBeGreaterThanOrEqual(8);
     }
@@ -308,7 +308,7 @@ describe('new scenario designs', () => {
   });
 
   it('keeps published daily frontier and scout layouts exactly frozen', () => {
-    const signatures = { moonvale: 'b990d1e3', fireflies: '9d29685d', sparks: 'f72c7c02', colonies: 'fb39f1f6', highlands: 'd5ef452' };
+    const signatures = { moonvale: 'b990d1e3', fireflies: '9d29685d', sparks: 'b4535bf9', colonies: 'fb39f1f6', highlands: 'd5ef452' };
     for (const id of Object.keys(signatures) as (keyof typeof signatures)[]) {
       const st = buildDailyScenario(id, 117);
       const data = JSON.stringify([st.field, st.objectives, st.settings]);

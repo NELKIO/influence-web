@@ -76,19 +76,13 @@ export function RuleIcon({ k, size = 14 }: { k: RuleKey; size?: number }) {
   }
 }
 
-/** Difficulty 1..5 as five short bars (the map of the day shows its level the same way). */
-export function Pips({ level }: { level: number }) {
-  return (
-    <span class="pips" role="img" aria-label={t('scenarioLevel', { n: level })} title={t('scenarioLevel', { n: level })} data-level={level}>
-      {[1, 2, 3, 4, 5].map((k) => (
-        <i key={k} class={k <= level ? 'on' : ''} />
-      ))}
-    </span>
-  );
-}
-
 /** Seats of a scenario: "3", or "2–6" when you choose how many. */
 export const seatsText = (m: ScenarioMeta) => (m.configurable ? `${m.configurable.seats[0]}–${m.configurable.seats[1]}` : String(m.players.length));
+
+/**
+ * Rules a gallery card shows as icons: the changing map is said by the card's section, not by an icon.
+ */
+export const cardRules = (m: ScenarioMeta): RuleKey[] => metaRules(m).filter((k) => k !== 'varied');
 
 /** The compact line under a gallery card: seats, then an icon per special rule. */
 export function CardTags({ meta }: { meta: ScenarioMeta }) {
@@ -99,7 +93,7 @@ export function CardTags({ meta }: { meta: ScenarioMeta }) {
         <IconUsers width={12} height={12} aria-hidden="true" />
         {seatsText(meta)}
       </span>
-      {metaRules(meta).map((k) => (
+      {cardRules(meta).map((k) => (
         <span key={k} class={`rtag tag-${k}`} data-tag={k} role="img" aria-label={ruleLabel(k)} title={ruleLabel(k)}>
           <RuleIcon k={k} size={11} />
         </span>
@@ -112,9 +106,6 @@ export function CardTags({ meta }: { meta: ScenarioMeta }) {
 export function TagLegend({ keys }: { keys: RuleKey[] }) {
   return (
     <div class="tag-legend" data-testid="tag-legend">
-      <span class="item">
-        <Pips level={3} /> {t('legendLevel')}
-      </span>
       {keys.map((k) => (
         <span key={k} class="item">
           <span class={`rtag tag-${k}`} aria-hidden="true">
@@ -135,8 +126,8 @@ export function goalText(points: { k: number; n: number } | null): string {
 /** A rule as a chip (the chosen scenario card). */
 export function RuleChip({ k }: { k: RuleKey }) {
   return (
-    <span class={`chip tag-${k} ${k === 'darkness' || k === 'blind' ? 'dark' : ''}`} data-tag={k}>
-      <RuleIcon k={k} size={13} /> {k === 'varied' ? t('scenarioVariedChip') : ruleLabel(k)}
+    <span class={`chip tag-${k} ${k === 'darkness' || k === 'blind' ? 'dark' : ''}`} data-tag={k} title={ruleLabel(k)}>
+      <RuleIcon k={k} size={13} /> {k === 'objectives' ? t('objectivesChip') : ruleLabel(k)}
     </span>
   );
 }

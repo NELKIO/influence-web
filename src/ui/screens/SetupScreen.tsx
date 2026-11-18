@@ -12,7 +12,7 @@ import { previewBattleMatch } from '../../net/battleRules';
 import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../core/types';
 import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
-import { CardTags, GoalLine, goalText, metaRules, Pips, RuleChip, RulesList, ruleKeys, TagLegend, type RuleKey } from '../components/ScenarioInfo';
+import { CardTags, cardRules, GoalLine, goalText, RuleChip, RulesList, ruleKeys, TagLegend, type RuleKey } from '../components/ScenarioInfo';
 import { SecretMap } from '../components/MiniMap';
 import { DarknessRow, ExperimentalModes } from '../components/ExperimentalModes';
 import { Medal } from '../components/Medal';
@@ -30,15 +30,15 @@ function ScenarioMap({ id, field, objectives, maxHeight }: { id: ScenarioId; fie
   return <SecretMap field={field} darkness={m.darkness} blind={m.blind} objectives={objectives} maxHeight={maxHeight} />;
 }
 
-/** Gallery sections: scenarios that change from launch to launch (or let you set them up) come first. */
-const flexible = (id: ScenarioId) => !!(SCENARIO_META[id].varied || SCENARIO_META[id].configurable);
+/** Gallery sections: scenarios whose map changes from launch to launch come first. */
+const flexible = (id: ScenarioId) => !!SCENARIO_META[id].varied;
 const GALLERY = [
   { key: 'varied', title: 'galleryVaried', desc: 'galleryVariedDesc', ids: SCENARIOS.filter(flexible) },
   { key: 'fixed', title: 'galleryFixed', desc: 'galleryFixedDesc', ids: SCENARIOS.filter((id) => !flexible(id)) },
 ] as const;
 /** the icons some gallery card shows, for the legend */
-const LEGEND_KEYS = (['varied', 'blind', 'darkness', 'objectives', 'crowded', 'unions'] as RuleKey[]).filter((k) =>
-  SCENARIOS.some((id) => metaRules(SCENARIO_META[id]).includes(k)),
+const LEGEND_KEYS = (['blind', 'darkness', 'objectives', 'crowded', 'unions'] as RuleKey[]).filter((k) =>
+  SCENARIOS.some((id) => cardRules(SCENARIO_META[id]).includes(k)),
 );
 
 const medalLabel = (tier: MedalTier | null) => t(tier === 'gold' ? 'medalGoldTitle' : tier ? 'medalTitle' : 'medalNone');
@@ -112,7 +112,8 @@ export function SetupScreen() {
   const goal = goalText(meta?.objectives ? { k: objectiveWinCount(preview), n: preview.objectives?.length ?? 3 } : null);
   const flags = meta ? { varied: meta.varied, blind: meta.blind, darkness: meta.darkness, objectives: meta.objectives, crowded: meta.crowded } : {};
   // on the card: unions as they will be played (they need a single person)
-  const pickRules = ruleKeys({ ...flags, unions: !!opts?.unions && persons < 2 });
+  // (a changing map is said by the "another map" button, not by a chip)
+  const pickRules = ruleKeys({ ...flags, unions: !!opts?.unions && persons < 2 }).filter((k) => k !== 'varied');
   // in the modes step: the fixed rules; unions a scenario lets you switch are a choice, not a rule
   const unionsChoice = !!conf?.modes.includes('unions');
   const stepRules = ruleKeys({ ...flags, unions: !unionsChoice && !!meta?.unions });
@@ -196,7 +197,7 @@ export function SetupScreen() {
                 <div class="scenario-head">
                   <div class="grow">
                     <div class="kicker">
-                      {t('scenarioKicker')} <Pips level={meta.level} />
+                      {t('scenarioKicker')}
                     </div>
                     <div class="name">{t(`puzzle_${scenario}` as 'puzzle_siege')}</div>
                   </div>
@@ -206,15 +207,12 @@ export function SetupScreen() {
                 </div>
                 <div class="desc">{t(`puzzleDesc_${scenario}` as 'puzzleDesc_siege')}</div>
                 <GoalLine text={goal} />
-                <div class="chips">
+                {/* one line: who plays and how big the map is (an uncharted one says so by its darkness chip), then the rules */}
+                <div class="chips one-line">
                   <span class="chip">
                     <IconUsers width={14} height={14} /> {playersLabel(players.length)}
+                    {!meta.blind && <> · {t('mapCells', { n: preview.field.cells.length })}</>}
                   </span>
-                  {meta.blind ? (
-                    <span class="chip">{t('scenarioUncharted')}</span>
-                  ) : (
-                    <span class="chip">{t('mapCells', { n: preview.field.cells.length })}</span>
-                  )}
                   {pickRules.map((k) => (
                     <RuleChip key={k} k={k} />
                   ))}
@@ -317,9 +315,6 @@ export function SetupScreen() {
                     const tier = medals[id]?.tier ?? null;
                     return (
                       <button key={id} class={`puzzle-card ${on ? 'on' : ''}`} aria-pressed={on} data-scenario={id} data-section={g.key} onClick={() => pickScenario(id)}>
-                        <span class="card-level">
-                          <Pips level={m.level} />
-                        </span>
                         <ScenarioMap id={id} field={samples[id].field} objectives={samples[id].objectives} maxHeight={84} />
                         <span class="medal-badge" data-medal={tier ?? 'none'} title={medalLabel(tier)}>
                           <Medal tier={tier} size={22} label={medalLabel(tier)} />

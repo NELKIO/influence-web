@@ -2469,6 +2469,23 @@ button {
   font-weight: 700;
 }
 
+.chips.one-line {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.chips.one-line .chip {
+  flex-shrink: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chips.one-line .chip svg {
+  flex-shrink: 0;
+}
+
 .chip.dark {
   color: #b9c2ff;
   background: #0b0d1c;
@@ -2829,39 +2846,6 @@ button {
   color: var(--muted);
 }
 
-/* difficulty: five short bars, as on the map of the day */
-.pips {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.pips i {
-  width: 6px;
-  height: 4px;
-  border-radius: 1.5px;
-  background: var(--surface-3);
-}
-
-.pips i.on {
-  background: color-mix(in srgb, var(--bad) 85%, var(--text));
-}
-
-/* on a card the difficulty takes the corner opposite the medal */
-.card-level {
-  position: absolute;
-  top: 11px;
-  left: 10px;
-  line-height: 0;
-}
-
-@media (min-width: 520px) {
-  .card-level {
-    top: 13px;
-    left: 12px;
-  }
-}
-
 .puzzle-card .name {
   line-height: 1.25;
 }
@@ -2974,11 +2958,6 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.scenario-head .kicker .pips i {
-  width: 8px;
-  height: 5px;
 }
 
 .reroll-btn {

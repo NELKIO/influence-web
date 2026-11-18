@@ -261,7 +261,9 @@ test('night drop: the board draws only the land you have seen', async ({ page })
   // neither the preview nor the card shows the shape of the map
   await expect(page.getByTestId('scenario-pick').locator('[data-unknown-map]')).toHaveCount(1);
   await expect(page.locator('[data-scenario="landing"] [data-unknown-map]')).toHaveCount(1);
-  await expect(page.getByTestId('scenario-pick')).toContainText('Неизведанная карта');
+  // no cell count to give the size away; the darkness chip says the map is unknown
+  await expect(page.getByTestId('scenario-pick')).not.toContainText(/\d+ клет/);
+  await expect(page.getByTestId('scenario-pick').locator('[data-tag="blind"]')).toContainText('Абсолютная тьма');
   await page.getByRole('button', { name: /^В бой/ }).first().click();
   await waitGame(page);
   const start = await fogInfo(page, 0);

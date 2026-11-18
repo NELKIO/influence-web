@@ -7,13 +7,13 @@ async function openSetup(page: Page) {
   await expect(page.locator('.puzzle-grid')).toBeVisible();
 }
 
-const flexible = (id: ScenarioId) => !!(SCENARIO_META[id].varied || SCENARIO_META[id].configurable);
+const flexible = (id: ScenarioId) => !!SCENARIO_META[id].varied;
 
 /** The tags a card should show for its scenario, in the card's order. */
 function expectedTags(id: ScenarioId): string[] {
   const m = SCENARIO_META[id];
+  // "changes every time" is the gallery section itself, not a card icon
   const tags: string[] = [];
-  if (m.varied) tags.push('varied');
   if (m.blind) tags.push('blind');
   else if (m.darkness) tags.push('darkness');
   if (m.objectives) tags.push('objectives');
@@ -72,7 +72,7 @@ const matchMap = (page: Page) =>
     };
   });
 
-test('the gallery: changing scenarios first, then fixed puzzles; every card shows seats, difficulty and its rules', async ({ page }) => {
+test('the gallery: changing scenarios first, then fixed puzzles; every card shows seats and its rules, no difficulty dots', async ({ page }) => {
   const errors = await fresh(page);
   await openSetup(page);
   const cards = page.locator('.puzzle-grid [data-scenario]');
@@ -82,7 +82,7 @@ test('the gallery: changing scenarios first, then fixed puzzles; every card show
       id: e.getAttribute('data-scenario')!,
       section: e.getAttribute('data-section'),
       seats: e.querySelector('.meta')?.textContent?.trim(),
-      level: e.querySelector('.pips')?.getAttribute('data-level'),
+      dots: e.querySelectorAll('.pips, [data-level]').length,
       tags: [...e.querySelectorAll('[data-tag]')].map((t) => t.getAttribute('data-tag')),
     })),
   );
@@ -93,7 +93,7 @@ test('the gallery: changing scenarios first, then fixed puzzles; every card show
     const id = c.id as ScenarioId;
     expect(c.section, id).toBe(flexible(id) ? 'varied' : 'fixed');
     expect(c.seats, id).toBe(seatsOf(id));
-    expect(c.level, id).toBe(String(SCENARIO_META[id].level));
+    expect(c.dots, id).toBe(0);
     expect(c.tags, id).toEqual(expectedTags(id));
   }
   // two titled sections, the changing ones first
@@ -120,6 +120,10 @@ test('the chosen scenario states its goal and rules; "another map" is offered ex
     await page.locator(`[data-scenario="${id}"]`).click();
     const pick = page.getByTestId('scenario-pick');
     await expect(pick.locator('[data-tag]')).toHaveCount(expectedTags(id).length);
+    // the seats and rules chips stay on a single line, none of them clipped
+    const chips = await pick.locator('.chips .chip').evaluateAll((els) => els.map((e) => ({ top: Math.round(e.getBoundingClientRect().top), clipped: e.scrollWidth > e.clientWidth + 1 })));
+    expect(new Set(chips.map((c) => c.top)).size, id).toBe(1);
+    expect(chips.filter((c) => c.clipped), id).toEqual([]);
     await expect(page.getByTestId('scenario-goal'), id).toContainText(m.objectives ? 'удержать 2 из 3 контрольных точек' : 'победить всех соперников');
     await expect(page.getByTestId('scenario-reroll'), id).toHaveCount(m.varied ? 1 : 0);
     if (m.varied) await expect(page.getByTestId('scenario-reroll')).toHaveText(m.blind ? 'Новая высадка' : 'Другая карта');
@@ -178,7 +182,7 @@ test('modes of a scenario: a read-only rules summary, real choices stay switches
   await expect(rules.locator('[data-rule="unions"]')).toContainText('Союзы');
   await expect(page.getByRole('switch')).toHaveCount(0);
   // a fixed scenario with no special rules says so
-  const plain = SCENARIOS.find((id) => expectedTags(id).length === 0)!;
+  const plain = SCENARIOS.find((id) => expectedTags(id).length === 0 && !SCENARIO_META[id].varied)!;
   await page.locator('.steps button').nth(0).click();
   await page.locator(`[data-scenario="${plain}"]`).click();
   await page.locator('.steps button').nth(2).click();
