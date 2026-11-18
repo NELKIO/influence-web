@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createBot } from '../../src/ai';
 import { runMatch } from '../../src/ai/arena';
-import { autoPower, createMatch, defaultOrderComp, endAttack, finishTurn, roundOrder, seatBonus } from '../../src/core/engine';
-import { buildScenario, scenarioOrderComp, SCENARIOS, startMatch } from '../../src/core/scenarios';
+import { autoPower, createMatch, defaultOrderComp, endAttack, finishTurn, freeCapacity, orderBonusNow, roundOrder, seatBonus } from '../../src/core/engine';
+import { buildScenario, SCENARIO_META, scenarioOrderComp, SCENARIOS, startMatch } from '../../src/core/scenarios';
 import { seatsMedal } from '../../src/medals';
 import { createDailyMatch, dailyKind, dailySettings, dayId } from '../../src/daily';
 import type { FieldSize, MatchSettings, OrderComp, PlayerType } from '../../src/core/types';
@@ -174,6 +174,75 @@ describe('turn-order compensation in ordinary battles', () => {
     expect(scenarioOrderComp('archipelago', 6)).toEqual(defaultOrderComp(6));
     // published maps of the day keep their old order
     expect(createDailyMatch('2026-11-26').settings.orderComp).toBeUndefined();
+  });
+});
+
+describe('turn-order compensation when people share the table', () => {
+  const people = (n: number): PlayerType[] => Array<PlayerType>(n).fill('human');
+  const seatRange = (id: (typeof SCENARIOS)[number]) => {
+    const c = SCENARIO_META[id].configurable;
+    const [lo, hi] = c ? c.seats : [SCENARIO_META[id].players.length, SCENARIO_META[id].players.length];
+    return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+  };
+
+  it('every changing scenario evens out the turn order for people, at every seat count', () => {
+    for (const id of SCENARIOS.filter((x) => SCENARIO_META[x].varied)) for (const n of seatRange(id)) {
+      const comp = buildScenario(id, 5, undefined, people(n)).settings.orderComp as OrderComp | undefined;
+      expect(comp, `${id}, ${n} seats`).toBeTruthy();
+      // either the first mover sits out its first attack, or later seats get at least as much
+      if (!comp!.skip) {
+        const bonus = comp!.bonus ?? [];
+        expect(bonus.length, `${id}, ${n} seats`).toBe(n);
+        expect(bonus[n - 1], `${id}, ${n} seats`).toBeGreaterThan(0);
+        for (let k = 1; k < n; k++) expect(bonus[k]).toBeGreaterThanOrEqual(bonus[k - 1]);
+      }
+    }
+  });
+
+  it('the measured values (scripts/scenario-sim.ts even=1)', () => {
+    expect(scenarioOrderComp('moonvale', 3, undefined, true)).toEqual({ bonus: [0, 20, 40] });
+    expect(scenarioOrderComp('moonvale', 4, undefined, true)).toEqual(defaultOrderComp(4, 6));
+    expect(scenarioOrderComp('moonvale', 2, undefined, true)).toEqual({ skip: 1, bonus: [4, 0] });
+    expect(scenarioOrderComp('fireflies', 6, undefined, true)).toEqual(defaultOrderComp(6, 3));
+    expect(scenarioOrderComp('highlands', 2, undefined, true)).toEqual({ bonus: [0, 4] });
+    expect(scenarioOrderComp('highlands', 3, undefined, true)).toEqual({ bonus: [0, 3, 6] });
+    expect(scenarioOrderComp('crossroads', 2, undefined, true)).toEqual({ bonus: [0, 6] });
+    expect(scenarioOrderComp('colonies', 2, undefined, true)).toEqual({ skip: 1 });
+    expect(scenarioOrderComp('sparks', 3, undefined, true)).toEqual({ bonus: [0, 12, 24] });
+    // scenarios that were even already keep their compensation
+    expect(scenarioOrderComp('olympus', 4, undefined, true)).toEqual(scenarioOrderComp('olympus', 4));
+    expect(scenarioOrderComp('archipelago', 3, undefined, true)).toEqual(scenarioOrderComp('archipelago', 3));
+  });
+
+  it('the later seat really gets its bonus with the first reinforcement (as much as its cells can hold)', () => {
+    for (const [id, n] of [['moonvale', 3], ['crossroads', 2], ['sparks', 3], ['highlands', 2]] as const) {
+      const st = buildScenario(id, 9, undefined, people(n));
+      const bonus = (st.settings.orderComp as OrderComp).bonus!;
+      let base = 0;
+      for (let k = 0; k < n; k++) {
+        // what the scoreboard promises before the reinforcement is what comes
+        const promised = orderBonusNow(st, k);
+        endAttack(st);
+        if (k === 0) base = st.powerLeft;
+        else expect(st.powerLeft, `${id}, seat ${k}`).toBe(Math.min(base + bonus[k], freeCapacity(st, k)));
+        if (k > 0) expect(st.powerLeft, `${id}, seat ${k}`).toBeGreaterThan(base);
+        expect(promised, `${id}, seat ${k}`).toBe(st.powerLeft - base);
+        expect(promised).toBeLessThanOrEqual(bonus[k]);
+        autoPower(st);
+        finishTurn(st);
+      }
+      // after the first round nobody is promised anything
+      for (let k = 0; k < n; k++) expect(orderBonusNow(st, k)).toBe(0);
+    }
+  });
+
+  it('against bots nothing changes: your stronger start stays the handicap', () => {
+    expect(buildScenario('crossroads', 5).settings.orderComp).toBeUndefined();
+    expect(buildScenario('colonies', 5).settings.orderComp).toBeUndefined();
+    expect(buildScenario('sparks', 5).settings.orderComp).toBeUndefined();
+    expect(buildScenario('moonvale', 5, undefined, seats(3)).settings.orderComp).toBeUndefined();
+    expect(buildScenario('moonvale', 5, undefined, seats(3), { orderComp: 'off' }).settings.orderComp).toBeUndefined();
+    expect(buildScenario('moonvale', 5, undefined, people(3), { orderComp: 'off' }).settings.orderComp).toBeUndefined();
   });
 });
 

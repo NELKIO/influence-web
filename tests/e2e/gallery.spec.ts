@@ -24,7 +24,8 @@ function expectedTags(id: ScenarioId): string[] {
 
 const seatsOf = (id: ScenarioId) => {
   const c = SCENARIO_META[id].configurable;
-  return c ? `${c.seats[0]}–${c.seats[1]}` : String(SCENARIO_META[id].players.length);
+  // a range of seats; a scenario that only resizes its map has one number
+  return c && c.seats[0] !== c.seats[1] ? `${c.seats[0]}–${c.seats[1]}` : String(c ? c.seats[0] : SCENARIO_META[id].players.length);
 };
 
 /** Wins the running match on the spot. */
@@ -253,7 +254,7 @@ test('ordinary battles have no scenario info button', async ({ page }) => {
 });
 
 test('end of a changing scenario: "new variation" plays the same scenario on a new map', async ({ page }) => {
-  const id = SCENARIOS.find((s) => SCENARIO_META[s].varied && !SCENARIO_META[s].darkness && !SCENARIO_META[s].configurable)!;
+  const id = SCENARIOS.find((s) => SCENARIO_META[s].varied && !SCENARIO_META[s].darkness)!;
   const errors = await fresh(page, { confirmEnd: false });
   await openSetup(page);
   await page.locator(`[data-scenario="${id}"]`).click();

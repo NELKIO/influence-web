@@ -6,8 +6,8 @@ import { t } from '../../i18n';
 import { getSettings, navigate, updateSettings, useSettings, type Launch, type Route } from '../store';
 import { playerName } from '../names';
 import { playerColor } from '../theme';
-import { alivePlayers, anyAttackLeft, canSpectate, cellCount, isPersonType, scoreOf, spectateCopy } from '../../core/engine';
-import { objectiveCount, objectiveHolders, objectiveWinCount } from '../../core/objectives';
+import { alivePlayers, anyAttackLeft, canSpectate, cellCount, isPersonType, orderBonusNow, scoreOf, spectateCopy } from '../../core/engine';
+import { objectiveCount, objectiveHeldTurns, objectiveHolders, objectiveHoldTurns, objectiveWinCount } from '../../core/objectives';
 import type { ConcedeChoice, MatchState } from '../../core/types';
 import { countGame } from '../../sitestats';
 import { addRecord, awardMedal, saveGame, updateDaily, setupToSettings, loadSetup } from '../../storage';
@@ -180,7 +180,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
     // puzzle: show the goal at the start (a guest in a battle room plays another seat)
     const pz = isKnownScenarioId(ctrl.state.settings.puzzle) ? ctrl.state.settings.puzzle : null;
     // the turn-order compensation is invisible on the board at the start: say it once
-    const orderHint = orderCompHint(ctrl.state.settings.orderComp);
+    const orderHint = orderCompHint(ctrl.state.settings.orderComp, ctrl.state);
     const atStart = ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack';
     if (pz && !online?.remoteDriven && atStart) {
       const goal = `${t(`puzzle_${pz}` as 'puzzle_siege')}: ${scenarioBrief(pz, ctrl.state.settings.kind === 'daily')}`;
@@ -239,9 +239,9 @@ export function GameScreen({ launch }: { launch: Launch }) {
   const scores = s.settings.players.map((_, i) => scoreOf(s, i));
   const totalScore = scores.reduce((a, b) => a + b, 0) || 1;
 
-  // turn-order compensation: the bonus each seat gets with its first reinforcement (round 0 only)
-  const comp = s.settings.orderComp && s.settings.orderComp !== 'off' ? s.settings.orderComp : null;
-  const orderBonus = (i: number) => (comp && s.turn === 0 ? (comp.bonus?.[i] ?? 0) : 0);
+  // turn-order compensation: the bonus each seat gets with its first reinforcement (round 0 only), as
+  // much as its cells can hold now (it grows as the seat takes cells in its first attack)
+  const orderBonus = (i: number) => orderBonusNow(s, i);
   /** the seat has not received its bonus yet (it comes after its first attack phase) */
   const bonusAhead = (i: number) => orderBonus(i) > 0 && (i > cur || (i === cur && s.phase === 'attack'));
 
@@ -396,14 +396,18 @@ export function GameScreen({ launch }: { launch: Launch }) {
               // every seat with a winning hold pending, else the seat to move
               const holders = objectiveHolders(s);
               const seats = holders.length ? holders : [cur];
-              return seats.map((seat) => (
-                <div key={seat}>
-                  <IconPoint width={11} height={11} aria-hidden="true" style={{ color: '#ffcf78', verticalAlign: '-1px', marginRight: 5 }} />
-                  {t(holders.length ? 'objectivePending' : 'objectiveGoal', {
-                    name: playerName(s.settings, seat), n: objectiveCount(s, seat), total: s.objectives!.length, k: objectiveWinCount(s),
-                  })}
-                </div>
-              ));
+              const h = objectiveHoldTurns(s);
+              return seats.map((seat) => {
+                // a longer hold: how many more times the turn must come back to the holder
+                const r = h - objectiveHeldTurns(s, seat);
+                const key = holders.length ? (r > 1 ? 'objectivePendingLong' : 'objectivePending') : h > 1 ? 'objectiveGoalLong' : 'objectiveGoal';
+                return (
+                  <div key={seat}>
+                    <IconPoint width={11} height={11} aria-hidden="true" style={{ color: '#ffcf78', verticalAlign: '-1px', marginRight: 5 }} />
+                    {t(key, { name: playerName(s.settings, seat), n: objectiveCount(s, seat), total: s.objectives!.length, k: objectiveWinCount(s), h, r })}
+                  </div>
+                );
+              });
             })()}
           </div>
         )}
@@ -615,7 +619,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
             <div class="kicker">{t('scenarioKicker')}</div>
             <h2>{t(`puzzle_${pz}` as 'puzzle_siege')}</h2>
             <p>{scenarioDesc(pz, s.settings.kind === 'daily')}</p>
-            {orderCompHint(s.settings.orderComp) && <p class="order-note">{orderCompHint(s.settings.orderComp)}</p>}
+            {orderCompHint(s.settings.orderComp, launch.initial) && <p class="order-note">{orderCompHint(s.settings.orderComp, launch.initial)}</p>}
             <RulesList
               // the rules this match is played with
               keys={ruleKeys({
@@ -625,7 +629,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
                 crowded: s.settings.crowded,
                 unions: s.settings.unions && launch.initial.settings.players.filter(isPersonType).length < 2,
               })}
-              goal={goalText(s.objectives ? { k: objectiveWinCount(s), n: s.objectives.length } : null)}
+              goal={goalText(s.objectives ? { k: objectiveWinCount(s), n: s.objectives.length, h: objectiveHoldTurns(s) } : null)}
             />
           </div>
           <button class="btn primary" onClick={() => setInfo(false)}>
@@ -812,7 +816,7 @@ function ResultModal({
           </div>
         </div>
       )}
-      {end.reason === 'objective' && <p data-testid="objective-result">{t('objectiveVictory', { name: playerName(s.settings, end.winner), k: objectiveWinCount(s) })}</p>}
+      {end.reason === 'objective' && <p data-testid="objective-result">{t(objectiveHoldTurns(s) > 1 ? 'objectiveVictoryLong' : 'objectiveVictory', { name: playerName(s.settings, end.winner), k: objectiveWinCount(s), h: objectiveHoldTurns(s) })}</p>}
       {end.reason === 'concede' && s.settings.kind === 'duelOnline' && end.humanWon && <p>{t('oppConceded')}</p>}
       {end.reason === 'timeout' && end.humanWon && <p>{t('timeoutWin')}</p>}
       {spectate && <p class="muted" style={{ textAlign: 'center', margin: 0 }}>{t('spectateNote')}</p>}

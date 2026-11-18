@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { loadSavedGame, saveGame, loadSetup, saveSetup, setupPlayers, setupToSettings, DEFAULT_SETUP, frontierMajority, frontierWinChoice, frontierWinOf } from '../../src/storage';
-import { objectiveWinCount } from '../../src/core/objectives';
+import { objectiveHoldTurns, objectiveWinCount } from '../../src/core/objectives';
 import { SCENARIO_META, startMatch } from '../../src/core/scenarios';
 import { finishTurn } from '../../src/core/engine';
 
@@ -51,7 +51,7 @@ describe('frontier setup persistence', () => {
     // the majority of a changed count
     saveSetup({ ...DEFAULT_SETUP, frontierMode: true, frontierPoints: 6, frontierWin: null });
     expect(setupToSettings(loadSetup()).frontierWinCount).toBe(4);
-    for (const bad of [{ frontierPoints: 2 }, { frontierPoints: 10 }, { frontierPoints: 4.5 }, { frontierPoints: '5' }]) {
+    for (const bad of [{ frontierPoints: 1 }, { frontierPoints: 10 }, { frontierPoints: 4.5 }, { frontierPoints: '5' }]) {
       mem.set('infweb.setup', JSON.stringify({ frontierMode: true, ...bad }));
       expect(loadSetup().frontierPoints).toBe(3);
     }
@@ -61,6 +61,34 @@ describe('frontier setup persistence', () => {
     expect(loadSetup().frontierWin).toBeNull();
     mem.set('infweb.setup', JSON.stringify({ frontierPoints: 5, frontierWin: 'x' }));
     expect(loadSetup().frontierWin).toBeNull();
+  });
+});
+
+describe('two-point frontiers and longer holds', () => {
+  it('two points are allowed, and the hold is kept and reaches the match only when longer than a turn', () => {
+    saveSetup({ ...DEFAULT_SETUP, frontierMode: true, frontierPoints: 2, frontierHold: 3 });
+    const s = loadSetup();
+    expect(s).toMatchObject({ frontierPoints: 2, frontierWin: null, frontierHold: 3 });
+    const settings = setupToSettings(s);
+    expect(settings).toMatchObject({ frontierPointCount: 2, frontierWinCount: 2, frontierHoldTurns: 3 });
+    const st = startMatch(settings, 9);
+    expect(st.objectives).toHaveLength(2);
+    expect(objectiveHoldTurns(st)).toBe(3);
+    expect(setupToSettings({ ...s, frontierHold: 1 })).not.toHaveProperty('frontierHoldTurns');
+    for (const bad of [0, 6, 2.5, '3']) {
+      mem.set('infweb.setup', JSON.stringify({ frontierMode: true, frontierHold: bad }));
+      expect(loadSetup().frontierHold).toBe(1);
+    }
+  });
+
+  it('a dark scenario keeps its own hold', () => {
+    saveSetup({ ...DEFAULT_SETUP, scenario: 'fireflies', scenarioConfig: { fireflies: { frontierMode: true, frontierPoints: 2, frontierHold: 4 }, olympus: { frontierHold: 4 } } });
+    const s = loadSetup();
+    expect(s.scenarioConfig).toEqual({ fireflies: { frontierMode: true, frontierPoints: 2, frontierHold: 4 }, olympus: {} });
+    const st = startMatch(setupToSettings(s), 4);
+    expect(st.objectives).toHaveLength(2);
+    expect(objectiveWinCount(st)).toBe(2);
+    expect(objectiveHoldTurns(st)).toBe(4);
   });
 });
 

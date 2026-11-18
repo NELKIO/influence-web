@@ -473,6 +473,17 @@ export function endAttack(state: MatchState): UnionEvent | null {
   return union;
 }
 
+/**
+ * The turn-order bonus a seat would get if it reinforced now: its first-round bonus, as far as its
+ * cells have room for it beyond the income (the rest is lost, as `endAttack` does). 0 after round 0.
+ */
+export function orderBonusNow(state: MatchState, slot: number): number {
+  const comp = state.settings.orderComp;
+  const bonus = state.turn === 0 && comp && comp !== 'off' ? (comp.bonus?.[slot] ?? 0) : 0;
+  if (!bonus) return 0;
+  return Math.max(0, Math.min(bonus, freeCapacity(state, slot) - incomeFor(state, slot)));
+}
+
 /** Add up to `amount` power to an own cell, capped by capacity and points left. Returns points added. */
 export function addPower(state: MatchState, cell: number, amount = 1): number {
   if (state.ended || state.phase !== 'power') return 0;

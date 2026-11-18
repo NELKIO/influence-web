@@ -1,11 +1,11 @@
 import { t } from '../../i18n';
 import type { DarknessOptions } from '../../core/darknessOptions';
-import { FRONTIER_MAX_POINTS, FRONTIER_MIN_POINTS } from '../../core/objectives';
+import { FRONTIER_MAX_HOLD, FRONTIER_MAX_POINTS, FRONTIER_MIN_POINTS } from '../../core/objectives';
 import { frontierMajority, frontierWinChoice, frontierWinOf } from '../../storage';
 import { SettingRow, Slider, Toggle } from './controls';
 
 type Props = { options: DarknessOptions; update: (patch: Partial<DarknessOptions>) => void };
-type Frontier = { frontierMode: boolean; frontierPoints: number; frontierWin: number | null };
+type Frontier = { frontierMode: boolean; frontierPoints: number; frontierWin: number | null; frontierHold: number };
 type FrontierProps = { options: DarknessOptions & Partial<Frontier>; update: (patch: Partial<DarknessOptions & Frontier>) => void };
 
 export function DarknessRow({ options, update }: Props) {
@@ -44,14 +44,15 @@ export function SignalFiresRow({ on, onChange }: { on: boolean; onChange: (on: b
   );
 }
 
-/** The frontier switch and, when it is on, how many points the map has and how many win. */
+/** The frontier switch and, when it is on, how many points the map has, how many win and for how long. */
 export function FrontierRows({ options, update }: { options: Frontier; update: (patch: Partial<Frontier>) => void }) {
   const points = options.frontierPoints;
   const win = frontierWinOf(options);
   const auto = options.frontierWin === null;
+  const hold = options.frontierHold;
   return (
     <>
-      <SettingRow title={t('frontierMode')} desc={t('frontierModeDesc', { n: points, k: win })}>
+      <SettingRow title={t('frontierMode')} desc={t(hold > 1 ? 'frontierModeDescLong' : 'frontierModeDesc', { n: points, k: win, h: hold })}>
         <Toggle label={t('frontierMode')} on={options.frontierMode} onChange={(frontierMode) => update({ frontierMode })} />
       </SettingRow>
       {options.frontierMode && (
@@ -72,6 +73,14 @@ export function FrontierRows({ options, update }: { options: Frontier; update: (
             valueText={`${win} / ${points}`}
             hint={auto ? t('frontierMajority') : t('frontierMajorityIs', { n: frontierMajority(points) })}
             onChange={(k) => update({ frontierWin: frontierWinChoice(points, k) })}
+          />
+          <Slider
+            title={t('frontierHold')}
+            value={hold}
+            min={1}
+            max={FRONTIER_MAX_HOLD}
+            hint={hold > 1 ? t('frontierHoldMany', { h: hold }) : t('frontierHoldNext')}
+            onChange={(h) => update({ frontierHold: h })}
           />
         </div>
       )}

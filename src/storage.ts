@@ -1,6 +1,6 @@
 import { matchDarkness, readDarkness, type DarknessOptions } from './core/darknessOptions';
 import { validSignalFireCells } from './core/signalFires';
-import { FRONTIER_MAX_POINTS, FRONTIER_MIN_POINTS, validObjectiveFields } from './core/objectives';
+import { FRONTIER_MAX_HOLD, FRONTIER_MAX_POINTS, FRONTIER_MIN_POINTS, frontierSettings, validObjectiveFields } from './core/objectives';
 import type { Lang } from './i18n';
 import { SIZE_ORDER, type FieldSize, type MatchKind, type MatchSettings, type MatchState, type PlayerType } from './core/types';
 import { isScenarioId, scenarioSetup, SCENARIO_META, seatsFit, type ScenarioConfig, type ScenarioId, type ScenarioSetup } from './core/scenarios';
@@ -128,6 +128,8 @@ export interface SetupPrefs extends DarknessOptions {
   frontierPoints: number;
   /** points to hold for the win; null follows the majority of frontierPoints */
   frontierWin: number | null;
+  /** own turns the points must be held for the win (1: until the start of your next turn) */
+  frontierHold: number;
   unions: boolean;
   shuffle: boolean;
   /** a scenario fixes the map, the seats and the modes (null: an ordinary map with the settings above) */
@@ -152,6 +154,7 @@ export const DEFAULT_SETUP: SetupPrefs = {
   frontierMode: false,
   frontierPoints: FRONTIER_DEFAULT_POINTS,
   frontierWin: null,
+  frontierHold: 1,
   unions: false,
   shuffle: true,
   scenario: null,
@@ -190,6 +193,7 @@ export function loadSetup(): SetupPrefs {
     s.frontierPoints = saved.frontierPoints as number;
   }
   s.frontierWin = Number.isInteger(saved.frontierWin) ? frontierWinChoice(s.frontierPoints, saved.frontierWin as number) : null;
+  if (validHold(saved.frontierHold)) s.frontierHold = saved.frontierHold;
   // shuffling became the default in setup revision 2: an older save held 'off' only because it was the default then
   if (!(typeof saved.rev === 'number' && saved.rev >= SETUP_REV)) s.shuffle = DEFAULT_SETUP.shuffle;
   s.scenario = isScenarioId(saved.scenario) ? saved.scenario : null;
@@ -215,6 +219,7 @@ export function loadSetup(): SetupPrefs {
       if (typeof c.frontierMode === 'boolean') keep.frontierMode = c.frontierMode;
       if (Number.isInteger(c.frontierPoints) && c.frontierPoints! >= FRONTIER_MIN_POINTS && c.frontierPoints! <= FRONTIER_MAX_POINTS) keep.frontierPoints = c.frontierPoints;
       if (Number.isInteger(c.frontierWin)) keep.frontierWin = frontierWinChoice(keep.frontierPoints ?? FRONTIER_DEFAULT_POINTS, c.frontierWin!);
+      if (validHold(c.frontierHold)) keep.frontierHold = c.frontierHold;
     }
     if (typeof c.signalFires === 'boolean' && offer.modes.includes('signalFires')) keep.signalFires = c.signalFires;
     config[id as ScenarioId] = keep;
@@ -222,6 +227,8 @@ export function loadSetup(): SetupPrefs {
   s.scenarioConfig = config;
   return s;
 }
+
+const validHold = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= FRONTIER_MAX_HOLD;
 
 /** The majority of n points: floor(n/2) + 1. */
 export const frontierMajority = (points: number) => Math.floor(points / 2) + 1;
@@ -274,7 +281,7 @@ export function setupToSettings(s: SetupPrefs): MatchSettings {
       puzzle: s.scenario,
       ...(m.blind ? { blind: true } : {}),
       ...(signalFires && m.darkness ? { signalFires: true } : {}),
-      ...(frontier ? { frontierMode: true, frontierPointCount: frontier.pointCount, frontierWinCount: frontier.winCount } : {}),
+      ...(frontier ? frontierSettings(frontier) : {}),
     };
   }
   return {
@@ -284,7 +291,7 @@ export function setupToSettings(s: SetupPrefs): MatchSettings {
     ...matchDarkness(s),
     symmetry: s.symmetry,
     crowded: s.crowded,
-    ...(s.frontierMode ? { frontierMode: true, frontierPointCount: s.frontierPoints, frontierWinCount: frontierWinOf(s) } : {}),
+    ...(s.frontierMode ? frontierSettings({ pointCount: s.frontierPoints, winCount: frontierWinOf(s), holdTurns: s.frontierHold }) : {}),
     unions: s.unions,
     shuffle: s.shuffle,
     duelRules: false,

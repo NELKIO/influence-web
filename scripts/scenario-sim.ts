@@ -8,6 +8,8 @@
  *          [you=master] [playouts=80] [rollouts=60] [shuffle=1] [size=L]
  *          [others=master] (every other seat; default: the recommended line-up)
  *          [bonus=0,2,4] (extra first income per turn position, replaces the scenario's) [skip=1] [order=snake]
+ *          [even=1] (every seat starts alike, as when people play: no knob for you; `others` plays every seat,
+ *          and only the winner's place in the turn order means anything)
  */
 import { runMatch } from '../src/ai/arena';
 import { createBot } from '../src/ai';
@@ -35,6 +37,7 @@ const size = get('size', meta.size) as FieldSize;
 const bonus = args.get('bonus')?.split(',').map(Number);
 const skip = args.has('skip') ? Number(args.get('skip')) : undefined;
 const order = args.get('order') as 'rotate' | 'snake' | undefined;
+const even = get('even', '0') === '1';
 
 // the recommended line-up, extended by Master / Hunter for extra seats
 const others = args.get('others') as BotType | undefined;
@@ -56,7 +59,12 @@ for (let gi = 0; gi < games; gi++) {
     kind: 'single', size, players, darkness: false, symmetry: false, crowded: false, unions: false,
     shuffle, duelRules: false, puzzle: id,
   };
-  const state = startMatch(settings, seed);
+  // people in every seat: the map is built with equal starts; bots then take every seat
+  const state = startMatch(even ? { ...settings, players: players.map(() => 'human') } : settings, seed);
+  if (even) {
+    state.settings.players = players.map((_, i) => (i === 0 ? 'human' : others ?? 'master'));
+    delete state.explored;
+  }
   // candidate turn-order compensations: only the round-0 parts, which act after the map is dealt
   if (bonus || skip !== undefined || order) state.settings.orderComp = { ...(bonus ? { bonus } : {}), ...(skip ? { skip } : {}), ...(order ? { order } : {}) };
   const me = state.settings.players.indexOf('human');
@@ -84,4 +92,4 @@ for (let gi = 0; gi < games; gi++) {
   if (!isMatchState(JSON.parse(JSON.stringify(res.state)))) r.invalid++;
 }
 const sorted = [...r.rounds].sort((a, b) => a - b);
-console.log(JSON.stringify({ ...r, others, bonus, skip, order, rounds: undefined, medianRounds: sorted[sorted.length >> 1], maxRounds: sorted[sorted.length - 1] }));
+console.log(JSON.stringify({ ...r, others, bonus, skip, order, even, rounds: undefined, medianRounds: sorted[sorted.length >> 1], maxRounds: sorted[sorted.length - 1] }));

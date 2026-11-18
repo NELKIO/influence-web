@@ -109,7 +109,11 @@ describe('scenarios as battle presets', () => {
     const base = buildScenario('olympus', 42);
     const custom = buildScenario('olympus', 42, undefined, ['human', 'god', 'human', 'online', 'master', 'dummy']);
     expect(custom.settings.players).toEqual(['human', 'god', 'human', 'online', 'master', 'dummy']);
-    expect(JSON.stringify(custom.field)).toBe(JSON.stringify(base.field));
+    // with several people only the start powers are evened out; the map itself is the same
+    const shape = (f: typeof base.field) => JSON.stringify({ ...f, cells: f.cells.map((c) => [c.id, c.owner, c.maxPower]) });
+    expect(shape(custom.field)).toBe(shape(base.field));
+    const alone = buildScenario('olympus', 42, undefined, ['human', 'god', 'hunter', 'dummy', 'master', 'dummy']);
+    expect(JSON.stringify(alone.field)).toBe(JSON.stringify(base.field));
     expect(() => buildScenario('olympus', 42, undefined, ['human', 'hunter'])).toThrow();
   });
 

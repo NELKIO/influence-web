@@ -87,10 +87,15 @@ export interface MatchSettings {
   crowded: boolean;
   /** Neutral graph-spaced points to capture and hold (generated ordinary battles only). */
   frontierMode?: boolean;
-  /** Number of generated frontier points (3–9; omitted means three). */
+  /** Number of generated frontier points (2–9; omitted means three). */
   frontierPointCount?: number;
   /** Points needed to hold; omitted means a strict majority. */
   frontierWinCount?: number;
+  /**
+   * How many of its own turns a seat must reach still holding them to win (1–5; omitted means one:
+   * held until the start of its next turn).
+   */
+  frontierHoldTurns?: number;
   unions: boolean;
   shuffle: boolean;
   /** duel rules: income = biggest group, greys first, no unions */
@@ -182,6 +187,11 @@ export interface MatchState {
   objectiveHolder?: number;
   /** Other seats with pending holds when the threshold allows several at once. */
   objectiveHoldersExtra?: number[];
+  /**
+   * Longer holds (`frontierHoldTurns` > 1) only: per seat, how many of its own turns it has already
+   * reached while holding (0 for a seat without a pending hold).
+   */
+  objectiveHeld?: number[];
   chronicle: Chronicle;
   /** per slot: eliminated at round (or -1) */
   outAt: number[];

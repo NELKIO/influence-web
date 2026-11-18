@@ -8,6 +8,7 @@ import type { BattleGuest, BattleHost, RosterEntry } from '../../net';
 import { battleErrorText, battleInvite, closeBattle, getBattle, hasPendingHost, launchBattle, startGuest, startHost, takePendingHost } from '../battle';
 import { playerColor } from '../theme';
 import { isScenarioId, SCENARIO_META } from '../../core/scenarios';
+import { scenarioSizeName } from '../components/ScenarioInfo';
 import type { MatchSettings } from '../../core/types';
 
 /**
@@ -231,7 +232,7 @@ export function BattleRoomScreen({ join }: { join?: string }) {
 function scenarioModes(st: MatchSettings): string[] {
   const out: string[] = [];
   const conf = isScenarioId(st.puzzle) ? SCENARIO_META[st.puzzle].configurable : undefined;
-  if (conf) out.push(t(`size${st.size}` as 'sizeM'));
+  if (conf && isScenarioId(st.puzzle)) out.push(scenarioSizeName(st.puzzle, st.size));
   if (st.darkness) out.push(t('darkness'));
   // unions only work with a single person (never so in a room)
   if (conf?.modes.includes('unions') && st.unions && st.players.filter((p) => p === 'human' || p === 'online').length < 2) out.push(t('unions'));

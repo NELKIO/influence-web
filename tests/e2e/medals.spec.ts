@@ -33,8 +33,9 @@ async function forceWin(page: Page) {
 }
 
 /** A duel from the gallery, whichever the gallery offers. */
+/** A fixed two-seat puzzle (the changing maps have a medal rule of their own: any size). */
 async function pickDuel(page: Page) {
-  const cards = page.locator('.puzzle-card');
+  const cards = page.locator('.puzzle-card[data-section="fixed"]');
   const ids = await cards.evaluateAll((els) => els.map((e) => e.getAttribute('data-scenario')!));
   const seats = await cards.evaluateAll((els) => els.map((e) => Number(e.querySelector('.meta')?.textContent?.trim())));
   const id = ids[seats.indexOf(2)];

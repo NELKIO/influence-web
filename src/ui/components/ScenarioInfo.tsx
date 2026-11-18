@@ -1,6 +1,13 @@
 import { t, type Key } from '../../i18n';
-import { DAILY_LEGACY_DESC, type ScenarioId, type ScenarioMeta } from '../../core/scenarios';
+import { DAILY_LEGACY_DESC, SCENARIO_META, type ScenarioId, type ScenarioMeta } from '../../core/scenarios';
+import type { FieldSize } from '../../core/types';
 import { IconCrowd, IconDice, IconFlag, IconLink, IconMoon, IconMoonSolid, IconPoint, IconUsers } from './icons';
+
+/** A scenario's size by its place among the sizes the scenario offers: small, medium or large. */
+export function scenarioSizeName(id: ScenarioId, size: FieldSize): string {
+  const place = SCENARIO_META[id].configurable?.sizes.indexOf(size) ?? -1;
+  return place < 0 ? t(`size${size}` as 'sizeM') : t((['scenarioSizeSmall', 'scenarioSizeMedium', 'scenarioSizeLarge'] as const)[Math.min(2, place)]);
+}
 
 /** What sets a scenario apart from an ordinary battle, in the order it is listed. */
 export type RuleKey = 'varied' | 'blind' | 'darkness' | 'objectives' | 'crowded' | 'unions';
@@ -87,7 +94,7 @@ export function RuleIcon({ k, size = 14 }: { k: RuleKey; size?: number }) {
 }
 
 /** Seats of a scenario: "3", or "2–6" when you choose how many. */
-export const seatsText = (m: ScenarioMeta) => (m.configurable ? `${m.configurable.seats[0]}–${m.configurable.seats[1]}` : String(m.players.length));
+export const seatsText = (m: ScenarioMeta) => (m.configurable && m.configurable.seats[0] < m.configurable.seats[1] ? `${m.configurable.seats[0]}–${m.configurable.seats[1]}` : String(m.players.length));
 
 /**
  * Rules a gallery card shows as icons: the changing map is said by the card's section, not by an icon.
@@ -129,8 +136,9 @@ export function TagLegend({ keys }: { keys: RuleKey[] }) {
 }
 
 /** The goal of a scenario match: hold the control points, or beat everybody. */
-export function goalText(points: { k: number; n: number } | null): string {
-  return points ? t('scenarioGoalPoints', points) : t('scenarioGoalAll');
+export function goalText(points: { k: number; n: number; h?: number } | null): string {
+  if (!points) return t('scenarioGoalAll');
+  return (points.h ?? 1) > 1 ? t('scenarioGoalPointsLong', points) : t('scenarioGoalPoints', points);
 }
 
 /** A rule as a chip (the chosen scenario card). */

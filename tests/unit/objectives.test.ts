@@ -6,7 +6,7 @@ import { stateHash } from '../../src/net/protocol';
 import { battleHash, parseBattleMessage, BATTLE_PROTOCOL_VERSION } from '../../src/net/battleProtocol';
 import { startMatch } from '../../src/core/scenarios';
 import { applyBattleAction, localizeBattleState, previewBattleMatch } from '../../src/net/battleRules';
-import { chooseFrontierPoints, frontierConfig, objectiveHolders, objectiveWinCount } from '../../src/core/objectives';
+import { chooseFrontierPoints, frontierConfig, objectiveHeldTurns, objectiveHolders, objectiveHoldTurns, objectiveWinCount } from '../../src/core/objectives';
 import { articulationPoints } from '../../src/core/connectivity';
 import { isMatchState } from '../../src/storage';
 import { expectAllSame, makeRoom, reloadGuest, send } from './battleHelpers';
@@ -34,17 +34,19 @@ describe('generated frontiers', () => {
   };
 
   it('normalizes requested point counts, majority defaults and independent win counts', () => {
-    expect(frontierConfig({})).toEqual({ pointCount: 3, winCount: 2 });
-    expect(frontierConfig({ frontierPointCount: 4 })).toEqual({ pointCount: 4, winCount: 3 });
-    expect(frontierConfig({ frontierPointCount: 9 })).toEqual({ pointCount: 9, winCount: 5 });
-    expect(frontierConfig({ frontierPointCount: 9, frontierWinCount: 1 })).toEqual({ pointCount: 9, winCount: 1 });
-    expect(frontierConfig({ frontierPointCount: 2, frontierWinCount: 7 })).toEqual({ pointCount: 3, winCount: 3 });
-    expect(frontierConfig({ frontierPointCount: 20, frontierWinCount: -4 })).toEqual({ pointCount: 9, winCount: 1 });
-    expect(frontierConfig({ frontierPointCount: NaN, frontierWinCount: 'oops' })).toEqual({ pointCount: 3, winCount: 2 });
+    expect(frontierConfig({})).toEqual({ pointCount: 3, winCount: 2, holdTurns: 1 });
+    expect(frontierConfig({ frontierPointCount: 4 })).toEqual({ pointCount: 4, winCount: 3, holdTurns: 1 });
+    expect(frontierConfig({ frontierPointCount: 9 })).toEqual({ pointCount: 9, winCount: 5, holdTurns: 1 });
+    expect(frontierConfig({ frontierPointCount: 9, frontierWinCount: 1 })).toEqual({ pointCount: 9, winCount: 1, holdTurns: 1 });
+    // two points are the fewest: both to hold by default
+    expect(frontierConfig({ frontierPointCount: 2 })).toEqual({ pointCount: 2, winCount: 2, holdTurns: 1 });
+    expect(frontierConfig({ frontierPointCount: 1, frontierWinCount: 7 })).toEqual({ pointCount: 2, winCount: 2, holdTurns: 1 });
+    expect(frontierConfig({ frontierPointCount: 20, frontierWinCount: -4, frontierHoldTurns: 9 })).toEqual({ pointCount: 9, winCount: 1, holdTurns: 5 });
+    expect(frontierConfig({ frontierPointCount: NaN, frontierWinCount: 'oops', frontierHoldTurns: 0 })).toEqual({ pointCount: 3, winCount: 2, holdTurns: 1 });
   });
 
-  it('chooses 3–9 reachable targets without consuming battle dice, including crowded starts', () => {
-    for (const pointCount of [3, 4, 6, 9]) for (const crowded of [false, true]) {
+  it('chooses 2–9 reachable targets without consuming battle dice, including crowded starts', () => {
+    for (const pointCount of [2, 3, 4, 6, 9]) for (const crowded of [false, true]) {
       const cfg = { ...settings('S', 6, crowded), frontierPointCount: pointCount };
       const on = startMatch(cfg, 17);
       const off = startMatch({ ...cfg, frontierMode: false }, 17);
@@ -134,7 +136,7 @@ describe('generated frontiers', () => {
       expect(isMatchState(bad)).toBe(false);
       expect(parseBattleMessage(wire(bad))).toBeNull();
     }
-    expect(BATTLE_PROTOCOL_VERSION).toBe(9);
+    expect(BATTLE_PROTOCOL_VERSION).toBe(10);
   });
 
   it('previews exactly the map and seat shuffle that the online host starts', async () => {
@@ -221,6 +223,77 @@ describe('independent frontier holds', () => {
     const bot = createBot('hunter');
     expect(await bot.nextAttack(s, { speedMs: 0 })).toEqual({ from: 2, to: 1 });
     bot.dispose?.();
+  });
+
+  describe('a hold of several turns', () => {
+    const long = (holdTurns: number) => {
+      const s = board({ puzzle: undefined, frontierMode: true, frontierPointCount: 4, frontierWinCount: 1, frontierHoldTurns: holdTurns });
+      s.objectives = [1, 2, 4, 5];
+      s.field.cells[2].owner = 1;
+      return s;
+    };
+
+    it('wins only when the turn has come back to the holder that many times', () => {
+      const s = long(3);
+      expect(objectiveHoldTurns(s)).toBe(3);
+      pass(s); // 0 ends its turn holding a point: armed
+      expect(objectiveHolders(s)).toEqual([0]);
+      pass(s); pass(s); // back to 0: once
+      expect(s.ended).toBeNull();
+      expect(objectiveHeldTurns(s, 0)).toBe(1);
+      expect(isMatchState(JSON.parse(JSON.stringify(s)))).toBe(true);
+      pass(s); pass(s); pass(s); // twice
+      expect(s.ended).toBeNull();
+      expect(objectiveHeldTurns(s, 0)).toBe(2);
+      pass(s); pass(s); pass(s); // the third time
+      expect(s.ended).toMatchObject({ reason: 'objective', winner: 0 });
+    });
+
+    it('a broken hold starts again from nothing', () => {
+      const s = long(2);
+      pass(s); pass(s); pass(s);
+      expect(objectiveHeldTurns(s, 0)).toBe(1);
+      // seat 1 takes 0's point while 0 still waits for its second return
+      s.current = 1;
+      s.field.cells[1].owner = 1;
+      checkEnd(s);
+      expect(objectiveHolders(s)).not.toContain(0);
+      expect(objectiveHeldTurns(s, 0)).toBe(0);
+      s.field.cells[1].owner = 0;
+      s.current = 0;
+      pass(s); pass(s); pass(s); // armed again: one return is not enough
+      expect(objectiveHeldTurns(s, 0)).toBe(1);
+      expect(s.ended).toBeNull();
+    });
+
+    it('is checked on saves and snapshots and changes the hash', () => {
+      const s = long(2);
+      pass(s); pass(s); pass(s);
+      expect(objectiveHolders(s)).toEqual([0, 1, 2]);
+      expect(s.objectiveHeld).toEqual([1, 0, 0]);
+      const wire = (state: unknown) => ({ t: 'bSync', matchId: 'room', seat: 0, seq: 3, state, roster: [] });
+      expect(parseBattleMessage(wire(s))).not.toBeNull();
+      expect(battleHash({ ...s, objectiveHeld: [0, 0, 0] })).not.toBe(battleHash(s));
+      for (const bad of [
+        { ...s, objectiveHeld: [2, 0, 0] }, // reached the hold yet not ended
+        { ...s, objectiveHoldersExtra: undefined, objectiveHeld: [1, 1, 0] }, // a seat without a hold
+        { ...s, objectiveHeld: [1, 0] },
+        { ...s, settings: { ...s.settings, frontierHoldTurns: 6 } },
+        { ...s, settings: { ...s.settings, frontierHoldTurns: 1.5 } },
+        { ...s, settings: { ...s.settings, puzzle: 'crossroads', frontierMode: undefined } },
+      ]) {
+        expect(isMatchState(bad)).toBe(false);
+        expect(parseBattleMessage(wire(bad))).toBeNull();
+      }
+    });
+
+    it('a one-turn hold plays and saves exactly as before', () => {
+      const s = long(1);
+      delete s.settings.frontierHoldTurns;
+      pass(s); pass(s); pass(s);
+      expect(s.ended).toMatchObject({ reason: 'objective', winner: 0 });
+      expect(s.objectiveHeld).toBeUndefined();
+    });
   });
 
   it('keeps named three-of-two puzzles even when custom settings are present', () => {

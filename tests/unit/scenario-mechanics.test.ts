@@ -150,7 +150,7 @@ function approach(st: MatchState, p: number) {
 
 describe('olympus: summit points, three to six climbers', () => {
   it('is configurable from three to six seats and plays for the summit', () => {
-    expect(SCENARIO_META.olympus).toMatchObject({ objectives: true, configurable: { sizes: ['L'], seats: [3, 6], modes: [] } });
+    expect(SCENARIO_META.olympus).toMatchObject({ objectives: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [3, 6], modes: [] } });
     expect([2, 3, 4, 5, 6, 7].map(n => seatsFit('olympus', n))).toEqual([false, true, true, true, true, false]);
     expect(buildDailyScenario('olympus', 5).objectives).toBeUndefined();
     expect(buildDailyScenario('olympus', 5).settings.orderComp).toBeUndefined();
@@ -218,7 +218,7 @@ describe('maps of the day that kept an older design', () => {
 
 describe('highlands: two to six camps, summits and passes in new places every launch', () => {
   it('is configurable from two to six seats', () => {
-    expect(SCENARIO_META.highlands).toMatchObject({ objectives: true, varied: true, configurable: { sizes: ['L'], seats: [2, 6], modes: [] } });
+    expect(SCENARIO_META.highlands).toMatchObject({ objectives: true, varied: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: [] } });
     expect([1, 2, 6, 7].map(n => seatsFit('highlands', n))).toEqual([false, true, true, false]);
     expect(seatsMedal('highlands', ['human', 'master'])).toBe('medal');
     expect(seatsMedal('highlands', ['human', 'hunter'])).toBe('weaker');

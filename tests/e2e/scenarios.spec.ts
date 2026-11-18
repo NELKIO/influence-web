@@ -161,12 +161,13 @@ test('night drop can be configured: size, unions and seats persist and reach the
   const errors = await fresh(page, { confirmEnd: false });
   await openSetup(page);
   await page.locator('[data-scenario="landing"]').click();
-  // a compact size choice in the banner, big sizes only; the default is the recommended one
+  // a compact size choice in the banner, named by its place in the scenario's own range; the default
+  // is the recommended one
   const size = page.getByTestId('scenario-size').getByRole('radio');
-  await expect(size).toHaveText(['Большая', 'Огромная', 'Гигантская']);
-  await expect(page.getByTestId('scenario-size').getByRole('radio', { name: 'Огромная' })).toHaveAttribute('aria-checked', 'true');
+  await expect(size).toHaveText(['Маленькая', 'Средняя', 'Большая']);
+  await expect(page.getByTestId('scenario-size').getByRole('radio', { name: 'Средняя' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.size-grid')).toHaveCount(0);
-  await page.getByTestId('scenario-size').getByRole('radio', { name: 'Гигантская' }).click();
+  await page.getByTestId('scenario-size').getByRole('radio', { name: 'Большая' }).click();
 
   // seats: remove two (down to the fewest), add one back as designed
   await page.locator('.steps button').nth(1).click();
@@ -193,7 +194,7 @@ test('night drop can be configured: size, unions and seats persist and reach the
   await expect(page.locator('.puzzle-grid')).toBeVisible();
   await expect(page.getByTestId('scenario-pick')).toContainText('4 игрока');
   await expect(page.getByTestId('scenario-pick')).toContainText('Союзы');
-  await expect(page.getByTestId('scenario-size').getByRole('radio', { name: 'Гигантская' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('scenario-size').getByRole('radio', { name: 'Большая' })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /^В бой/ }).first().click();
   await waitGame(page);
   const info = await gameInfo(page);
@@ -202,15 +203,15 @@ test('night drop can be configured: size, unions and seats persist and reach the
   await expectNoErrors(errors);
 });
 
-for (const [id, recommended] of [['moonvale', 'Большая'], ['fireflies', 'Огромная']] as const) {
+for (const [id, recommended] of [['moonvale', 'Маленькая'], ['fireflies', 'Средняя']] as const) {
   test(`${id} can be sized and seated like the night drop, and both reach the match`, async ({ page }) => {
     const errors = await fresh(page, { confirmEnd: false });
     await openSetup(page);
     await page.locator(`[data-scenario="${id}"]`).click();
     const size = page.getByTestId('scenario-size');
-    await expect(size.getByRole('radio')).toHaveText(['Большая', 'Огромная', 'Гигантская']);
+    await expect(size.getByRole('radio')).toHaveText(['Маленькая', 'Средняя', 'Большая']);
     await expect(size.getByRole('radio', { name: recommended })).toHaveAttribute('aria-checked', 'true');
-    await size.getByRole('radio', { name: 'Гигантская' }).click();
+    await size.getByRole('radio', { name: 'Большая' }).click();
     // the map stays secret in the preview whatever the size
     await expect(page.getByTestId('scenario-pick').locator('[data-unknown-map]')).toBeVisible();
     await page.locator('.steps button').nth(1).click();
@@ -421,7 +422,7 @@ test('two-seat moonless valley: the first mover is told it sits out its first at
 test('three-seat moonless valley with frontiers: the turn goes round the table, never twice to you', async ({ page }) => {
   const errors = await fresh(page, { confirmEnd: false });
   await page.evaluate(() =>
-    localStorage.setItem('infweb.setup', JSON.stringify({ shuffle: false, rev: 2, scenario: 'moonvale', scenarioConfig: { moonvale: { frontierMode: true, frontierPoints: 6, frontierWin: 4 } } })),
+    localStorage.setItem('infweb.setup', JSON.stringify({ shuffle: false, rev: 2, scenario: 'moonvale', scenarioConfig: { moonvale: { frontierMode: true, frontierPoints: 6, frontierWin: 4, frontierHold: 5 } } })),
   );
   await page.reload();
   await openSetup(page);
@@ -443,8 +444,10 @@ test('three-seat moonless valley with frontiers: the turn goes round the table, 
     // end the attack, then the turn (the reinforcement is spread over your cells)
     await page.locator('.end-btn').click();
     await expect.poll(async () => (await state()).phase).toBe('power');
+    const before = await page.evaluate(() => (window as any).__seats.length);
     await page.locator('.end-btn').click();
-    await expect.poll(async () => (await state()).current).not.toBe(0);
+    // the turn has left you (the bots may be done and hand it back before a poll would see them)
+    await expect.poll(() => page.evaluate(() => (window as any).__seats.length)).toBeGreaterThan(before);
   }
   await expect.poll(async () => (await state()).current, { timeout: 30000 }).toBe(0);
   expect(await page.evaluate(() => (window as any).__seats)).toEqual([0, 1, 2, 0, 1, 2, 0, 1, 2, 0]);
@@ -464,6 +467,11 @@ for (const id of ['moonvale', 'fireflies'] as const) {
     await choice.getByRole('switch', { name: 'Победа по рубежам', exact: true }).click();
     await page.getByRole('slider', { name: 'Контрольные точки' }).fill('5');
     await expect(page.getByRole('slider', { name: 'Нужно для победы' })).toHaveValue('3');
+    // how long the points must be held: one round by default, longer on request
+    const hold = page.getByRole('slider', { name: 'Удерживать ходов' });
+    await expect(hold).toHaveValue('1');
+    await hold.fill('2');
+    await expect(page.getByText('ход должен 2 раза вернуться к вам')).toBeVisible();
     await choice.getByRole('switch', { name: 'Сигнальные огни', exact: true }).click();
     // the goal and the chip follow the choice
     await expect(page.getByTestId('scenario-rules')).toContainText(/удержать 3 из 5 контрольных точек/i);
@@ -479,13 +487,36 @@ for (const id of ['moonvale', 'fireflies'] as const) {
       return {
         points: s.objectives?.length ?? 0,
         known: (s.objectives ?? []).every((i: number) => known && known[i] === 1),
-        settings: { frontierMode: s.settings.frontierMode, win: s.settings.frontierWinCount, fires: s.settings.signalFires, blind: s.settings.blind },
+        settings: { frontierMode: s.settings.frontierMode, win: s.settings.frontierWinCount, hold: s.settings.frontierHoldTurns, fires: s.settings.signalFires, blind: s.settings.blind },
       };
     });
-    expect(st).toEqual({ points: 5, known: true, settings: { frontierMode: true, win: 3, fires: true, blind: true } });
+    expect(st).toEqual({ points: 5, known: true, settings: { frontierMode: true, win: 3, hold: 2, fires: true, blind: true } });
     // your turn: the fire can be lit, the frontier goal is on screen
     await expect(page.getByRole('button', { name: 'Зажечь сигнальный огонь' })).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(/0\/5 · Для победы удержите 3/)).toBeVisible();
     await expectNoErrors(errors);
   });
 }
+
+test('first-block maps with sizes: small, medium and large name their place and really grow', async ({ page }) => {
+  const errors = await fresh(page, { confirmEnd: false });
+  const cells: number[] = [];
+  for (const label of ['Маленькая', 'Средняя', 'Большая']) {
+    await page.goto('./');
+    await openSetup(page);
+    await page.locator('[data-scenario="olympus"]').click();
+    const size = page.getByTestId('scenario-size');
+    await expect(size.getByRole('radio')).toHaveText(['Маленькая', 'Средняя', 'Большая']);
+    await size.getByRole('radio', { name: label }).click();
+    await page.getByRole('button', { name: /^В бой/ }).first().click();
+    // a match is already saved after the first start: confirm replacing it
+    if (cells.length) await page.locator('.modal').getByRole('button').last().click();
+    await waitGame(page);
+    const info = await gameInfo(page);
+    expect(info.puzzle).toBe('olympus');
+    cells.push(info.cells);
+  }
+  expect(cells[1]).toBeGreaterThan(cells[0] * 1.2);
+  expect(cells[2]).toBeGreaterThan(cells[1] * 1.2);
+  await expectNoErrors(errors);
+});

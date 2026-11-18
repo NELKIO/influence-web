@@ -140,3 +140,45 @@ export function weakPoints(adj: number[][], starts: number[], maxPocket: number)
   for (let i = 0; i < n; i++) if (isCut[i]) out.push(i);
   return out;
 }
+
+/**
+ * How many paths with no cell in common lead from area `from` to area `to` (the cells of the areas
+ * themselves may be shared): the width of the narrowest place between them (Menger). Counting stops
+ * at `cap`.
+ */
+export function disjointPaths(adj: number[][], from: number[], to: number[], cap = Infinity): number {
+  const n = adj.length;
+  const S = 2 * n, T = 2 * n + 1;
+  const wide = Math.max(1, from.length + to.length) * n;
+  // every cell is split in two (in = 2i, out = 2i + 1) joined by an edge of capacity one (area cells:
+  // unlimited); links go out -> in. Edges are stored in pairs: e and e ^ 1 is its reverse.
+  const head: number[] = [], next: number[] = [], room: number[] = [];
+  const first = new Int32Array(2 * n + 2).fill(-1);
+  const edge = (a: number, b: number, c: number) => {
+    for (const [u, v, w] of [[a, b, c], [b, a, 0]]) {
+      head.push(v); room.push(w); next.push(first[u]); first[u] = head.length - 1;
+    }
+  };
+  const inArea = new Uint8Array(n);
+  for (const i of from) inArea[i] = 1;
+  for (const i of to) inArea[i] = 1;
+  for (let i = 0; i < n; i++) edge(2 * i, 2 * i + 1, inArea[i] ? wide : 1);
+  for (let i = 0; i < n; i++) for (const j of adj[i]) edge(2 * i + 1, 2 * j, wide);
+  for (const i of from) edge(S, 2 * i, wide);
+  for (const i of to) edge(2 * i + 1, T, wide);
+  let paths = 0;
+  const via = new Int32Array(2 * n + 2);
+  while (paths < cap) {
+    via.fill(-1);
+    via[S] = -2;
+    const queue = [S];
+    for (let h = 0; h < queue.length && via[T] === -1; h++)
+      for (let e = first[queue[h]]; e !== -1; e = next[e])
+        if (room[e] > 0 && via[head[e]] === -1) { via[head[e]] = e; queue.push(head[e]); }
+    if (via[T] === -1) break;
+    for (let v = T; v !== S; v = head[via[v] ^ 1]) { room[via[v]]--; room[via[v] ^ 1]++; }
+    paths++;
+    if (paths >= wide) return cap;
+  }
+  return paths;
+}

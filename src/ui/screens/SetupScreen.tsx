@@ -6,13 +6,13 @@ import { FRONTIER_DEFAULT_POINTS, loadMedals, loadSetup, saveGame, saveSetup, sc
 import { seatsMedal, type MedalTier } from '../../medals';
 import { hashString, randomSeed } from '../../core/rng';
 import { buildScenario, SCENARIO_META, SCENARIOS, startMatch, type ScenarioConfig, type ScenarioId } from '../../core/scenarios';
-import { objectiveWinCount } from '../../core/objectives';
+import { objectiveHoldTurns, objectiveWinCount } from '../../core/objectives';
 import { prepareHost } from '../battle';
 import { previewBattleMatch } from '../../net/battleRules';
 import { SIZE_ORDER, type Field, type MatchState, type PlayerType } from '../../core/types';
 import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
-import { CardTags, cardRules, GoalLine, goalText, RuleChip, RulesList, ruleKeys, TagLegend, type RuleKey } from '../components/ScenarioInfo';
+import { CardTags, cardRules, GoalLine, goalText, RuleChip, RulesList, ruleKeys, scenarioSizeName, TagLegend, type RuleKey } from '../components/ScenarioInfo';
 import { SecretMap } from '../components/MiniMap';
 import { DarknessRow, ExperimentalModes, FrontierRows, SignalFiresRow } from '../components/ExperimentalModes';
 import { Medal } from '../components/Medal';
@@ -86,7 +86,7 @@ export function SetupScreen() {
         ? previewBattleMatch({ ...settings, kind: 'battleOnline' }, mapSeed).state
         : startMatch(settings, mapSeed);
     },
-    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.frontierMode, prefs.frontierPoints, prefs.frontierWin, prefs.shuffle, players.join(','), opts?.size, opts?.frontier?.pointCount, opts?.frontier?.winCount],
+    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.frontierMode, prefs.frontierPoints, prefs.frontierWin, prefs.frontierHold, prefs.shuffle, players.join(','), opts?.size, opts?.frontier?.pointCount, opts?.frontier?.winCount, opts?.frontier?.holdTurns],
   );
 
   const reroll = () => setMapSeed(old => {
@@ -110,7 +110,7 @@ export function SetupScreen() {
 
   // the goal and the special rules of the chosen scenario (the preview is the match that will start)
   // (frontier victory chosen in a dark scenario counts like the scenario's own control points)
-  const goal = goalText(meta?.objectives || opts?.frontier ? { k: objectiveWinCount(preview), n: preview.objectives?.length ?? 3 } : null);
+  const goal = goalText(meta?.objectives || opts?.frontier ? { k: objectiveWinCount(preview), n: preview.objectives?.length ?? 3, h: objectiveHoldTurns(preview) } : null);
   const flags = meta ? { varied: meta.varied, blind: meta.blind, darkness: meta.darkness, objectives: meta.objectives || !!opts?.frontier, crowded: meta.crowded } : {};
   // on the card: unions as they will be played (they need a single person)
   // (a changing map is said by the "another map" button, not by a chip)
@@ -243,7 +243,7 @@ export function SetupScreen() {
                     <Seg
                       label={t('scenarioSize')}
                       value={opts.size}
-                      options={conf.sizes.map((sz) => ({ value: sz, label: t(`size${sz}` as 'sizeS') }))}
+                      options={conf.sizes.map((sz) => ({ value: sz, label: scenarioSizeName(scenario, sz) }))}
                       onChange={(size) => configure({ size })}
                     />
                   </div>
@@ -445,7 +445,7 @@ export function SetupScreen() {
                     )}
                     {frontierChoice && (
                       <FrontierRows
-                        options={{ frontierMode: !!opts?.frontier, frontierPoints: chosen?.frontierPoints ?? FRONTIER_DEFAULT_POINTS, frontierWin: chosen?.frontierWin ?? null }}
+                        options={{ frontierMode: !!opts?.frontier, frontierPoints: chosen?.frontierPoints ?? FRONTIER_DEFAULT_POINTS, frontierWin: chosen?.frontierWin ?? null, frontierHold: chosen?.frontierHold ?? 1 }}
                         update={configure}
                       />
                     )}

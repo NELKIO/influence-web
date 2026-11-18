@@ -35,8 +35,9 @@ import type { AttackRefusal, ConcedeChoice, MatchEnd, MatchSettings, MatchState,
  * 7: a guest's fire request is bound to the turn it was sent in.
  * 8: generated frontier targets are included in anonymous battle snapshots.
  * 9: configurable frontier counts and concurrent objective holds.
+ * 10: longer frontier holds (objectiveHeld), two-point frontiers, the new scenario starts.
  */
-export const BATTLE_PROTOCOL_VERSION = 9;
+export const BATTLE_PROTOCOL_VERSION = 10;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =
