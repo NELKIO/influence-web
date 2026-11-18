@@ -193,9 +193,10 @@ describe('battle setup', () => {
     // a copy, not the stored list
     scenarioSeats(s, 'titans').push('god');
     expect(SCENARIO_META.titans.players).toHaveLength(3);
-    expect(scenarioOptions(s, 'landing')).toEqual({ size: 'L', unions: true });
-    expect(scenarioOptions(s, 'titans')).toEqual({ size: 'L', unions: true });
-    expect(scenarioOptions(s, 'raid')).toEqual({ size: SCENARIO_META.raid.size, unions: false });
+    const plain = { frontier: null, signalFires: false };
+    expect(scenarioOptions(s, 'landing')).toEqual({ size: 'L', unions: true, ...plain });
+    expect(scenarioOptions(s, 'titans')).toEqual({ size: 'L', unions: true, ...plain });
+    expect(scenarioOptions(s, 'raid')).toEqual({ size: SCENARIO_META.raid.size, unions: false, ...plain });
     expect(setupPlayers(s)).toEqual(['human', 'hunter', 'hunter']);
     expect(setupPlayers({ ...s, scenario: null })).toEqual(DEFAULT_SETUP.players);
   });

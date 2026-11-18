@@ -66,6 +66,24 @@ export function cellCenter(x: number, y: number): [number, number] {
   return [(x + (y % 2 ? 0.5 : 0)) * SQRT3, y * 1.5];
 }
 
+/**
+ * A gold hexagon inside the cell marks a control point, as on the previews; it rings the power number
+ * and leaves the owner's colour around it. A dark halo keeps it readable on a yellow cell. `alpha` dims
+ * it on a cell in the dark.
+ */
+function objectiveMark(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, alpha: number) {
+  ctx.globalAlpha = alpha;
+  hexPath(ctx, x, y, r * 0.7);
+  ctx.strokeStyle = 'rgba(16,18,22,0.55)';
+  ctx.lineWidth = Math.max(2.5, r * 0.17);
+  ctx.stroke();
+  hexPath(ctx, x, y, r * 0.7);
+  ctx.strokeStyle = '#ffcf78';
+  ctx.lineWidth = Math.max(1.5, r * 0.09);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
 function hexPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
@@ -537,6 +555,8 @@ export class BoardRenderer {
         ctx.strokeStyle = 'rgba(255,255,255,0.04)';
         ctx.lineWidth = 1;
         ctx.stroke();
+        // a control point in the dark: its place is known, its holder is not
+        if (v.state.objectives?.includes(i)) objectiveMark(ctx, x, y, r, 0.55);
         continue;
       }
       const owner = c.owner;
@@ -583,18 +603,7 @@ export class BoardRenderer {
       ctx.strokeStyle = owner < 0 ? '#2c3038' : inactive ? mix(col, '#0b0c0f', 0.6) : shade(col, 0.22);
       ctx.stroke();
 
-      // A gold hexagon inside the cell marks the point, as on the previews; it rings the power number
-      // and leaves the owner's colour around it. A dark halo keeps it readable on a yellow cell.
-      if (v.state.objectives?.includes(i)) {
-        hexPath(ctx, x, y, r * 0.7);
-        ctx.strokeStyle = 'rgba(16,18,22,0.55)';
-        ctx.lineWidth = Math.max(2.5, r * 0.17);
-        ctx.stroke();
-        hexPath(ctx, x, y, r * 0.7);
-        ctx.strokeStyle = '#ffcf78';
-        ctx.lineWidth = Math.max(1.5, r * 0.09);
-        ctx.stroke();
-      }
+      if (v.state.objectives?.includes(i)) objectiveMark(ctx, x, y, r, 1);
 
       // A lit source gets the same flame on every device. Never mark a fogged cell or the radius.
       if (sources.has(i)) {

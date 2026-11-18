@@ -180,12 +180,13 @@ test('night drop can be configured: size, unions and seats persist and reach the
   await expect(page.locator('.player-row')).toHaveCount(4);
   await expect(page.locator('.type-pick').nth(2).locator('button.on')).toHaveText('Охотник');
 
-  // modes: absolute darkness is the scenario's rule (read-only), unions can be switched on
+  // modes: absolute darkness is the scenario's rule (read-only); unions, frontiers and fires are choices
   await page.locator('.steps button').nth(2).click();
   await expect(page.getByTestId('scenario-rules')).toContainText('Абсолютная тьма');
-  await expect(page.getByRole('switch')).toHaveCount(1);
-  await page.getByTestId('scenario-unions').locator('.toggle').click();
-  await expect(page.getByTestId('scenario-unions').locator('.toggle')).toHaveClass(/on/);
+  await expect(page.getByTestId('scenario-choice').getByRole('switch')).toHaveCount(3);
+  const unions = page.getByRole('switch', { name: 'Союзы', exact: true });
+  await unions.click();
+  await expect(unions).toHaveAttribute('aria-checked', 'true');
 
   // the choices survive a reload (which keeps the setup screen open)
   await page.reload();
@@ -416,3 +417,42 @@ test('two-seat moonless valley: the first mover is told it sits out its first at
   await expect(page.getByTestId('scenario-info')).toContainText('пропускает атаку');
   await expectNoErrors(errors);
 });
+
+for (const id of ['moonvale', 'fireflies'] as const) {
+  test(`${id}: frontier victory and signal fires can be switched on, and the match plays with them`, async ({ page }) => {
+    const errors = await fresh(page, { confirmEnd: false });
+    await openSetup(page);
+    await page.locator(`[data-scenario="${id}"]`).click();
+    await page.locator('.steps button').nth(2).click();
+    const choice = page.getByTestId('scenario-choice');
+    // off by default: the scenario as designed
+    await expect(choice.getByRole('switch')).toHaveCount(2);
+    for (const sw of await choice.getByRole('switch').all()) await expect(sw).toHaveAttribute('aria-checked', 'false');
+    await choice.getByRole('switch', { name: 'Победа по рубежам', exact: true }).click();
+    await page.getByRole('slider', { name: 'Контрольные точки' }).fill('5');
+    await expect(page.getByRole('slider', { name: 'Нужно для победы' })).toHaveValue('3');
+    await choice.getByRole('switch', { name: 'Сигнальные огни', exact: true }).click();
+    // the goal and the chip follow the choice
+    await expect(page.getByTestId('scenario-rules')).toContainText(/удержать 3 из 5 контрольных точек/i);
+    await page.reload();
+    await expect(page.getByTestId('scenario-pick')).toContainText('5 точек');
+    await expect(page.getByTestId('scenario-pick')).toContainText(/удержать 3 из 5/i);
+    await page.getByRole('button', { name: /^В бой/ }).first().click();
+    await waitGame(page);
+    const st = await page.evaluate(() => {
+      const c = (window as any).__infweb.ctrl;
+      const s = c.state;
+      const known = c.view().known;
+      return {
+        points: s.objectives?.length ?? 0,
+        known: (s.objectives ?? []).every((i: number) => known && known[i] === 1),
+        settings: { frontierMode: s.settings.frontierMode, win: s.settings.frontierWinCount, fires: s.settings.signalFires, blind: s.settings.blind },
+      };
+    });
+    expect(st).toEqual({ points: 5, known: true, settings: { frontierMode: true, win: 3, fires: true, blind: true } });
+    // your turn: the fire can be lit, the frontier goal is on screen
+    await expect(page.getByRole('button', { name: 'Зажечь сигнальный огонь' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/0\/5 · Для победы удержите 3/)).toBeVisible();
+    await expectNoErrors(errors);
+  });
+}

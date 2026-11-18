@@ -2,7 +2,7 @@ import { Fragment } from 'preact';
 import { useMemo, useState } from 'preact/hooks';
 import { t } from '../../i18n';
 import { navigate, useSettings } from '../store';
-import { loadMedals, loadSetup, saveGame, saveSetup, scenarioOptions, setupPlayers, setupToSettings, type SetupPrefs } from '../../storage';
+import { FRONTIER_DEFAULT_POINTS, loadMedals, loadSetup, saveGame, saveSetup, scenarioOptions, setupPlayers, setupToSettings, type SetupPrefs } from '../../storage';
 import { seatsMedal, type MedalTier } from '../../medals';
 import { hashString, randomSeed } from '../../core/rng';
 import { buildScenario, SCENARIO_META, SCENARIOS, startMatch, type ScenarioConfig, type ScenarioId } from '../../core/scenarios';
@@ -14,7 +14,7 @@ import { Seg, SettingRow, Toggle, TopBar } from '../components/controls';
 import { IconLock, IconPlus, IconRestart, IconUsers, IconX, PlayerToken } from '../components/icons';
 import { CardTags, cardRules, GoalLine, goalText, RuleChip, RulesList, ruleKeys, TagLegend, type RuleKey } from '../components/ScenarioInfo';
 import { SecretMap } from '../components/MiniMap';
-import { DarknessRow, ExperimentalModes } from '../components/ExperimentalModes';
+import { DarknessRow, ExperimentalModes, FrontierRows, SignalFiresRow } from '../components/ExperimentalModes';
 import { Medal } from '../components/Medal';
 import { sfx } from '../../audio/sfx';
 import { useDiscardGuard } from '../components/DiscardGuard';
@@ -86,7 +86,7 @@ export function SetupScreen() {
         ? previewBattleMatch({ ...settings, kind: 'battleOnline' }, mapSeed).state
         : startMatch(settings, mapSeed);
     },
-    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.frontierMode, prefs.frontierPoints, prefs.frontierWin, prefs.shuffle, players.join(','), opts?.size],
+    [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.frontierMode, prefs.frontierPoints, prefs.frontierWin, prefs.shuffle, players.join(','), opts?.size, opts?.frontier?.pointCount, opts?.frontier?.winCount],
   );
 
   const reroll = () => setMapSeed(old => {
@@ -109,14 +109,18 @@ export function SetupScreen() {
   const { guard, modal } = useDiscardGuard();
 
   // the goal and the special rules of the chosen scenario (the preview is the match that will start)
-  const goal = goalText(meta?.objectives ? { k: objectiveWinCount(preview), n: preview.objectives?.length ?? 3 } : null);
-  const flags = meta ? { varied: meta.varied, blind: meta.blind, darkness: meta.darkness, objectives: meta.objectives, crowded: meta.crowded } : {};
+  // (frontier victory chosen in a dark scenario counts like the scenario's own control points)
+  const goal = goalText(meta?.objectives || opts?.frontier ? { k: objectiveWinCount(preview), n: preview.objectives?.length ?? 3 } : null);
+  const flags = meta ? { varied: meta.varied, blind: meta.blind, darkness: meta.darkness, objectives: meta.objectives || !!opts?.frontier, crowded: meta.crowded } : {};
   // on the card: unions as they will be played (they need a single person)
   // (a changing map is said by the "another map" button, not by a chip)
   const pickRules = ruleKeys({ ...flags, unions: !!opts?.unions && persons < 2 }).filter((k) => k !== 'varied');
   // in the modes step: the fixed rules; unions a scenario lets you switch are a choice, not a rule
   const unionsChoice = !!conf?.modes.includes('unions');
-  const stepRules = ruleKeys({ ...flags, unions: !unionsChoice && !!meta?.unions });
+  const frontierChoice = !!conf?.modes.includes('frontier');
+  const firesChoice = !!conf?.modes.includes('signalFires');
+  const stepRules = ruleKeys({ ...flags, objectives: !!meta?.objectives, unions: !unionsChoice && !!meta?.unions });
+  const chosen = scenario ? prefs.scenarioConfig[scenario] : undefined;
 
   const start = () => {
     sfx.click();
@@ -216,7 +220,7 @@ export function SetupScreen() {
                       {!meta.blind && <> · {t('mapCells', { n: preview.field.cells.length })}</>}
                     </span>
                     {pickRules.map((k) => (
-                      <RuleChip key={k} k={k} />
+                      <RuleChip key={k} k={k} points={preview.objectives?.length} />
                     ))}
                   </div>
                   {meta.varied && !meta.blind && (
@@ -430,13 +434,22 @@ export function SetupScreen() {
             <>
               <div class="section-title">{t('scenarioRules')}</div>
               <RulesList keys={stepRules} goal={goal} notes={persons > 1 ? { unions: t('unionsNeedOneHuman') } : {}} />
-              {unionsChoice && (
+              {(unionsChoice || frontierChoice || firesChoice) && (
                 <>
                   <div class="section-title">{t('scenarioYourChoice')}</div>
-                  <div class="list" data-testid="scenario-unions">
-                    <SettingRow title={t('unions')} desc={persons > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
-                      <Toggle on={persons < 2 && !!opts?.unions} disabled={persons > 1} onChange={(v) => configure({ unions: v })} />
-                    </SettingRow>
+                  <div class="list" data-testid="scenario-choice">
+                    {unionsChoice && (
+                      <SettingRow title={t('unions')} desc={persons > 1 ? t('unionsNeedOneHuman') : t('unionsDesc')}>
+                        <Toggle label={t('unions')} on={persons < 2 && !!opts?.unions} disabled={persons > 1} onChange={(v) => configure({ unions: v })} />
+                      </SettingRow>
+                    )}
+                    {frontierChoice && (
+                      <FrontierRows
+                        options={{ frontierMode: !!opts?.frontier, frontierPoints: chosen?.frontierPoints ?? FRONTIER_DEFAULT_POINTS, frontierWin: chosen?.frontierWin ?? null }}
+                        update={configure}
+                      />
+                    )}
+                    {firesChoice && <SignalFiresRow on={!!opts?.signalFires} onChange={(v) => configure({ signalFires: v })} />}
                   </div>
                 </>
               )}

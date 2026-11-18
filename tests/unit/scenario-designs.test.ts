@@ -269,7 +269,7 @@ describe('new scenario designs', () => {
 
   for (const id of ['moonvale', 'fireflies'] as const) it(`${id}: L/XL/XXL and 2–6 seats scale playable scout land`, () => {
     const meta = SCENARIO_META[id];
-    expect(meta.configurable).toEqual({ sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: [] });
+    expect(meta.configurable).toEqual({ sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: ['frontier', 'signalFires'] });
     expect(seatsFit(id, 2)).toBe(true);
     expect(seatsFit(id, 6)).toBe(true);
     for (const size of ['L', 'XL', 'XXL'] as const) {

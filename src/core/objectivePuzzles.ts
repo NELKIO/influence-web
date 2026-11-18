@@ -10,6 +10,12 @@ export const DAILY_OBJECTIVE_PUZZLES: ReadonlySet<string> = new Set(['crossroads
 /** Gallery and battle scenarios built with control points. */
 export const OBJECTIVE_PUZZLES: ReadonlySet<string> = new Set([...DAILY_OBJECTIVE_PUZZLES, 'sparks', 'olympus']);
 
+/**
+ * Scenarios in which the player may switch on generated frontiers (the absolute-darkness ones, which
+ * have no control points of their own); SCENARIO_META's `modes` must agree.
+ */
+export const FRONTIER_SCENARIOS: ReadonlySet<string> = new Set(['landing', 'moonvale', 'fireflies']);
+
 /** Whether a named scenario match of this kind is played for control points. */
 export function objectivePuzzle(puzzle: unknown, kind: unknown): boolean {
   return typeof puzzle === 'string' && (kind === 'daily' ? DAILY_OBJECTIVE_PUZZLES : OBJECTIVE_PUZZLES).has(puzzle);

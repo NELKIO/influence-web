@@ -122,7 +122,7 @@ export const en: typeof ru = {
   blindDesc: 'The map shows only where you have already looked',
   scenarioVaried: 'New map every time',
   /** the short chip for control points, where a row has little room */
-  objectivesChip: '3 points',
+  objectivesChip: '{n} {n|point|points}',
   scenarioVariedDesc: 'Every launch builds a different map with the same rules',
   scenarioPointsDesc: 'Marked in yellow on the map',
   scenarioGoal: 'Goal',

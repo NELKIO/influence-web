@@ -121,7 +121,7 @@ export const ru = {
   blindDesc: 'Карта открывается только там, где вы уже побывали взглядом',
   scenarioVaried: 'Новая карта каждый раз',
   /** the short chip for control points, where a row has little room */
-  objectivesChip: '3 точки',
+  objectivesChip: '{n} {n|точка|точки|точек}',
   scenarioVariedDesc: 'Каждый запуск строит другую карту по тем же правилам',
   scenarioPointsDesc: 'Отмечены на карте жёлтым',
   scenarioGoal: 'Цель',

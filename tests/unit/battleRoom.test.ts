@@ -311,6 +311,26 @@ describe('battle matches', () => {
     // a six-seat XL match played to the end: give slow machines headroom
   }, 60_000);
 
+  it('a dark scenario room with frontier victory and signal fires: guests get the points and play it out', async () => {
+    const players = ['human', 'online', 'hunter', 'online'] as const;
+    const room = await makeRoom({ players: [...players], size: 'L', seed: 12, darkness: true, puzzle: 'moonvale', frontierMode: true, frontierPointCount: 4, frontierWinCount: 2, signalFires: true });
+    room.host.start();
+    await room.hub.flush();
+    const st = room.host.state!;
+    expect(st.settings).toMatchObject({ puzzle: 'moonvale', blind: true, frontierMode: true, signalFires: true });
+    expect(st.objectives).toHaveLength(4);
+    for (const { g } of room.guests) {
+      expect(g.state!.objectives).toEqual(st.objectives);
+      expect(g.state!.settings).toMatchObject({ frontierMode: true, frontierWinCount: 2, signalFires: true });
+      // the points are on every guest's map from the start
+      const known = E.exploredCells(g.state!)!;
+      for (const i of st.objectives!) expect(known[i]).toBe(1);
+    }
+    await playOut(room, 150);
+    expectAllSame(room, 'end');
+    expect(room.resyncs).toEqual([]);
+  }, 60_000);
+
   it('rejects out-of-turn and illegal requests', async () => {
     const room = await makeRoom({ players: ['online', 'online', 'dummy'], seed: 5 });
     room.host.start();

@@ -9,6 +9,7 @@ import { Rng, randomSeed } from './rng';
 import { buildAdjacency, geometricPairs } from './field';
 import { createMatch, defaultOrderComp } from './engine';
 import { articulationPoints, chokePoints } from './connectivity';
+import { chooseFrontierPoints, frontierConfig } from './objectives';
 import { NEUTRAL, type Cell, type Field, type FieldSize, type MatchSettings, type MatchState, type OrderComp, type PlayerType } from './types';
 
 type Ax = [number, number]; // q, r
@@ -464,8 +465,8 @@ export interface ScenarioMeta {
   configurable?: { sizes: FieldSize[]; seats: [number, number]; modes: ScenarioMode[] };
 }
 
-/** A mode a configurable scenario lets the player switch. */
-export type ScenarioMode = 'unions';
+/** A mode a configurable scenario lets the player switch (frontier: generated control points, as in a battle). */
+export type ScenarioMode = 'unions' | 'frontier' | 'signalFires';
 
 function scoutRadius(id: 'moonvale' | 'fireflies', size: FieldSize, seats: number): number {
   const base = id === 'moonvale' ? { L: 6, XL: 8, XXL: 10 } : { L: 6, XL: 7, XXL: 9 };
@@ -476,6 +477,12 @@ function scoutRadius(id: 'moonvale' | 'fireflies', size: FieldSize, seats: numbe
 export interface ScenarioConfig {
   size?: FieldSize;
   unions?: boolean;
+  /** frontier victory: control points placed on the built map, how many and how many to hold */
+  frontierMode?: boolean;
+  frontierPoints?: number;
+  /** null or missing: the majority of the points */
+  frontierWin?: number | null;
+  signalFires?: boolean;
   /**
    * Turn-order compensation of the night drop and the equal-seat scenarios (missing: their default;
    * 'off': none, as past maps of the day were built). Scenarios with their own seats ignore it.
@@ -523,7 +530,7 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
     size: 'XL',
     darkness: true,
     blind: true,
-    configurable: { sizes: ['L', 'XL', 'XXL'], seats: [3, 6], modes: ['unions'] },
+    configurable: { sizes: ['L', 'XL', 'XXL'], seats: [3, 6], modes: ['unions', 'frontier', 'signalFires'] },
   },
   laststand: { players: ['human', 'master', 'hunter', 'god', 'hunter', 'master'], level: 4, size: 'L' },
   titans: { players: ['human', 'master', 'master'], level: 3, size: 'L', unions: true },
@@ -531,9 +538,9 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
   hollow: { players: ['human', 'master', 'god', 'master'], level: 2, size: 'L' },
   raid: { players: ['human', 'master'], level: 4, size: 'L' },
   farshore: { players: ['human', 'master'], level: 3, size: 'L' },
-  moonvale: { varied: true, players: ['human', 'master', 'hunter'], level: 3, size: 'L', darkness: true, blind: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: [] } },
+  moonvale: { varied: true, players: ['human', 'master', 'hunter'], level: 3, size: 'L', darkness: true, blind: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: ['frontier', 'signalFires'] } },
   sparks: { varied: true, objectives: true, players: ['human', 'master', 'hunter'], level: 3, size: 'M' },
-  fireflies: { varied: true, players: ['human', 'hunter', 'hunter'], level: 2, size: 'XL', darkness: true, blind: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: [] } },
+  fireflies: { varied: true, players: ['human', 'hunter', 'hunter'], level: 2, size: 'XL', darkness: true, blind: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: ['frontier', 'signalFires'] } },
   crossroads: { varied: true, objectives: true, players: ['human', 'master'], level: 3, size: 'L' },
   highlands: { varied: true, objectives: true, players: ['human', 'master', 'hunter'], level: 3, size: 'L', configurable: { sizes: ['L'], seats: [2, 6], modes: [] } },
   colonies: { varied: true, players: ['human', 'master'], level: 3, size: 'L' },
@@ -609,13 +616,27 @@ export function seatsFit(id: ScenarioId, n: number): boolean {
   return m.configurable ? n >= m.configurable.seats[0] && n <= m.configurable.seats[1] : n === m.players.length;
 }
 
+/** How a scenario is played: its size and modes, as chosen where it allows a choice, else its own. */
+export interface ScenarioSetup {
+  size: FieldSize;
+  unions: boolean;
+  /** generated frontier points (null: the scenario's own rules) */
+  frontier: { pointCount: number; winCount: number } | null;
+  signalFires: boolean;
+}
+
 /** The size and modes a scenario is played with: the player's choices where it allows them, else its own. */
-export function scenarioSetup(id: ScenarioId, config: ScenarioConfig = {}): { size: FieldSize; unions: boolean } {
+export function scenarioSetup(id: ScenarioId, config: ScenarioConfig = {}): ScenarioSetup {
   const m = SCENARIO_META[id];
   const c = m.configurable;
+  const offers = (mode: ScenarioMode) => !!c?.modes.includes(mode);
   return {
     size: c && config.size && c.sizes.includes(config.size) ? config.size : m.size,
-    unions: c?.modes.includes('unions') && config.unions !== undefined ? config.unions : !!m.unions,
+    unions: offers('unions') && config.unions !== undefined ? config.unions : !!m.unions,
+    frontier: offers('frontier') && config.frontierMode === true
+      ? frontierConfig({ frontierPointCount: config.frontierPoints, frontierWinCount: config.frontierWin ?? undefined })
+      : null,
+    signalFires: offers('signalFires') && config.signalFires === true,
   };
 }
 
@@ -2543,7 +2564,7 @@ function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, play
   const meta = SCENARIO_META[id];
   const seats = players ?? meta.players;
   if (!seatsFit(id, seats.length)) throw new Error(`${id}: ${meta.players.length} seats, got ${seats.length}`);
-  const { size, unions } = scenarioSetup(id, config);
+  const { size, unions, frontier, signalFires } = scenarioSetup(id, config);
   const rng = new Rng(seed);
   const comp = id === 'landing' ? landingOrderComp(seats.length, size, config?.orderComp)
     : historical ? null : scenarioOrderComp(id, seats.length, config?.orderComp);
@@ -2571,10 +2592,15 @@ function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, play
       puzzle: id,
       ...(meta.blind && !(historical && (id === 'moonvale' || id === 'fireflies')) ? { blind: true } : {}),
       ...(comp ? { orderComp: comp } : {}),
+      ...(signalFires && meta.darkness ? { signalFires: true } : {}),
+      ...(frontier ? { frontierMode: true, frontierPointCount: frontier.pointCount, frontierWinCount: frontier.winCount } : {}),
     },
     { field, keepPlacement: true, seed: seed ^ 0x5bd1e995 },
   );
   if (objectives.length) state.objectives = objectives;
+  // frontier victory on the built map: contested cells every start can reach, spread apart (the map
+  // and the dice are the same as without it)
+  if (frontier) state.objectives = chooseFrontierPoints(state.field, frontier.pointCount);
   return state;
 }
 
@@ -2602,7 +2628,14 @@ export function startMatch(settings: MatchSettings, seed = randomSeed(), seatOrd
   // a configurable scenario has the same climb for every seat, so "shuffle players" may decide who moves first
   const shuffle = !!settings.shuffle && !!SCENARIO_META[id].configurable;
   const order = seatOrder ?? (shuffle ? new Rng((seed ^ 0x2545f491) >>> 0).shuffle([...settings.players.keys()]) : undefined);
-  const config = { size: settings.size, unions: settings.unions };
+  const config: ScenarioConfig = {
+    size: settings.size,
+    unions: settings.unions,
+    frontierMode: settings.frontierMode,
+    frontierPoints: settings.frontierPointCount,
+    frontierWin: settings.frontierWinCount,
+    signalFires: settings.signalFires,
+  };
   const st = !order ? buildScenario(id, seed, undefined, settings.players, config)
     // the night drop builds its turn-order compensation into the squads: its seats are dealt before the drop
     : id === 'landing' ? buildScenario(id, seed, undefined, order.map((i) => settings.players[i]), config)

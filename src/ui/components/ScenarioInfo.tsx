@@ -134,10 +134,10 @@ export function goalText(points: { k: number; n: number } | null): string {
 }
 
 /** A rule as a chip (the chosen scenario card). */
-export function RuleChip({ k }: { k: RuleKey }) {
+export function RuleChip({ k, points = 3 }: { k: RuleKey; points?: number }) {
   return (
     <span class={`chip tag-${k} ${k === 'darkness' || k === 'blind' ? 'dark' : ''}`} data-tag={k} title={ruleLabel(k)}>
-      <RuleIcon k={k} size={13} /> {k === 'objectives' ? t('objectivesChip') : ruleLabel(k)}
+      <RuleIcon k={k} size={13} /> {k === 'objectives' ? t('objectivesChip', { n: points }) : ruleLabel(k)}
     </span>
   );
 }

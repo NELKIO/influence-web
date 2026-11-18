@@ -21,7 +21,7 @@ export function ExperimentalModes({ options, update }: FrontierProps) {
     <>
       <div class="section-title">{t('experimentalModes')}</div>
       <div class="list">
-        {typeof options.frontierMode === 'boolean' && <FrontierRows options={options as DarknessOptions & Frontier} update={update} />}
+        {typeof options.frontierMode === 'boolean' && <FrontierRows options={options as Frontier} update={update} />}
         {(['signalFires', 'blind'] as const).map((mode) => {
           const title = t(mode === 'blind' ? 'absoluteDarkness' : 'signalFires');
           return (
@@ -35,8 +35,17 @@ export function ExperimentalModes({ options, update }: FrontierProps) {
   );
 }
 
+/** Signal fires (a dark scenario offers them on their own; a battle lists them with its darkness). */
+export function SignalFiresRow({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <SettingRow title={t('signalFires')} desc={t('signalFiresDesc')}>
+      <Toggle label={t('signalFires')} on={on} onChange={onChange} />
+    </SettingRow>
+  );
+}
+
 /** The frontier switch and, when it is on, how many points the map has and how many win. */
-function FrontierRows({ options, update }: { options: DarknessOptions & Frontier; update: FrontierProps['update'] }) {
+export function FrontierRows({ options, update }: { options: Frontier; update: (patch: Partial<Frontier>) => void }) {
   const points = options.frontierPoints;
   const win = frontierWinOf(options);
   const auto = options.frontierWin === null;

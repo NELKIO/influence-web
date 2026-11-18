@@ -1,7 +1,7 @@
 import { Rng, randomSeed } from './rng';
 import { generateField } from './field';
 import { splitTerritories } from './splitTerritories';
-import { chooseFrontierPoints, frontierConfig, interruptObjectiveHold, objectiveHandoff, objectiveHolders } from './objectives';
+import { chooseFrontierPoints, frontierConfig, frontierGenerated, interruptObjectiveHold, objectiveHandoff, objectiveHolders } from './objectives';
 import {
   DIFFICULTY,
   NEUTRAL,
@@ -106,7 +106,8 @@ function placeStarts(field: Field, s: MatchSettings, rng: Rng) {
     if (p !== undefined) c.power = Math.max(1, Math.min(c.maxPower, p));
   });
   if (comp && !(s.crowded && !s.duelRules)) applyStartComp(field, chosen, comp);
-  const objectives = s.frontierMode && !s.puzzle && !s.duelRules && (s.kind === 'single' || s.kind === 'battleOnline')
+  // (a scenario places its own: its starts are kept)
+  const objectives = frontierGenerated(s) && !s.puzzle
     ? chooseFrontierPoints(field, frontierConfig(s).pointCount) : undefined;
   if (s.crowded && !s.duelRules) {
     const order = rng.shuffle(field.cells.map((_, i) => i));
@@ -814,13 +815,15 @@ export function explore(state: MatchState): void {
 }
 
 /**
- * Cells shown to `viewer` under exploration fog: everything they have seen (null: no fog, show the
- * whole map; also once the match is over or nobody is left to explore).
+ * Cells shown to `viewer` under exploration fog: everything they have seen, and the control points,
+ * whose places everyone knows from the start (the bots know them too) while who holds them stays in
+ * the dark (null: no fog, show the whole map; also once the match is over or nobody is left to explore).
  */
 export function exploredCells(state: MatchState, viewer = state.viewer): Uint8Array | null {
   const row = state.explored?.[viewer];
   if (!state.settings.blind || !state.settings.darkness || state.ended || !row || humansAlive(state).length === 0) return null;
   const out = new Uint8Array(state.field.cells.length);
   for (let i = 0; i < out.length; i++) out[i] = row.charCodeAt(i) === 49 ? 1 : 0;
+  for (const i of state.objectives ?? []) out[i] = 1;
   return out;
 }

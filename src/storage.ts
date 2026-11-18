@@ -3,10 +3,10 @@ import { validSignalFireCells } from './core/signalFires';
 import { FRONTIER_MAX_POINTS, FRONTIER_MIN_POINTS, validObjectiveFields } from './core/objectives';
 import type { Lang } from './i18n';
 import { SIZE_ORDER, type FieldSize, type MatchKind, type MatchSettings, type MatchState, type PlayerType } from './core/types';
-import { isScenarioId, scenarioSetup, SCENARIO_META, seatsFit, type ScenarioConfig, type ScenarioId } from './core/scenarios';
+import { isScenarioId, scenarioSetup, SCENARIO_META, seatsFit, type ScenarioConfig, type ScenarioId, type ScenarioSetup } from './core/scenarios';
 import { betterMedal, isTier, type MedalTier } from './medals';
 
-const FRONTIER_DEFAULT_POINTS = 3;
+export const FRONTIER_DEFAULT_POINTS = 3;
 
 const PREFIX = 'infweb.';
 
@@ -211,6 +211,12 @@ export function loadSetup(): SetupPrefs {
     const keep: ScenarioConfig = {};
     if (c.size && offer.sizes.includes(c.size)) keep.size = c.size;
     if (typeof c.unions === 'boolean' && offer.modes.includes('unions')) keep.unions = c.unions;
+    if (offer.modes.includes('frontier')) {
+      if (typeof c.frontierMode === 'boolean') keep.frontierMode = c.frontierMode;
+      if (Number.isInteger(c.frontierPoints) && c.frontierPoints! >= FRONTIER_MIN_POINTS && c.frontierPoints! <= FRONTIER_MAX_POINTS) keep.frontierPoints = c.frontierPoints;
+      if (Number.isInteger(c.frontierWin)) keep.frontierWin = frontierWinChoice(keep.frontierPoints ?? FRONTIER_DEFAULT_POINTS, c.frontierWin!);
+    }
+    if (typeof c.signalFires === 'boolean' && offer.modes.includes('signalFires')) keep.signalFires = c.signalFires;
     config[id as ScenarioId] = keep;
   }
   s.scenarioConfig = config;
@@ -237,7 +243,7 @@ export function scenarioSeats(s: SetupPrefs, id: ScenarioId): PlayerType[] {
 }
 
 /** Size and modes of a scenario as the player set them up (its own where it allows no choice). */
-export function scenarioOptions(s: SetupPrefs, id: ScenarioId): { size: FieldSize; unions: boolean } {
+export function scenarioOptions(s: SetupPrefs, id: ScenarioId): ScenarioSetup {
   return scenarioSetup(id, s.scenarioConfig[id]);
 }
 
@@ -253,7 +259,7 @@ export function saveSetup(s: SetupPrefs) {
 export function setupToSettings(s: SetupPrefs): MatchSettings {
   if (s.scenario) {
     const m = SCENARIO_META[s.scenario];
-    const { size, unions } = scenarioOptions(s, s.scenario);
+    const { size, unions, frontier, signalFires } = scenarioOptions(s, s.scenario);
     return {
       kind: 'single',
       size,
@@ -267,6 +273,8 @@ export function setupToSettings(s: SetupPrefs): MatchSettings {
       duelRules: false,
       puzzle: s.scenario,
       ...(m.blind ? { blind: true } : {}),
+      ...(signalFires && m.darkness ? { signalFires: true } : {}),
+      ...(frontier ? { frontierMode: true, frontierPointCount: frontier.pointCount, frontierWinCount: frontier.winCount } : {}),
     };
   }
   return {

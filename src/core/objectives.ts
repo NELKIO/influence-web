@@ -1,5 +1,5 @@
 import { articulationPoints } from './connectivity';
-import { objectivePuzzle, objectivesOptional } from './objectivePuzzles';
+import { FRONTIER_SCENARIOS, objectivePuzzle, objectivesOptional } from './objectivePuzzles';
 import { NEUTRAL, type Field, type MatchState } from './types';
 
 export const FRONTIER_MIN_POINTS = 3;
@@ -14,9 +14,18 @@ export function frontierConfig(settings: Partial<{ frontierPointCount: unknown; 
   return { pointCount, winCount };
 }
 
+/**
+ * Whether these settings play for generated frontier points: an ordinary battle (alone or online) with
+ * the frontier mode, or one of the scenarios that let you switch it on (never a map of the day).
+ */
+export function frontierGenerated(s: Partial<Record<'frontierMode' | 'puzzle' | 'duelRules' | 'kind', unknown>>): boolean {
+  return s.frontierMode === true && !s.duelRules && (s.kind === 'single' || s.kind === 'battleOnline') &&
+    (!s.puzzle || (typeof s.puzzle === 'string' && FRONTIER_SCENARIOS.has(s.puzzle)));
+}
+
 /** Named puzzles always retain their published three targets and two-point victory. */
 export function objectiveWinCount(s: MatchState): number {
-  return s.settings.puzzle ? 2 : frontierConfig(s.settings).winCount;
+  return s.settings.puzzle && !s.settings.frontierMode ? 2 : frontierConfig(s.settings).winCount;
 }
 
 /** Pending holders in arming order (including holders from legacy single-holder saves). */
@@ -97,7 +106,7 @@ export function objectiveHandoff(s: MatchState, previous: number): void {
 /** The hold cannot be reconstructed from current owners; save and snapshot validators need both. */
 export function validObjectiveFields(s: Record<string, unknown>, cells: unknown[], seats: number, settings: Record<string, unknown>): boolean {
   const ids = s.objectives, holder = s.objectiveHolder, extra = s.objectiveHoldersExtra;
-  const generated = settings.frontierMode === true && !settings.puzzle && !settings.duelRules && (settings.kind === 'single' || settings.kind === 'battleOnline');
+  const generated = frontierGenerated(settings);
   const named = objectivePuzzle(settings.puzzle, settings.kind);
   const enabled = named || generated;
   if (settings.frontierMode !== undefined && typeof settings.frontierMode !== 'boolean') return false;

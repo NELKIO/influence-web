@@ -196,15 +196,15 @@ test('modes of a scenario: a read-only rules summary, real choices stay switches
   await page.locator(`[data-scenario="${plain}"]`).click();
   await page.locator('.steps button').nth(2).click();
   await expect(rules.locator('[data-rule="plain"]')).toContainText('Без особых правил');
-  // a scenario that lets you switch unions keeps that one switch
+  // a scenario that lets you switch unions offers it among its choices, not as a rule
   const choice = SCENARIOS.find((id) => SCENARIO_META[id].configurable?.modes.includes('unions'))!;
   await page.locator('.steps button').nth(0).click();
   await page.locator(`[data-scenario="${choice}"]`).click();
   await page.locator('.steps button').nth(2).click();
   for (const tag of expectedTags(choice)) await expect(rules.locator(`[data-rule="${tag}"]`)).toHaveCount(1);
   await expect(rules.locator('[data-rule="unions"]')).toHaveCount(0);
-  await expect(page.getByRole('switch')).toHaveCount(1);
-  await expect(page.getByTestId('scenario-unions').getByRole('switch')).toBeEnabled();
+  await expect(page.getByRole('switch')).toHaveCount(SCENARIO_META[choice].configurable!.modes.length);
+  await expect(page.getByTestId('scenario-choice').getByRole('switch', { name: 'Союзы', exact: true })).toBeEnabled();
   await expectNoErrors(errors);
 });
 
