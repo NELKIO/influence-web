@@ -79,6 +79,33 @@ describe('signal fires', () => {
     expect(r.resyncs).toEqual([]);
     resumed.dispose(); r.host.dispose();
   });
+  it('rejects a fire that was lost and retried after the seat’s turn ended', async () => {
+    const r = await makeRoom({ players: ['human', 'online'], darkness: true, signalFires: true });
+    const { g, cid } = r.guests[0];
+    try {
+      expect(r.host.start()).toBe(true);
+      expect(r.host.act(0, { t: 'endTurn' }).ok).toBe(true);
+      await r.hub.flush();
+      const cell = E.cellsOf(g.state!, g.seat)[0];
+      r.hub.dropNext(cid, 'host');
+      const pending = g.request({ t: 'signalFire', cell });
+      await r.hub.flush();
+      expect(r.host.state!.signalFireCells?.[g.seat] ?? -1).toBe(-1);
+      r.hub.disconnect(cid);
+      expect(r.host.act(g.seat, { t: 'endTurn' }).ok).toBe(true);
+      expect(r.host.act(0, { t: 'endTurn' }).ok).toBe(true);
+      expect(r.host.state!.turn).toBe(1);
+      r.hub.connect(cid);
+      await r.hub.flush();
+      expect(await pending).toMatchObject({ ok: false, reason: 'notYourTurn' });
+      expect(r.host.state!.signalFireCells?.[g.seat] ?? -1).toBe(-1);
+      expect((await send(r, g, { t: 'signalFire', cell }))?.ok).toBe(true);
+      expect(battleHash(g.state!)).toBe(battleHash(r.host.state!));
+    } finally {
+      g.dispose(); r.host.dispose();
+    }
+  });
+
   it('streams the separate duel action and expires it identically on both devices', async () => {
     const { host, guest, link, resyncs } = await makeDuo({ darkness: true, signalFires: true });
     const cell = E.cellsOf(host.state!, 0)[0];

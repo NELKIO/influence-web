@@ -16,6 +16,12 @@ test('experimental darkness is opt-in, persists and hides the ordinary map previ
   await dark.click();
   await map.click();
   await expect(page.locator('.map-preview [data-unknown-map]')).toHaveCount(0);
+  const original = await page.locator('.map-preview svg').first().innerHTML();
+  await modes.click();
+  await blind.click();
+  await blind.click();
+  await map.click();
+  await expect.poll(() => page.locator('.map-preview svg').first().innerHTML()).not.toBe(original);
   await modes.click();
   await fire.click();
   await blind.click();
@@ -94,5 +100,26 @@ test('a real signal fire can be cancelled, lit once, survives reload and expires
   expect(await signal()).toBe(-1);
   expect(await live()).toBe(before);
   await expect(fire).toBeEnabled();
+  await expectNoErrors(errors);
+});
+
+test('giving the first seat to GOD keeps the last person’s view covered until handover', async ({ page }) => {
+  const errors = await fresh(page, { speed: 'slow' });
+  await page.evaluate(() => localStorage.setItem('infweb.setup', JSON.stringify({ size: 'M', players: ['human', 'human', 'dummy'], darkness: true, blind: true, shuffle: false, rev: 2 })));
+  await page.reload();
+  await page.getByRole('button', { name: /Быстрый старт/ }).click();
+  await waitGame(page);
+  const handover = page.getByTestId('handover');
+  await handover.click();
+  await page.getByRole('button', { name: 'Пауза' }).click();
+  const surrender = page.getByRole('button', { name: 'Сдаться', exact: true });
+  await surrender.click();
+  await page.getByRole('radio', { name: 'Передать новому БОГУ' }).check();
+  await surrender.click();
+  await expect(handover).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__infweb.ctrl.overlay.next)).toBe(1);
+  expect(await page.evaluate(() => (window as any).__infweb.ctrl.view().known.some(Boolean))).toBe(false);
+  await handover.click();
+  expect(await page.evaluate(() => (window as any).__infweb.ctrl.view().known.some(Boolean))).toBe(true);
   await expectNoErrors(errors);
 });

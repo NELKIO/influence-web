@@ -69,8 +69,15 @@ export function SetupScreen() {
     [mapSeed, scenario, prefs.size, prefs.symmetry, prefs.crowded, prefs.shuffle, players.join(','), opts?.size],
   );
 
+  const reroll = () => setMapSeed(old => {
+    const seed = randomSeed();
+    return seed === old ? (old + 1) >>> 0 : seed;
+  });
+
   const update = (p: Partial<SetupPrefs>) => {
     const next = { ...prefs, ...p };
+    // Do not start an exploration game on a map the player has already seen in the preview.
+    if (!prefs.blind && next.blind && !next.scenario) reroll();
     setPrefs(next);
     saveSetup(next);
   };
@@ -169,10 +176,7 @@ export function SetupScreen() {
                 {preview.objectives && (
                   <button class="btn small" onClick={() => {
                     sfx.click();
-                    setMapSeed(old => {
-                      const seed = randomSeed();
-                      return seed === old ? (old + 1) >>> 0 : seed;
-                    });
+                    reroll();
                   }}>
                     <IconRestart width={16} height={16} /> {t('reroll')}
                   </button>
@@ -246,7 +250,7 @@ export function SetupScreen() {
                       aria-label={t('reroll')}
                       onClick={() => {
                         sfx.click();
-                        setMapSeed(randomSeed());
+                        reroll();
                       }}
                     >
                       <IconRestart width={16} height={16} /> {t('reroll')}

@@ -136,6 +136,7 @@ export class GameController {
    */
   private pendingHandover = -1;
   pickingFire = false;
+  private firePickTurn = '';
   firePending = false;
   private driver: MatchDriver;
   private opts: ControllerOptions;
@@ -229,7 +230,8 @@ export class GameController {
 
   /** External state replacement (online sync). */
   replaceState(state: MatchState) {
-    this.pickingFire = false;
+    // Network roster/connection refreshes must not reinterpret the next tap as an attack or reinforcement.
+    if (this.firePickTurn !== this.fireTurnKey(state) || !isHuman(state, state.current) || !canLightSignalFire(state)) this.pickingFire = false;
     this.state = state;
     this.epoch++;
     this.ensureBots();
@@ -356,9 +358,14 @@ export class GameController {
     return this.isLocalTurn && !this.running && !this.firePending && this.overlay.kind === 'none' && canLightSignalFire(this.state);
   }
 
+  private fireTurnKey(s: MatchState): string {
+    return `${s.seed}:${s.startedAt}:${s.turn}:${s.current}`;
+  }
+
   toggleFirePicker() {
     if (!this.canChooseFire) return;
     this.pickingFire = !this.pickingFire;
+    this.firePickTurn = this.fireTurnKey(this.state);
     this.state.selected = -1;
     this.emit();
   }
@@ -629,7 +636,7 @@ export class GameController {
       if (next < 0) return;
       s.viewer = next;
     }
-    if (next === prevViewer || !s.settings.darkness || this.humansCount < 2 || this.opts.background) return;
+    if (next === prevViewer || !s.settings.darkness || this.opts.background) return;
     // whoever holds the device must not see the next person's board before handing it over
     if (this.overlay.kind === 'handover' && this.overlay.next === next) return;
     this.pendingHandover = next;

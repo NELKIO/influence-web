@@ -48,6 +48,7 @@ import {
   type BattleRejectReason,
   type BattleRequest,
   type BHelloMsg,
+  type BReqMsg,
   type BResMsg,
   type RequestRefusal,
   type RoomStatus,
@@ -819,7 +820,7 @@ export class BattleHost {
     if (!this.helloed.has(cid)) return;
     switch (m.t) {
       case 'bReq':
-        return this.onRequest(cid, m.id, m.r);
+        return this.onRequest(cid, m);
       case 'bSyncReq':
         if (!this.state) return;
         if (!m.full && m.matchId === this.matchId && m.seq >= this.logBase && m.seq <= this.seq) this.resend(cid, m.seq);
@@ -904,7 +905,7 @@ export class BattleHost {
     });
   }
 
-  private onRequest(cid: string, id: string, r: BattleRequest) {
+  private onRequest(cid: string, { id, r, at }: BReqMsg) {
     let cache = this.reqCache.get(cid);
     const cached = cache?.get(id);
     if (cached) {
@@ -912,7 +913,10 @@ export class BattleHost {
       return;
     }
     const seat = this.seatOf(cid);
-    const res = seat < 0 || this.players[seat] !== 'online' ? ({ ok: false, reason: 'notYourSeat' } as const) : this.act(seat, r);
+    let res: ActResult;
+    if (seat < 0 || this.players[seat] !== 'online') res = { ok: false, reason: 'notYourSeat' };
+    else if (r.t === 'signalFire' && (!at || at.matchId !== this.matchId || at.turn !== this.state?.turn)) res = { ok: false, reason: 'notYourTurn' };
+    else res = this.act(seat, r);
     const msg: BResMsg = res.ok ? { t: 'bRes', id, ok: true, seq: this.seq } : { t: 'bRes', id, ok: false, reason: res.reason, seq: this.seq };
     if (!cache) this.reqCache.set(cid, (cache = new Map()));
     cache.set(id, msg);
@@ -1121,6 +1125,7 @@ interface SavedGuest {
 interface PendingReq {
   id: string;
   req: BattleRequest;
+  at?: BReqMsg['at'];
   ticks: number;
   resolve: (r: RequestResult) => void;
   /** more callers waiting for the same (concede) request */
@@ -1361,7 +1366,7 @@ export class BattleGuest {
       for (const p of this.pending.values()) if (p.req.t === 'concede') return new Promise((r) => (p.also ??= []).push(r));
       return new Promise<RequestResult>((resolve) => {
         const p = this.queue(req, resolve);
-        if (this.connected && this.welcomed) this.transport.send({ t: 'bReq', id: p.id, r: req });
+        if (this.connected && this.welcomed) this.sendRequest(p);
         this.persist();
         this.em.emit('state', st);
       });
@@ -1382,15 +1387,20 @@ export class BattleGuest {
         p.timer = setTimeout(() => {
           if (this.pending.delete(p.id)) resolve({ ok: false, reason: 'timeout' });
         }, this.timeoutMs);
-      this.transport.send({ t: 'bReq', id: p.id, r: req });
+      this.sendRequest(p);
     });
   }
 
   private queue(req: BattleRequest, resolve: (r: RequestResult) => void): PendingReq {
     const id = `${this.reqTag}-${++this.reqN}`;
-    const p: PendingReq = { id, req, ticks: 0, resolve, timer: null };
+    const at = req.t === 'signalFire' && this.matchId && this.state ? { matchId: this.matchId, turn: this.state.turn } : undefined;
+    const p: PendingReq = { id, req, at, ticks: 0, resolve, timer: null };
     this.pending.set(id, p);
     return p;
+  }
+
+  private sendRequest(p: PendingReq) {
+    this.transport.send({ t: 'bReq', id: p.id, r: p.req, ...(p.at && { at: p.at }) });
   }
 
   /** Ask the host for the full state. */
@@ -1527,7 +1537,7 @@ export class BattleGuest {
           this.setStatus(this.state.ended ? 'ended' : 'playing');
         }
         // re-send unanswered requests (the host answers duplicates from its cache)
-        for (const p of this.pending.values()) this.transport.send({ t: 'bReq', id: p.id, r: p.req });
+        for (const p of this.pending.values()) this.sendRequest(p);
         // a fresh welcome: the host is here (it says so again if its page is hidden)
         if (this.hostHidden) {
           this.hostHidden = false;
@@ -1639,7 +1649,7 @@ export class BattleGuest {
 
   private onTick(matchId: string | null, seq: number, h: string) {
     for (const p of this.pending.values()) {
-      if (++p.ticks >= 2) this.transport.send({ t: 'bReq', id: p.id, r: p.req });
+      if (++p.ticks >= 2) this.sendRequest(p);
     }
     if (!matchId) return;
     if (!this.state || matchId !== this.matchId) return this.askSync(true, 'missed the match start', true);

@@ -99,6 +99,21 @@ function chain(s: MatchState): [number, number, number] {
   throw new Error('no chain');
 }
 
+it('a same-turn refresh while choosing a fire cannot turn the next tap into reinforcement', () => {
+  const s = createMatch(settings(['human', 'remote'], { darkness: true, signalFires: true }), { seed: 42 });
+  s.phase = 'power';
+  s.powerLeft = 1;
+  const { c } = make(s);
+  const mine = cellsOf(s, 0)[0];
+  c.start();
+  c.toggleFirePicker();
+  c.replaceState(s);
+  c.tap(mine);
+  expect(s.signalFireCells?.[0]).toBe(mine);
+  expect(s.powerLeft).toBe(1);
+  c.dispose();
+});
+
 // ---------------------------------------------------------------- tests
 
 describe('conceding while a bot is thinking', () => {

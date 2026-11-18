@@ -32,8 +32,9 @@ import type { AttackRefusal, ConcedeChoice, MatchEnd, MatchSettings, MatchState,
  * 4: a concession can transfer the seat's cells to a chosen opponent.
  * 5: GOD takeover and random division of territory.
  * 6: strength-balanced division, signal fires and objective victories.
+ * 7: a guest's fire request is bound to the turn it was sent in.
  */
-export const BATTLE_PROTOCOL_VERSION = 6;
+export const BATTLE_PROTOCOL_VERSION = 7;
 
 /** An action as applied by the host; attacks carry the resolved outcome. */
 export type BattleAction =
@@ -130,6 +131,8 @@ export interface BReqMsg {
   t: 'bReq';
   id: string;
   r: BattleRequest;
+  /** Immutable across retries of a signal-fire request. */
+  at?: { matchId: string; turn: number };
 }
 export interface BResMsg {
   t: 'bRes';
@@ -316,7 +319,8 @@ export function parseBattleMessage(x: unknown): BattleMessage | null {
       case 'bStart':
         return isStr(x.matchId) && isInt(x.seat) && isInt(x.seq) && isState(x.state) && isRoster(x.roster);
       case 'bReq':
-        return isStr(x.id) && isBattleRequest(x.r);
+        return isStr(x.id) && isBattleRequest(x.r) &&
+          (x.at === undefined || (isObj(x.at) && isStr(x.at.matchId) && isInt(x.at.turn) && x.at.turn >= 0));
       case 'bRes':
         return isStr(x.id) && typeof x.ok === 'boolean';
       case 'bAct':
