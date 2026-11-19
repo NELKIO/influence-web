@@ -1,5 +1,5 @@
 import { Rng, randomSeed } from './rng';
-import { generateField } from './field';
+import { generateField, WIDE_ROTATIONAL_DAILY_FROM } from './field';
 import { splitTerritories } from './splitTerritories';
 import { chooseFrontierPoints, frontierConfig, frontierGenerated, interruptObjectiveHold, objectiveHandoff, objectiveHolders } from './objectives';
 import {
@@ -39,7 +39,11 @@ export function createMatch(settings: MatchSettings, opts: CreateOptions = {}): 
   else if (s.orderComp !== 'off') delete s.orderComp;
   const field = opts.field
     ? structuredClone(opts.field)
-    : generateField({ size: s.size, symmetry: s.symmetry, players: s.players.length }, rng);
+    : generateField({
+      size: s.size, symmetry: s.symmetry, players: s.players.length,
+      // published maps of the day stay as they were
+      legacy: s.kind === 'daily' && !!s.dailyId && s.dailyId < WIDE_ROTATIONAL_DAILY_FROM,
+    }, rng);
   const objectives = !opts.keepPlacement ? placeStarts(field, s, rng) : undefined;
 
   const n = s.players.length;

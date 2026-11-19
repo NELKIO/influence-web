@@ -8,7 +8,7 @@
 import { Rng, randomSeed } from './rng';
 import { buildAdjacency, geometricPairs } from './field';
 import { createMatch, defaultOrderComp, isPersonType } from './engine';
-import { articulationPoints, chokePoints, disjointPaths } from './connectivity';
+import { around as zoneAround, articulationPoints, chokePoints, disjointPaths } from './connectivity';
 import { chooseFrontierPoints, frontierConfig, frontierSettings } from './objectives';
 import { NEUTRAL, type Cell, type Field, type FieldSize, type MatchSettings, type MatchState, type OrderComp, type PlayerType } from './types';
 
@@ -922,12 +922,19 @@ function symmetricRidges(b: Board, rng: Rng, syms: Sym[], keep: (s: Slot) => boo
  * resort, no terrain and the simplest summits, which always pass.
  */
 function highlandsAttempt(rng: Rng, k: number, seats: number, radius: number, syms: Sym[], plain: boolean, grow = 0): Board | null {
-  const b = new Board();
-  b.disk(radius);
+  // the land: a hexagon or a new silhouette every time (a swirl needs turns only: three seats)
+  const shapes: ShapeStyle[] = ['circle', 'star', 'cloud', 'rivers', ...(seats === 3 ? ['swirl' as const] : [])];
+  const style = plain || rng.float() < 0.15 ? 'hexagon' : rng.pick(shapes);
+  const b = style === 'hexagon' ? new Board() : shapedLand(rng, syms, radius, style);
+  if (style === 'hexagon') b.disk(radius);
+  // the camps: one step in from the coast on every seat's axis (the symmetries make it the same for all)
+  let end = 0;
+  while (b.get(end + 1, 0)) end++;
+  if (end < radius - 3) return null;
   // capacities are rolled once per symmetric set of cells: every camp has the same land around it
   symmetricMaxes(b, rng, syms);
   const sides = seatSides(seats, 0);
-  const camps = sides.map((side) => [rot([radius - 2, 0], side), rot([radius - 1, 0], side)]);
+  const camps = sides.map((side) => [rot([end - 2, 0], side), rot([end - 1, 0], side)]);
   // the summits: a set of three that the seats' symmetries keep
   // the summits spread out with the land
   const t = 2 + rng.int(2) + grow;
@@ -1006,6 +1013,12 @@ function highlandsAttempt(rng: Rng, k: number, seats: number, radius: number, sy
   // with three or more camps each summit lies between at least two of them (five: one gap is empty)
   if (seats >= 3 && seats !== 5 && summits.some((_, i) => { const reach = climb.map((c) => c[i]).sort((x, y) => x - y); return reach[1] - reach[0] > 2; })) return null;
   if (seats !== 5 && new Set(sorted.map(String)).size !== 1) return null;
+  if (!plain) {
+    // the size keeps to its band, and no neck between the camps that a couple of cells could shut
+    if (!keepsSize(b.cells.size, (seats === 2 ? 5 : seats === 3 ? 6 : 7) + 0.5 + 2 * grow, grow)) return null;
+    const need = 3 + Math.min(grow, 1);
+    if (laceShare(b) >= 0.1 || campWidth(b, seats, need) < need) return null;
+  }
   return b;
 }
 
@@ -1135,8 +1148,153 @@ function symmetricAdd(b: Board, syms: Sym[], a: Ax) {
   for (const at of orbit(a, syms)) if (!b.get(...at)) b.add(...at);
 }
 
-/** Silhouettes of random land; `capsule` stretches along the q axis (two seats only). */
-type LandStyle = 'round' | 'lobed' | 'ring' | 'capsule' | 'jagged' | 'islands';
+/** Silhouettes of random land; `capsule` and `hourglass` stretch along the q axis (two seats only). */
+type LandStyle = 'round' | 'lobed' | 'ring' | 'capsule' | 'jagged' | 'islands' | ShapeStyle;
+
+/**
+ * Silhouettes drawn from a formula and scaled to the size: a true circle (not a hexagon), a star of
+ * broad headlands, a swirl of curved arms around a core, a cloud of overlapping hills with bays
+ * between them, an hourglass (two broad lands joined by a wide waist) and a round land cut by
+ * winding rivers with fords.
+ */
+type ShapeStyle = 'circle' | 'star' | 'swirl' | 'cloud' | 'hourglass' | 'rivers';
+const SHAPE_STYLES: readonly ShapeStyle[] = ['circle', 'star', 'swirl', 'cloud', 'hourglass', 'rivers'];
+
+/** Share of the land in one-cell corridors and spurs: cells with at most two land neighbours (walls aside). */
+function laceShare(b: Board): number {
+  let thin = 0;
+  for (const c of b.cells.values()) if (DIRS.filter(([dq, dr]) => b.get(c.q + dq, c.r + dr)).length <= 2) thin++;
+  return thin / Math.max(1, b.cells.size);
+}
+
+/** Smallest angle between two directions. */
+function angleGap(a: number, b: number) {
+  let d = (a - b) % (2 * Math.PI);
+  if (d < 0) d += 2 * Math.PI;
+  return Math.min(d, 2 * Math.PI - d);
+}
+
+/** `inside(x, y, s)`: whether the point lies in the shape drawn at scale s (s = 1: about `radius`). */
+type Outline = (x: number, y: number, s: number) => boolean;
+
+/** Cells within `reach` inside the outline at scale s, each with its symmetric copies. */
+function outlineCells(syms: Sym[], reach: number, inside: Outline, s: number): Map<string, Ax> {
+  const out = new Map<string, Ax>();
+  for (const c of diskCells([0, 0], reach)) if (inside(...pos(c), s)) for (const a of orbit(c, syms)) out.set(key(...a), a);
+  return out;
+}
+
+/** How much the symmetries add to the outline (0: it is symmetric already). */
+function asymmetry(syms: Sym[], reach: number, inside: Outline): number {
+  let own = 0;
+  for (const c of diskCells([0, 0], reach)) if (inside(...pos(c), 1)) own++;
+  return own ? outlineCells(syms, reach, inside, 1).size / own - 1 : Infinity;
+}
+
+/**
+ * Of the outlines `make(option)` for these options, a random one that the symmetries keep (a star
+ * whose points they map onto points); null when none does.
+ */
+function symmetricOutline<T>(rng: Rng, syms: Sym[], reach: number, options: T[], make: (o: T) => Outline): Outline | null {
+  for (const o of rng.shuffle([...options])) {
+    const f = make(o);
+    if (asymmetry(syms, reach, f) <= 0.02) return f;
+  }
+  return null;
+}
+
+/** The scale at which the outline (with its copies) holds `target` cells, and the land it gives. */
+function fitOutline(syms: Sym[], reach: number, inside: Outline, target: number): Board {
+  let lo = 0.3;
+  let hi = 1.8;
+  for (let i = 0; i < 14; i++) {
+    const mid = (lo + hi) / 2;
+    if (outlineCells(syms, reach, inside, mid).size < target) lo = mid;
+    else hi = mid;
+  }
+  const b = new Board();
+  for (const a of outlineCells(syms, reach, inside, hi).values()) b.add(...a);
+  return b;
+}
+
+/** Land of a formula silhouette with about as many cells as a disk of this radius (empty: no fit). */
+function shapedLand(rng: Rng, syms: Sym[], radius: number, style: ShapeStyle): Board {
+  const R = radius;
+  const reach = Math.ceil(R * 1.9) + 2;
+  const phases = Array.from({ length: 24 }, (_, i) => (i * Math.PI) / 12);
+  let inside: Outline | null = null;
+  if (style === 'circle' || style === 'rivers') inside = (x, y, s) => Math.hypot(x, y) <= s * R;
+  else if (style === 'star') {
+    // broad headlands: the bays reach a fifth of the way in at most
+    const depth = 0.1 + rng.float() * 0.08;
+    const options = [2, 3, 4, 6].flatMap((n) => phases.map((phase) => ({ n, phase })));
+    inside = symmetricOutline(rng, syms, reach, options, ({ n, phase }) => (x, y, s) =>
+      Math.hypot(x, y) <= s * R * (1 - depth + depth * Math.cos(n * (Math.atan2(y, x) - phase))));
+  } else if (style === 'swirl') {
+    // arms as broad as a quarter of the land, curving away from a core
+    const twist = (0.6 + rng.float() * 0.5) * (rng.bool() ? 1 : -1);
+    const arm = 0.24 + rng.float() * 0.06;
+    const core = 0.36 + rng.float() * 0.08;
+    const options = [2, 3, 6].flatMap((n) => phases.map((phase) => ({ n, phase })));
+    inside = symmetricOutline(rng, syms, reach, options, ({ n, phase }) => (x, y, s) => {
+      const rho = Math.hypot(x, y);
+      if (rho <= s * R * core) return true;
+      if (rho > s * R * 1.2) return false;
+      const th = Math.atan2(y, x);
+      // the width across the arm (the arm leans by `lean`), never under three cells
+      const lean = Math.hypot(1, (twist * rho) / (s * R));
+      const half = Math.max(1.6, s * R * arm);
+      for (let j = 0; j < n; j++) if ((angleGap(th, phase + (j * 2 * Math.PI) / n + (twist * rho) / (s * R)) * rho) / lean <= half) return true;
+      return false;
+    });
+  } else if (style === 'cloud') {
+    // hills around a central one, each overlapping it
+    const hills: [number, number, number][] = [[0, 0, 0.45 + rng.float() * 0.1]];
+    for (let i = 3 + rng.int(3); i > 0; i--) {
+      const r = 0.24 + rng.float() * 0.16;
+      const d = 0.3 + rng.float() * (0.2 + r);
+      const a = rng.float() * 2 * Math.PI;
+      hills.push([d * Math.cos(a), d * Math.sin(a), r]);
+    }
+    inside = (x, y, s) => hills.some(([hx, hy, hr]) => Math.hypot(x - s * R * hx, y - s * R * hy) <= s * R * hr);
+  } else if (style === 'hourglass') {
+    // two broad lands at the ends of the q axis and a waist at least two thirds as wide as they are
+    const span = 0.5 + rng.float() * 0.1;
+    const lobe = 0.55 + rng.float() * 0.1;
+    const waist = lobe * (0.62 + rng.float() * 0.12);
+    const f: Outline = (x, y, s) => Math.hypot(Math.abs(x) - s * R * span, y) <= s * R * lobe || (Math.abs(x) <= s * R * span && Math.abs(y) <= s * R * waist);
+    if (asymmetry(syms, reach, f) <= 0.02) inside = f;
+  }
+  if (!inside) return new Board();
+  const b = fitOutline(syms, reach, inside, Math.round(diskCount(R) * (style === 'rivers' ? 1.1 : 1)));
+  if (style === 'rivers') {
+    // rivers from the coast winding inland, with a ford every few cells
+    const outer = Math.max(...b.all().map((c) => Math.hypot(...pos(axOf(c)))));
+    for (let n = 1 + rng.int(2); n > 0; n--) {
+      const from = rng.float() * 2 * Math.PI;
+      // the cell under the point (x, y) of the coast
+      const y = Math.sin(from) * outer;
+      let at = roundAx(Math.cos(from) * outer - y / Math.sqrt(3), (2 * y) / Math.sqrt(3));
+      let heading = from + Math.PI + (rng.float() - 0.5) * 0.8;
+      const length = Math.round(R * (0.5 + rng.float() * 0.3));
+      let ford = 2 + rng.int(2);
+      for (let step = 0; step < length; step++) {
+        if (--ford < 0) ford = 2 + rng.int(3);
+        else for (const a of orbit(at, syms)) b.remove(...a);
+        // the next cell: the neighbour most along the heading, which wanders a little
+        heading += (rng.float() - 0.5) * 0.7;
+        at = DIRS.map(([dq, dr]) => [at[0] + dq, at[1] + dr] as Ax).reduce((best, c) => {
+          const score = (p: Ax) => { const [dx, dy] = pos([p[0] - at[0], p[1] - at[1]]); return dx * Math.cos(heading) + dy * Math.sin(heading); };
+          return score(c) > score(best) ? c : best;
+        });
+      }
+    }
+  }
+  // land, not lace: few cells with at most two neighbours
+  const { adj } = b.graph();
+  if (adj.filter((n) => n.length <= 2).length > adj.length * 0.08) return new Board();
+  return b;
+}
 
 /**
  * Land of about this radius, kept by the symmetries: a round plain, a plain with headlands and bays,
@@ -1144,6 +1302,7 @@ type LandStyle = 'round' | 'lobed' | 'ring' | 'capsule' | 'jagged' | 'islands';
  * It may fall apart or hang on one cell: the caller checks `solid()`.
  */
 function symmetricLand(rng: Rng, syms: Sym[], radius: number, style: LandStyle): Board {
+  if ((SHAPE_STYLES as readonly string[]).includes(style)) return shapedLand(rng, syms, radius, style as ShapeStyle);
   const b = new Board();
   const blob = (center: Ax, r: number) => diskCells(center, r).forEach((c) => symmetricAdd(b, syms, c));
   if (style === 'capsule') {
@@ -1482,7 +1641,7 @@ function crossroadsAttempt(rng: Rng, k: number, plain: boolean, grow: number): B
   const radius = 6 + rng.int(2) + 2 * grow;
   // the least land for the size (the smallest: 110 cells, then 100 after the terrain)
   const least = (n: number) => Math.round(n * ((6.5 + 2 * grow) / 6.5) ** 2);
-  const style: LandStyle = plain ? 'round' : rng.pick(['round', 'lobed', 'ring', 'capsule', 'jagged', 'islands'] as const);
+  const style: LandStyle = plain ? 'round' : rng.pick(['lobed', 'ring', 'capsule', 'islands', 'circle', 'star', 'swirl', 'cloud', 'hourglass', 'rivers'] as const);
   const b = symmetricLand(rng, syms, radius, style);
   if (!b.solid() || b.cells.size < least(110)) return null;
   const end = Math.max(...b.all().filter((c) => c.r === 0).map((c) => c.q));
@@ -1501,6 +1660,8 @@ function crossroadsAttempt(rng: Rng, k: number, plain: boolean, grow: number): B
   if (!b.solid() || b.cells.size < least(100) || !keepsSize(b.cells.size, 6.5 + 2 * grow, grow)) return null;
   const { index, adj } = b.graph();
   if (points.some((a) => adj[index.get(key(...a))!].length < 4)) return null;
+  // no neck between the camps that a couple of cells could shut, and land rather than lace
+  if (!plain && (laceShare(b) >= 0.1 || campWidth(b, 2, 3 + Math.min(grow, 1)) < 3 + Math.min(grow, 1))) return null;
   // the points lie at least four steps apart, each about as far from both camps
   const from = points.map((a) => boardDistances(b, [a]));
   for (const [i, d] of from.entries()) for (const [j, a] of points.entries()) if (i !== j && (d.get(key(...a)) ?? -1) < 4) return null;
@@ -1521,7 +1682,7 @@ function sparksAttempt(rng: Rng, k: number, plain: boolean, grow: number): Board
   const syms = [turnSym(0), turnSym(2), turnSym(4)];
   const radius = 4 + rng.int(2) + 2 * grow;
   const least = (n: number) => Math.round(n * ((4.5 + 2 * grow) / 4.5) ** 2);
-  const style: LandStyle = plain ? 'round' : rng.pick(['round', 'lobed', 'ring', 'jagged', 'islands'] as const);
+  const style: LandStyle = plain ? 'round' : rng.pick(['lobed', 'ring', 'islands', 'circle', 'star', 'swirl', 'cloud', 'rivers'] as const);
   const b = symmetricLand(rng, syms, radius, style);
   b.remove(0, 0);
   if (!b.solid() || b.cells.size < least(45)) return null;
@@ -1606,6 +1767,10 @@ function sparksAttempt(rng: Rng, k: number, plain: boolean, grow: number): Board
   }
   const garrison = 3 + rng.int(3);
   for (const a of sparks) b.set(...a, { objective: true, power: garrison, max: 12 });
+  // no neck between the realms that a couple of cells could shut
+  const need = 3 + Math.min(grow, 1);
+  if (!plain && laceShare(b) >= 0.1) return null;
+  if (!plain && disjointPaths(adj, zoneAround(adj, index.get(key(...sparks[0]))!, 2), zoneAround(adj, index.get(key(...sparks[1]))!, 2), need) < need) return null;
   // checks: every realm has its hotspots and stays mostly weak
   const realm = b.all().filter((c) => c.owner === 0);
   const isHot = (c: Slot) => hot.has(key(c.q, c.r));

@@ -1,4 +1,4 @@
-import { weakPoints } from './connectivity';
+import { startsWidth, weakPoints } from './connectivity';
 import { Rng } from './rng';
 import { NEUTRAL, SIZES, type Cell, type Field, type FieldSize } from './types';
 
@@ -243,7 +243,12 @@ export interface GenerateOptions {
   players?: number;
   /** force a rotational layout family */
   layout?: RotLayout;
+  /** the rotational maps as published before they were widened (maps of the day of 2026) */
+  legacy?: boolean;
 }
+
+/** Maps of the day from this date on get the widened three-player maps; earlier ones are published. */
+export const WIDE_ROTATIONAL_DAILY_FROM = '2027-01-01';
 
 /**
  * Generate a connected map with 5 (mirrored) or 6 (random, six-ray) start positions. Deterministic
@@ -252,8 +257,8 @@ export interface GenerateOptions {
  * or doubled before the map is returned.
  */
 export function generateField(opts: GenerateOptions, rng: Rng): Field {
-  if (opts.symmetry && opts.players === 3) return generateRotational(opts.size, 3, rng, opts.layout);
-  if (opts.symmetry && (opts.players === 5 || opts.players === 6)) return generateRotational(opts.size, 6, rng, opts.layout);
+  if (opts.symmetry && opts.players === 3) return generateRotational(opts.size, 3, rng, opts.layout, opts.legacy);
+  if (opts.symmetry && (opts.players === 5 || opts.players === 6)) return generateRotational(opts.size, 6, rng, opts.layout, opts.legacy);
   const info = SIZES[opts.size];
   const lat = gridLattice(info.w, info.h, opts.symmetry);
   let fallback: Field | null = null;
@@ -764,14 +769,56 @@ function withKeep(shape: (c: Cube, R: number) => boolean, keep: (c: Cube, R: num
   return s;
 }
 
-export function makeShape(layout: RotLayout, k: 3 | 6, rng: Rng): Shape {
+/** Cells whose cube coordinates all lie in [-b, a]: a triangle (b = 2a) with its tips cut off; b = a is a regular hexagon. */
+function inTruncated([q, r, s]: Cube, a: number, b: number) {
+  return q <= a && r <= a && s <= a && q >= -b && r >= -b && s >= -b;
+}
+
+/**
+ * Truncated triangles with b/a in [lo, hi] at scale R. A triangle or a hexagon alone grows in big
+ * steps (91, then 136 cells), and the generator then carves a third of it away into lace; with the
+ * tips cut by any amount the size grows a few cells at a time. Picks the biggest one that fits R.
+ */
+function truncatedAt(lo: number, hi: number) {
+  const tri = (m: number) => (m * (m + 1)) / 2;
+  const opts: { a: number; b: number; n: number }[] = [];
+  for (let a = 1; a <= 40; a++)
+    for (let b = Math.max(a, Math.ceil(a * lo)); b <= Math.min(2 * a, Math.floor(a * hi)); b++)
+      opts.push({ a, b, n: tri(3 * a + 1) - 3 * tri(2 * a - b) });
+  opts.sort((x, y) => x.n - y.n || y.b - x.b);
+  const memo = new Map<number, { a: number; b: number }>();
+  return (R: number) => {
+    let o = memo.get(R);
+    if (!o) {
+      // the size follows R²; b (the farthest cells) stays inside the reach of R
+      const fit = opts.filter((x) => x.n <= 1.45 * R * R && x.b <= shapeReach(R) - 1);
+      o = fit[fit.length - 1] ?? opts[0];
+      memo.set(R, o);
+    }
+    return o;
+  };
+}
+
+/**
+ * `legacy`: the shapes as they were before the three-player maps were widened (the published maps of
+ * the day keep them).
+ */
+export function makeShape(layout: RotLayout, k: 3 | 6, rng: Rng, legacy = false): Shape {
   const sector = (Math.PI * 2) / k;
   const phase = rng.float() * sector;
+  const modern = k === 3 && !legacy;
   switch (layout) {
     case 'triangle': {
-      return ([q, r, s], R) => {
-        const a = Math.round(R * 0.55);
-        return q <= a && r <= a && s <= a;
+      if (!modern)
+        return ([q, r, s], R) => {
+          const a = Math.round(R * 0.55);
+          return q <= a && r <= a && s <= a;
+        };
+      // sharp tips or cut ones; the players start on the tips
+      const at = truncatedAt(rng.pick([1.35, 1.6]), 2);
+      return (c, R) => {
+        const { a, b } = at(R);
+        return inTruncated(c, a, b);
       };
     }
     case 'star': {
@@ -782,12 +829,26 @@ export function makeShape(layout: RotLayout, k: 3 | 6, rng: Rng): Shape {
     }
     case 'honeycomb': {
       // a hexagon (optionally a hexagonal donut with a central island)
+      // for three players the sides may alternate in length, which also lets the size grow in small steps
       const donut = rng.bool();
       const lake = 0.3 + rng.float() * 0.15;
+      if (!modern)
+        return (c, R) => {
+          const d = cubeDist(c);
+          if (d > Math.round(R * 0.9)) return false;
+          if (donut && d > 1 && d < Math.round(R * 0.9 * lake) + 1) {
+            const [rho, th] = polar(c);
+            for (let j = 0; j < k; j++) if (angDiff(th, phase + j * sector) * rho <= 0.95) return true;
+            return false;
+          }
+          return true;
+        };
+      const at = truncatedAt(1, 1.34);
       return (c, R) => {
+        const { a, b } = at(R);
+        if (!inTruncated(c, a, b)) return false;
         const d = cubeDist(c);
-        if (d > Math.round(R * 0.9)) return false;
-        if (donut && d > 1 && d < Math.round(R * 0.9 * lake) + 1) {
+        if (donut && d > 1 && d < Math.round(a * lake) + 1) {
           // bridges across the lake
           const [rho, th] = polar(c);
           for (let j = 0; j < k; j++) if (angDiff(th, phase + j * sector) * rho <= 0.95) return true;
@@ -834,21 +895,24 @@ export function makeShape(layout: RotLayout, k: 3 | 6, rng: Rng): Shape {
     }
     case 'pinwheel': {
       // curved arms from a core; an outer rim joins the arm tips
+      // arms and rim widen with the scale: on a big map fixed widths become one-cell corridors
       const twist = (0.12 + rng.float() * 0.18) * (rng.bool() ? 1 : -1);
-      const armW = 1.0 + rng.float() * 0.8;
+      const f = rng.float();
+      const armW = (R: number) => (modern ? Math.max(1.0 + f * 0.8, R * (0.2 + f * 0.08)) : 1.0 + f * 0.8);
+      const rimW = (R: number) => (modern ? Math.max(1.2, R * 0.17) : 1.2);
       const core = 0.25 + rng.float() * 0.1;
       const rim = rng.float() < 0.65;
       return withKeep((c, R) => {
         const [rho, th] = polar(c);
         if (rho > R) return false;
         if (rho <= Math.max(1.01, R * core)) return true;
-        if (rim && rho >= R - 1.2) return true;
+        if (rim && rho >= R - rimW(R)) return true;
         for (let j = 0; j < k; j++) {
           const a = phase + j * sector + twist * (rho - R * core);
-          if (angDiff(th, a) * rho <= armW) return true;
+          if (angDiff(th, a) * rho <= armW(R)) return true;
         }
         return false;
-      }, (c, R) => rim && polar(c)[0] >= R - 1.2 && polar(c)[0] <= R);
+      }, (c, R) => rim && polar(c)[0] >= R - rimW(R) && polar(c)[0] <= R);
     }
     case 'islands': {
       // a central island, one island per ray, joined by bridges to the centre and/or along the rim
@@ -944,23 +1008,34 @@ function cubeLattice(L: number, k: 3 | 6): Lattice & { slot(c: Cube): number; cu
  * Map with exact rotational symmetry for three (k = 3) or five (k = 6, one ray stays free) players.
  * `layout` picks a family; otherwise a random one suitable for k.
  */
-export function generateRotational(size: FieldSize, k: 3 | 6, rng: Rng, layout?: RotLayout): Field {
+export function generateRotational(size: FieldSize, k: 3 | 6, rng: Rng, layout?: RotLayout, legacy = false): Field {
   const family = layout ?? rng.pick(ROT_LAYOUTS[k]);
   const target = SIZES[size].cells + 1;
   // a shape whose narrow parts needed a lot of widening can end up well over the size; then (and in
   // the rare case the widening fails) the same family is tried again from a derived seed
+  // a map with a neck between the players (the random shape parameters can make one) is tried
+  // again the same way; a wide one always beats a narrow one
   let best: Field | null = null;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const f = attempt === 0 ? buildRotational(size, k, rng, family) : buildRotational(size, k, new Rng(rng.nextU32()), family);
-    if (f && (!best || f.cells.length < best.cells.length)) best = f;
-    if (best && best.cells.length <= target * 1.25 + 6) break;
+  let bestWide = false;
+  const modern = k === 3 && !legacy;
+  for (let attempt = 0; attempt < (modern ? 8 : 5); attempt++) {
+    const f = attempt === 0 ? buildRotational(size, k, rng, family, legacy) : buildRotational(size, k, new Rng(rng.nextU32()), family, legacy);
+    if (!f) continue;
+    // (five and six players fill a six-ray map with no spare room: only the size counts there)
+    const wide = !modern || rotationalWide(f);
+    if (!best || (wide && !bestWide) || (wide === bestWide && f.cells.length < best.cells.length)) {
+      best = f;
+      bestWide = wide;
+    }
+    if (bestWide && best.cells.length <= target * 1.25 + 6) break;
   }
   if (!best) throw new Error('map generation failed');
   return best;
 }
 
-function buildRotational(size: FieldSize, k: 3 | 6, rng: Rng, family: RotLayout): Field | null {
-  const shape = makeShape(family, k, rng);
+function buildRotational(size: FieldSize, k: 3 | 6, rng: Rng, family: RotLayout, legacy: boolean): Field | null {
+  const shape = makeShape(family, k, rng, legacy);
+  const modern = k === 3 && !legacy;
   const target = SIZES[size].cells + 1;
 
   // grow the scale until the shape is a bit bigger than needed, holes are carved afterwards
@@ -1030,14 +1105,33 @@ function buildRotational(size: FieldSize, k: 3 | 6, rng: Rng, family: RotLayout)
   for (let i = 0; i < cap.length; i++) if (cap[i]) present++;
   freezeUniverse(work);
 
-  // carve random symmetric holes down to the target size (never cutting the map apart and never
-  // leaving a single cell as the only link between start regions)
+  // carve random symmetric holes down to the target size (never cutting the map apart, never leaving
+  // a single cell as the only link between start regions and never narrowing the way between them
+  // below `need` cells)
+  const need = ROT_NEED[size];
+  const widthNow = () => {
+    const g = slotGraph(work);
+    return startsWidth(g.adj, work.starts.map((s) => g.index[s]), need);
+  };
+  const floor = modern ? widthNow() : 0;
+  // nor turning the land into lace of one-cell corridors (cells with at most two neighbours)
+  const thinNow = () => {
+    let thin = 0;
+    for (const s of work.universe!) {
+      if (!cap[s]) continue;
+      let deg = 0;
+      for (const t of lat.nbrs[s]) if (cap[t]) deg++;
+      if (deg <= 2) thin++;
+    }
+    return thin;
+  };
+  const thinMax = modern ? Math.max(thinNow(), Math.round(target * 0.1)) : 0;
   for (const orb of rng.shuffle(groups.filter((g) => !g.some((c) => protectedKeys.has(cubeKey(c)))))) {
     if (present <= target) break;
     const slots = orb.map((o) => lat.slot(o));
     const saved = slots.map((sl) => cap[sl]);
     for (const sl of slots) cap[sl] = 0;
-    if (workSound(work)) present -= slots.length;
+    if ((!modern || thinNow() <= thinMax) && workSound(work) && (!modern || widthNow() >= floor)) present -= slots.length;
     else slots.forEach((sl, i) => (cap[sl] = saved[i]));
   }
 
@@ -1060,4 +1154,21 @@ function buildRotational(size: FieldSize, k: 3 | 6, rng: Rng, family: RotLayout)
   // (5 players leave one free)
   const starts = k === 3 ? [st[0], st[1], st[0], st[1], st[2]] : st;
   return { size, w, h, cells, adj, walls: [], starts, layout: family };
+}
+
+/**
+ * How many cells must stand across the narrowest way between two start regions of a rotational map.
+ * With two, an owner shuts the way with a couple of strong cells and three players sit behind their
+ * necks forever.
+ */
+const ROT_NEED: Record<FieldSize, number> = { S: 2, M: 3, L: 4, XL: 4, XXL: 4 };
+
+/**
+ * Whether a rotational map is wide enough between its start regions and is land rather than lace
+ * (few cells with at most two neighbours: one-cell corridors are necks too).
+ */
+export function rotationalWide(f: Field): boolean {
+  const need = ROT_NEED[f.size];
+  const thin = f.cells.filter((_, i) => f.adj[i].length <= 2).length;
+  return thin <= f.cells.length * 0.15 && startsWidth(f.adj, f.starts, need) >= need;
 }

@@ -442,12 +442,14 @@ test('three-seat moonless valley with frontiers: the turn goes round the table, 
   for (let turn = 0; turn < 3; turn++) {
     await expect.poll(async () => (await state()).current, { timeout: 30000 }).toBe(0);
     // end the attack, then the turn (the reinforcement is spread over your cells)
-    await page.locator('.end-btn').click();
-    await expect.poll(async () => (await state()).phase).toBe('power');
     const before = await page.evaluate(() => (window as any).__seats.length);
     await page.locator('.end-btn').click();
+    // with nothing to reinforce (all your cells full) the power phase is skipped and the turn moves on at once
+    const left = () => page.evaluate((n) => (window as any).__seats.length > n, before);
+    await expect.poll(async () => (await left()) || (await state()).phase === 'power').toBe(true);
+    if (!(await left())) await page.locator('.end-btn').click();
     // the turn has left you (the bots may be done and hand it back before a poll would see them)
-    await expect.poll(() => page.evaluate(() => (window as any).__seats.length)).toBeGreaterThan(before);
+    await expect.poll(left).toBe(true);
   }
   await expect.poll(async () => (await state()).current, { timeout: 30000 }).toBe(0);
   expect(await page.evaluate(() => (window as any).__seats)).toEqual([0, 1, 2, 0, 1, 2, 0, 1, 2, 0]);

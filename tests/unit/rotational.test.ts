@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/rng';
-import { generateField, isConnected, rowWidth, ROT_LAYOUTS } from '../../src/core/field';
+import { generateField, isConnected, rotationalWide, rowWidth, ROT_LAYOUTS, WIDE_ROTATIONAL_DAILY_FROM } from '../../src/core/field';
 import { createMatch } from '../../src/core/engine';
+import { startsWidth } from '../../src/core/connectivity';
 import { SIZES, SIZE_ORDER, type Field } from '../../src/core/types';
 
 /** BFS distances from a cell. */
@@ -46,6 +47,32 @@ describe('rotational symmetric maps', () => {
       });
     }
   }
+
+  it('three-player maps have no narrow necks: wide ways between the start regions, not lace', () => {
+    const need: Record<string, number> = { S: 2, M: 3, L: 4, XL: 4, XXL: 4 };
+    for (const layout of ROT_LAYOUTS[3])
+      for (const size of SIZE_ORDER)
+        for (let seed = 1; seed <= 10; seed++) {
+          const f = generateField({ size, symmetry: true, players: 3, layout }, new Rng(seed * 7919));
+          const where = `${layout} ${size} seed=${seed}`;
+          expect(startsWidth(f.adj, f.starts, need[size]), where).toBe(need[size]);
+          // corridors one cell wide everywhere (cells with at most two neighbours) make a map of necks
+          const thin = f.cells.filter((_, i) => f.adj[i].length <= 2).length;
+          expect(thin / f.cells.length, where).toBeLessThan(0.2);
+        }
+  });
+
+  it('maps of the day keep the published three-player maps of 2026 and get the wide ones after', () => {
+    const settings = (dailyId: string) => ({
+      kind: 'daily' as const, size: 'L' as const, players: ['human', 'hunter', 'master'] as ('human' | 'hunter' | 'master')[],
+      darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, duelRules: false, dailyId,
+    });
+    for (let seed = 1; seed <= 12; seed++) {
+      const old = createMatch(settings('2026-06-06'), { seed }).field;
+      expect(old.cells.map((c) => c.id)).toEqual(generateField({ size: 'L', symmetry: true, players: 3, legacy: true }, new Rng(seed)).cells.map((c) => c.id));
+      expect(rotationalWide(createMatch(settings(WIDE_ROTATIONAL_DAILY_FROM), { seed }).field), `seed ${seed}`).toBe(true);
+    }
+  });
 
   it('random layouts vary between seeds', () => {
     const seen = new Set<string>();

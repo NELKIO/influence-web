@@ -141,6 +141,27 @@ export function weakPoints(adj: number[][], starts: number[], maxPocket: number)
   return out;
 }
 
+/** Cells within `radius` steps of `from` (the cell itself included). */
+export function around(adj: number[][], from: number, radius: number): number[] {
+  const d = new Map<number, number>([[from, 0]]);
+  const queue = [from];
+  for (const i of queue) if (d.get(i)! < radius) for (const j of adj[i]) if (!d.has(j)) { d.set(j, d.get(i)! + 1); queue.push(j); }
+  return queue;
+}
+
+/**
+ * The narrowest place between two start regions (the cells within two steps of each start): how many
+ * cells an owner must hold to shut the way between them. Below three, one side walls itself in with a
+ * couple of strong cells and the match stalls. Counting stops at `cap`.
+ */
+export function startsWidth(adj: number[][], starts: number[], cap = Infinity): number {
+  const zones = [...new Set(starts)].map((s) => around(adj, s, 2));
+  let width = cap;
+  for (let a = 0; a < zones.length; a++)
+    for (let b = a + 1; b < zones.length; b++) width = Math.min(width, disjointPaths(adj, zones[a], zones[b], width));
+  return width;
+}
+
 /**
  * How many paths with no cell in common lead from area `from` to area `to` (the cells of the areas
  * themselves may be shared): the width of the narrowest place between them (Menger). Counting stops
