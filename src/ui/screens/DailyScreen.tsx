@@ -136,7 +136,7 @@ export function DailyScreen() {
           {puzzle && (
             <div class="puzzle-brief">
               <div class="title">{t(`puzzle_${puzzle}` as 'puzzle_siege')}</div>
-              <div class="desc">{scenarioDesc(puzzle, true)}</div>
+              <div class="desc">{scenarioDesc(puzzle)}</div>
             </div>
           )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

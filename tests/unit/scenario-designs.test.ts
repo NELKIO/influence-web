@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDailyScenario, buildScenario, isScenarioId, SCENARIO_META, SCENARIOS, seatsFit } from '../../src/core/scenarios';
+import { buildScenario, isScenarioId, SCENARIO_META, SCENARIOS, seatsFit } from '../../src/core/scenarios';
 import { canAttackFrom, exploredCells, visibleCells } from '../../src/core/engine';
 import { hexNeighbours } from '../../src/core/field';
 import { articulationPoints } from '../../src/core/connectivity';
@@ -327,17 +327,6 @@ describe('new scenario designs', () => {
         const players = Array.from({ length: n }, (_, p) => SCENARIO_META[id].players[p % 3]);
         expect(articulationPoints(buildScenario(id, seed, undefined, players, { size }).field.adj), `${id} ${n} ${size}`).toEqual([]);
       }
-    }
-  });
-
-  it('keeps published daily frontier and scout layouts exactly frozen', () => {
-    const signatures = { moonvale: 'b990d1e3', fireflies: '9d29685d', sparks: 'b4535bf9', colonies: 'fb39f1f6', highlands: 'd5ef452' };
-    for (const id of Object.keys(signatures) as (keyof typeof signatures)[]) {
-      const st = buildDailyScenario(id, 117);
-      const data = JSON.stringify([st.field, st.objectives, st.settings]);
-      let hash = 2166136261;
-      for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data.charCodeAt(i), 16777619) >>> 0;
-      expect.soft(hash.toString(16), id).toBe(signatures[id]);
     }
   });
 

@@ -1,5 +1,5 @@
 import { Rng, hashString } from './core/rng';
-import { buildDailyScenario, CLASSIC_SCENARIOS, SCENARIO_META, type ScenarioId } from './core/scenarios';
+import { buildScenario, CLASSIC_SCENARIOS, SCENARIO_META, type ScenarioId } from './core/scenarios';
 import { createMatch, withFreshDice } from './core/engine';
 import type { FieldSize, MatchSettings, MatchState, PlayerType } from './core/types';
 
@@ -58,42 +58,19 @@ function puzzleIndex(n: number): number {
   return n - Math.floor((n + 1) / 4);
 }
 
-/** The classic rotation (before the first switch): each cycle is the 24 scenarios in a shuffled order. */
-function classicPuzzle(i: number): ScenarioId {
-  const len = CLASSIC_SCENARIOS.length;
-  const cycle = Math.floor(i / len);
-  const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...CLASSIC_SCENARIOS]);
-  return order[((i % len) + len) % len];
-}
-
-// Start after release day, including in time zones ahead of UTC.
-export const FRONTIERS_ROTATION_START = '2026-11-20';
-
 const OCTOBER_CATALOG: ScenarioId[] = [
   'landing', 'laststand', 'olympus', 'titans', 'raid',
   ...CLASSIC_SCENARIOS.filter(id => id !== 'hill' && id !== 'ringmap'),
 ];
 
-/**
- * Rotations after the classic one. Each starts on a day nobody has seen yet and keeps a fixed list,
- * so adding a scenario never changes a day that is already out: it joins with a new switch. Every
- * cycle shuffles the list; whatever was played in the last few puzzle days goes to its back.
- */
-const ERAS: { from: string; salt: string; scenarios: ScenarioId[] }[] = [
-  // the four battles for three to six players join
-  { from: '2026-10-23', salt: 'puzzle-cycle-all', scenarios: ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS] },
-  // the raid joins (Hollow lands is a party map and stays out of the map of the day)
-  { from: '2026-10-24', salt: 'puzzle-cycle-raid', scenarios: ['landing', 'laststand', 'olympus', 'titans', ...CLASSIC_SCENARIOS, 'raid'] },
-  // after the review: only the scenarios still in play (retired ones keep their past days)
-  { from: '2026-10-25', salt: 'puzzle-cycle-curated', scenarios: OCTOBER_CATALOG },
-  { from: FRONTIERS_ROTATION_START, salt: 'puzzle-cycle-frontiers', scenarios: [
-    ...OCTOBER_CATALOG.filter(id => id !== 'bridges' && id !== 'treasury' && id !== 'hourglass'),
-    'farshore', 'moonvale', 'sparks', 'fireflies', 'crossroads', 'highlands', 'pinwheel',
-  ] },
+/** the scenarios the map of the day rotates through (on every date, past ones included) */
+export const ROTATION: ScenarioId[] = [
+  ...OCTOBER_CATALOG.filter(id => id !== 'bridges' && id !== 'treasury' && id !== 'hourglass'),
+  'farshore', 'moonvale', 'sparks', 'fireflies', 'crossroads', 'highlands', 'pinwheel',
 ];
 
-/** the scenarios the map of the day currently rotates through */
-export const ROTATION: ScenarioId[] = ERAS[ERAS.length - 1].scenarios;
+/** The first map of the day: the sequence of puzzle scenarios starts here. */
+const FIRST_DAY = '2026-01-01';
 
 /** first puzzle index on or after a day */
 function startIndex(day: string): number {
@@ -101,27 +78,24 @@ function startIndex(day: string): number {
   return puzzleIndex(((n % 4) + 4) % 4 === 3 ? n + 1 : n);
 }
 
-const eraStart = ERAS.map((e) => startIndex(e.from));
-/** puzzle scenarios of each era, generated cycle by cycle on demand */
-const sequences: ScenarioId[][] = ERAS.map(() => []);
+const first = startIndex(FIRST_DAY);
+/** puzzle scenarios from the first day on, generated cycle by cycle on demand */
+const sequence: ScenarioId[] = [];
 
+/**
+ * The scenario of a puzzle day: every cycle shuffles the rotation; whatever was played in the last
+ * few puzzle days goes to its back. (Days before the first one get a plain shuffle.)
+ */
 function puzzleAt(i: number): ScenarioId {
-  let e = ERAS.length - 1;
-  while (e >= 0 && i < eraStart[e]) e--;
-  if (e < 0) return classicPuzzle(i);
-  const { salt, scenarios } = ERAS[e];
-  const seq = sequences[e];
-  const j = i - eraStart[e];
-  for (let cycle = seq.length / scenarios.length; seq.length <= j; cycle++) {
-    const order = new Rng(hashString(`${salt}:${cycle}`)).shuffle([...scenarios]);
-    const recent = new Set<ScenarioId>();
-    for (let k = 1; k <= NO_REPEAT; k++) {
-      const at = seq.length - k;
-      recent.add(at >= 0 ? seq[at] : puzzleAt(eraStart[e] + at));
-    }
-    seq.push(...order.filter((id) => !recent.has(id)), ...order.filter((id) => recent.has(id)));
+  const len = ROTATION.length;
+  if (i < first) return new Rng(hashString(`puzzle-cycle-early:${Math.floor(i / len)}`)).shuffle([...ROTATION])[((i % len) + len) % len];
+  const j = i - first;
+  for (let cycle = sequence.length / len; sequence.length <= j; cycle++) {
+    const order = new Rng(hashString(`puzzle-cycle:${cycle}`)).shuffle([...ROTATION]);
+    const recent = new Set(sequence.slice(-NO_REPEAT));
+    sequence.push(...order.filter((id) => !recent.has(id)), ...order.filter((id) => recent.has(id)));
   }
-  return seq[j];
+  return sequence[j];
 }
 
 /** What the map of a given day is. */
@@ -173,9 +147,8 @@ export function dailySeed(id: string): number {
 export function createDailyMatch(id: string): MatchState {
   const k = dailyKind(id);
   if (k.kind === 'puzzle') {
-    // Preserve the published map and rules for every scheduled date, even when the gallery design evolves.
-    // The day's seed also fixes Night Drop's landing spots and turn-order compensation.
-    const st = buildDailyScenario(k.scenario, dailySeed(id));
+    // the gallery design with its recommended seats; the day's seed fixes the map (and Night Drop's landing spots)
+    const st = buildScenario(k.scenario, dailySeed(id));
     st.settings = { ...st.settings, kind: 'daily', dailyId: id };
     return st;
   }

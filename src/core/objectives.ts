@@ -264,7 +264,7 @@ export function objectiveHandoff(s: MatchState, previous: number): void {
 export function validObjectiveFields(s: Record<string, unknown>, cells: unknown[], seats: number, settings: Record<string, unknown>): boolean {
   const ids = s.objectives, holder = s.objectiveHolder, extra = s.objectiveHoldersExtra;
   const generated = frontierGenerated(settings);
-  const named = objectivePuzzle(settings.puzzle, settings.kind);
+  const named = objectivePuzzle(settings.puzzle);
   const enabled = named || generated;
   if (settings.frontierMode !== undefined && typeof settings.frontierMode !== 'boolean') return false;
   if (settings.frontierMode === true && !generated) return false;
@@ -283,7 +283,7 @@ export function validObjectiveFields(s: Record<string, unknown>, cells: unknown[
   const none = ids === undefined && holder === undefined && extra === undefined;
   if (!enabled) return none;
   // a scenario that gained control points later: games saved before that have none
-  if (none && objectivesOptional(settings.puzzle, settings.kind)) return true;
+  if (none && objectivesOptional(settings.puzzle)) return true;
   const required = generated ? winCount : 2;
   if (!Array.isArray(ids) || ids.length !== (generated ? pointCount : 3) || new Set(ids).size !== ids.length ||
     !ids.every(i => Number.isInteger(i) && i >= 0 && i < cells.length)) return false;

@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildDailyScenario, buildScenario, DAILY_LEGACY_DESC, SCENARIO_META, SCENARIOS, seatsFit, type ScenarioId } from '../../src/core/scenarios';
+import { buildScenario, SCENARIO_META, SCENARIOS, seatsFit, type ScenarioId } from '../../src/core/scenarios';
 import { canAttackFrom, endAttack, finishTurn } from '../../src/core/engine';
 import { articulationPoints } from '../../src/core/connectivity';
 import { OBJECTIVE_PUZZLES } from '../../src/core/objectivePuzzles';
 import { isMatchState } from '../../src/storage';
 import { createBot } from '../../src/ai';
 import { seatsMedal } from '../../src/medals';
-import { ru } from '../../src/i18n/ru';
-import { en } from '../../src/i18n/en';
 import type { Field, MatchState, PlayerType } from '../../src/core/types';
 
 const seeds = [1, 19, 42, 87, 131, 977];
@@ -52,15 +50,15 @@ describe('objective puzzles', () => {
     }
   });
 
-  it('a gallery game saved before a scenario gained points still loads; the maps of the day keep their rules', () => {
+  it('a game saved before a scenario gained points still loads, a map of the day too; the map of the day has the points', () => {
     const st = clone(buildScenario('sparks', 7));
     expect(isMatchState(st)).toBe(true);
     expect(isMatchState({ ...st, objectives: undefined })).toBe(true);
     expect(isMatchState({ ...st, objectives: st.objectives!.slice(0, 2) })).toBe(false);
-    const daily = { ...clone(buildDailyScenario('sparks', 7)), settings: { ...st.settings, kind: 'daily' } };
-    expect(daily.objectives).toBeUndefined();
+    const daily = { ...st, settings: { ...st.settings, kind: 'daily' } };
     expect(isMatchState(daily)).toBe(true);
-    expect(isMatchState({ ...daily, objectives: st.objectives })).toBe(false);
+    expect(isMatchState({ ...daily, objectives: undefined })).toBe(true);
+    expect(isMatchState({ ...daily, objectives: st.objectives!.slice(0, 2) })).toBe(false);
     // the published control-point puzzles always had their points
     const cross = clone(buildScenario('crossroads', 7));
     expect(isMatchState({ ...cross, objectives: undefined })).toBe(false);
@@ -152,8 +150,6 @@ describe('olympus: summit points, three to six climbers', () => {
   it('is configurable from three to six seats and plays for the summit', () => {
     expect(SCENARIO_META.olympus).toMatchObject({ objectives: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [3, 6], modes: [] } });
     expect([2, 3, 4, 5, 6, 7].map(n => seatsFit('olympus', n))).toEqual([false, true, true, true, true, false]);
-    expect(buildDailyScenario('olympus', 5).objectives).toBeUndefined();
-    expect(buildDailyScenario('olympus', 5).settings.orderComp).toBeUndefined();
   });
 
   for (const n of [3, 4, 5, 6]) it(`${n} seats: three neutral summit points, the same camp and the same climb for everyone`, () => {
@@ -206,23 +202,12 @@ describe('olympus: summit points, three to six climbers', () => {
   });
 });
 
-describe('maps of the day that kept an older design', () => {
-  it('keep their old description, in both languages', () => {
-    for (const id of DAILY_LEGACY_DESC) for (const dict of [ru, en] as Record<string, string>[]) {
-      expect(dict[`puzzleDescDaily_${id}`], id).toBeTruthy();
-      expect(dict[`puzzleDescDaily_${id}`]).not.toBe(dict[`puzzleDesc_${id}`]);
-    }
-    for (const id of ['sparks', 'olympus'] as const) expect(DAILY_LEGACY_DESC.has(id)).toBe(true);
-  });
-});
-
 describe('highlands: two to six camps, summits and passes in new places every launch', () => {
   it('is configurable from two to six seats', () => {
     expect(SCENARIO_META.highlands).toMatchObject({ objectives: true, varied: true, configurable: { sizes: ['L', 'XL', 'XXL'], seats: [2, 6], modes: [] } });
     expect([1, 2, 6, 7].map(n => seatsFit('highlands', n))).toEqual([false, true, true, false]);
     expect(seatsMedal('highlands', ['human', 'master'])).toBe('medal');
     expect(seatsMedal('highlands', ['human', 'hunter'])).toBe('weaker');
-    expect(DAILY_LEGACY_DESC.has('highlands')).toBe(true);
   });
 
   for (const n of [2, 3, 4, 5, 6]) it(`${n} seats: three separated summits, the same climb and camp for every seat`, () => {
@@ -331,7 +316,7 @@ describe('moonvale: corridors in the dark and a clearing for every scout', () =>
 describe('archipelago: one island per seat, three to six', () => {
   it('is configurable from three to six seats; three keep the classic map', () => {
     expect(SCENARIO_META.archipelago.configurable).toEqual({ sizes: ['L'], seats: [3, 6], modes: [] });
-    expect(buildScenario('archipelago', 9, undefined, ['human', 'god', 'master']).field).toEqual(buildDailyScenario('archipelago', 9).field);
+    expect(buildScenario('archipelago', 9, undefined, ['human', 'god', 'master']).field).toEqual(buildScenario('archipelago', 9).field);
   });
 
   for (const n of [3, 4, 5, 6]) it(`${n} seats: islands of the same size, as far from the rich middle`, () => {

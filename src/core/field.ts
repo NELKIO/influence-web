@@ -243,12 +243,7 @@ export interface GenerateOptions {
   players?: number;
   /** force a rotational layout family */
   layout?: RotLayout;
-  /** the rotational maps as published before they were widened (maps of the day of 2026) */
-  legacy?: boolean;
 }
-
-/** Maps of the day from this date on get the widened three-player maps; earlier ones are published. */
-export const WIDE_ROTATIONAL_DAILY_FROM = '2027-01-01';
 
 /**
  * Generate a connected map with 5 (mirrored) or 6 (random, six-ray) start positions. Deterministic
@@ -257,8 +252,8 @@ export const WIDE_ROTATIONAL_DAILY_FROM = '2027-01-01';
  * or doubled before the map is returned.
  */
 export function generateField(opts: GenerateOptions, rng: Rng): Field {
-  if (opts.symmetry && opts.players === 3) return generateRotational(opts.size, 3, rng, opts.layout, opts.legacy);
-  if (opts.symmetry && (opts.players === 5 || opts.players === 6)) return generateRotational(opts.size, 6, rng, opts.layout, opts.legacy);
+  if (opts.symmetry && opts.players === 3) return generateRotational(opts.size, 3, rng, opts.layout);
+  if (opts.symmetry && (opts.players === 5 || opts.players === 6)) return generateRotational(opts.size, 6, rng, opts.layout);
   const info = SIZES[opts.size];
   const lat = gridLattice(info.w, info.h, opts.symmetry);
   let fallback: Field | null = null;
@@ -799,14 +794,11 @@ function truncatedAt(lo: number, hi: number) {
   };
 }
 
-/**
- * `legacy`: the shapes as they were before the three-player maps were widened (the published maps of
- * the day keep them).
- */
-export function makeShape(layout: RotLayout, k: 3 | 6, rng: Rng, legacy = false): Shape {
+/** The outline of a rotational map; three-player maps get the widened shapes (no thin tips or rims). */
+export function makeShape(layout: RotLayout, k: 3 | 6, rng: Rng): Shape {
   const sector = (Math.PI * 2) / k;
   const phase = rng.float() * sector;
-  const modern = k === 3 && !legacy;
+  const modern = k === 3;
   switch (layout) {
     case 'triangle': {
       if (!modern)
@@ -1008,7 +1000,7 @@ function cubeLattice(L: number, k: 3 | 6): Lattice & { slot(c: Cube): number; cu
  * Map with exact rotational symmetry for three (k = 3) or five (k = 6, one ray stays free) players.
  * `layout` picks a family; otherwise a random one suitable for k.
  */
-export function generateRotational(size: FieldSize, k: 3 | 6, rng: Rng, layout?: RotLayout, legacy = false): Field {
+export function generateRotational(size: FieldSize, k: 3 | 6, rng: Rng, layout?: RotLayout): Field {
   const family = layout ?? rng.pick(ROT_LAYOUTS[k]);
   const target = SIZES[size].cells + 1;
   // a shape whose narrow parts needed a lot of widening can end up well over the size; then (and in
@@ -1017,9 +1009,9 @@ export function generateRotational(size: FieldSize, k: 3 | 6, rng: Rng, layout?:
   // again the same way; a wide one always beats a narrow one
   let best: Field | null = null;
   let bestWide = false;
-  const modern = k === 3 && !legacy;
+  const modern = k === 3;
   for (let attempt = 0; attempt < (modern ? 8 : 5); attempt++) {
-    const f = attempt === 0 ? buildRotational(size, k, rng, family, legacy) : buildRotational(size, k, new Rng(rng.nextU32()), family, legacy);
+    const f = attempt === 0 ? buildRotational(size, k, rng, family) : buildRotational(size, k, new Rng(rng.nextU32()), family);
     if (!f) continue;
     // (five and six players fill a six-ray map with no spare room: only the size counts there)
     const wide = !modern || rotationalWide(f);
@@ -1033,9 +1025,9 @@ export function generateRotational(size: FieldSize, k: 3 | 6, rng: Rng, layout?:
   return best;
 }
 
-function buildRotational(size: FieldSize, k: 3 | 6, rng: Rng, family: RotLayout, legacy: boolean): Field | null {
-  const shape = makeShape(family, k, rng, legacy);
-  const modern = k === 3 && !legacy;
+function buildRotational(size: FieldSize, k: 3 | 6, rng: Rng, family: RotLayout): Field | null {
+  const shape = makeShape(family, k, rng);
+  const modern = k === 3;
   const target = SIZES[size].cells + 1;
 
   // grow the scale until the shape is a bit bigger than needed, holes are carved afterwards

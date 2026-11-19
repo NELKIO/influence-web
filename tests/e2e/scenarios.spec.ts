@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { expectNoErrors, fresh, waitGame } from './helpers';
+import { dailyKind, dayId } from '../../src/daily';
 
 async function openSetup(page: Page) {
   await page.getByRole('button', { name: 'Новая битва' }).click();
@@ -353,27 +354,28 @@ test('night drop hot-seat: each person keeps their own explored land, the hand-o
 });
 
 test('map of the day: a night drop day shows no map, old results and the streak stay', async ({ page }) => {
-  // the browser lives on October 30th, 2026: the night drop of the 29th is in the past
-  await page.clock.install({ time: new Date(2026, 9, 30, 12) });
+  // a night drop day of autumn 2026 that is not the last of its month; the browser lives on the day after
+  const drop = Array.from({ length: 90 }, (_, i) => new Date(2026, 8, 1 + i)).find((d) => {
+    const k = dailyKind(dayId(d));
+    return k.kind === 'puzzle' && k.scenario === 'landing' && new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getMonth() === d.getMonth();
+  })!;
+  const dropId = dayId(drop);
+  await page.clock.install({ time: new Date(drop.getFullYear(), drop.getMonth(), drop.getDate() + 1, 12) });
   const errors = await fresh(page);
-  const today = await page.evaluate(() => {
+  const today = await page.evaluate((dropId) => {
     const d = new Date();
     const id = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-    const y = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
-    // results stored before the schedule changed stay the results of their dates
-    localStorage.setItem(
-      'infweb.daily2',
-      JSON.stringify({ [id(d)]: { attempts: 2, bestRounds: 9 }, [id(y)]: { attempts: 1, bestRounds: 14 }, '2026-10-29': { attempts: 3, bestRounds: 12 } }),
-    );
+    // stored results stay the results of their dates
+    localStorage.setItem('infweb.daily2', JSON.stringify({ [id(d)]: { attempts: 2, bestRounds: 9 }, [dropId]: { attempts: 3, bestRounds: 12 } }));
     return id(d);
-  });
-  expect(today).toBe('2026-10-30');
+  }, dropId);
+  expect(today).toBe(dayId(new Date(drop.getFullYear(), drop.getMonth(), drop.getDate() + 1)));
   await page.reload();
   await page.locator('.mode-card', { hasText: 'Карта дня' }).click();
   await expect(page.getByText('Лучший результат: победа за 9 р.')).toBeVisible();
   await expect(page.locator('.big-stats b').first()).toHaveText('2');
-  // October 29th, 2026 is a night drop
-  await page.locator('.calendar button', { hasText: /^29$/ }).click();
+  // the night drop of the day before
+  await page.locator('.calendar button', { hasText: new RegExp(`^${drop.getDate()}$`) }).click();
   await expect(page.locator('.puzzle-brief')).toContainText('Десант во тьме');
   await expect(page.locator('[data-unknown-map]')).toHaveCount(1);
   await expect(page.getByText('Неизведанная карта')).toBeVisible();
@@ -518,7 +520,8 @@ test('first-block maps with sizes: small, medium and large name their place and 
     expect(info.puzzle).toBe('olympus');
     cells.push(info.cells);
   }
-  expect(cells[1]).toBeGreaterThan(cells[0] * 1.2);
-  expect(cells[2]).toBeGreaterThan(cells[1] * 1.2);
+  // (the land varies between launches: the largest of a size and the smallest of the next differ by 12%)
+  expect(cells[1]).toBeGreaterThan(cells[0] * 1.1);
+  expect(cells[2]).toBeGreaterThan(cells[1] * 1.1);
   await expectNoErrors(errors);
 });

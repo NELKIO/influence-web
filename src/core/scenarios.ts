@@ -420,10 +420,10 @@ export const NEW_SCENARIOS = ['moonvale', 'fireflies', 'crossroads', 'highlands'
 
 export type ScenarioId = (typeof CLASSIC_SCENARIOS)[number] | (typeof BATTLE_SCENARIOS)[number] | (typeof NEW_SCENARIOS)[number];
 
-/** Scenarios retired from both the gallery and all new dailies. Old daily builders remain available. */
+/** Scenarios retired from both the gallery and the map of the day. */
 export const RETIRED_SCENARIOS: ScenarioId[] = ['hill', 'ringmap', 'bridges', 'treasury', 'hourglass'];
 
-/** Removed only from the gallery: already-published daily rotations still include Thermopylae. */
+/** Removed only from the gallery: the map of the day still includes Thermopylae. */
 export const GALLERY_ONLY_RETIRED_SCENARIOS: ScenarioId[] = ['thermopylae'];
 
 /** The scenarios in play, in the order of the setup gallery. */
@@ -571,8 +571,7 @@ export const SCENARIO_META: Record<ScenarioId, ScenarioMeta> = {
 
 /**
  * Difficulty knobs for the recommended opponents, tuned with scripts/calibrate-puzzles.ts so that a
- * strong player usually wins and an average one usually does not. (The map of the day has its own
- * frozen line-ups and knobs, see daily.ts.)
+ * strong player usually wins and an average one usually does not.
  */
 export const TUNING: Record<ScenarioId, number> = {
   siege: 10,
@@ -632,9 +631,6 @@ export const SIZE_TUNING: Partial<Record<ScenarioId, Partial<Record<FieldSize, n
  */
 const EVEN_KNOB: Partial<Record<ScenarioId, number>> = { olympus: 3, moonvale: 6, highlands: 5, crossroads: 5, colonies: 7, fireflies: 2, archipelago: 0 };
 
-/** Knobs the maps of the day were published with, where the gallery's have since been recalibrated. */
-const DAILY_KNOB: Partial<Record<ScenarioId, number>> = { crossroads: 6, colonies: 7 };
-
 /** The knob for a scenario on a map size. */
 export function scenarioKnob(id: ScenarioId, size: FieldSize = SCENARIO_META[id].size): number {
   return SIZE_TUNING[id]?.[size] ?? TUNING[id];
@@ -669,137 +665,6 @@ export function scenarioSetup(id: ScenarioId, config: ScenarioConfig = {}): Scen
     signalFires: offers('signalFires') && config.signalFires === true,
   };
 }
-
-/**
- * Scenarios whose map of the day differs in rules or layout from the gallery version: the day keeps
- * the old description (puzzleDescDaily_<id>) next to its frozen map.
- */
-export const DAILY_LEGACY_DESC: ReadonlySet<ScenarioId> = new Set<ScenarioId>(['sparks', 'olympus', 'highlands', 'moonvale', 'crossroads', 'colonies', 'fireflies']);
-
-type LegacyBuilder = (rng: Rng, k: number, seats: number) => Board;
-
-/**
- * Frozen map builders for published dailies: gallery terrain can evolve without altering a date. Every
- * map of the day of a scenario listed here is built by its frozen copy (with the day's default seats).
- */
-const LEGACY_BUILDERS: Partial<Record<ScenarioId, LegacyBuilder>> = {
-  crossroads(rng: Rng, k: number) {
-    const b = new Board();
-    const reach = 4 + rng.int(2);
-    const halfWidth = 7 + rng.int(2);
-    const gap = 2 + rng.int(2);
-    for (let r = -reach - 1; r <= reach + 1; r++) {
-      for (let x = -halfWidth; x <= halfWidth; x++) {
-        if (Math.abs(r) === 2 && Math.abs(x) <= gap) continue;
-        b.add(x - Math.floor(r / 2), r, { max: rollMax(rng) });
-      }
-    }
-    for (const r of [-reach, 0, reach]) {
-      const x = rng.range(-1, Math.abs(r) % 2 ? 1 : 2);
-      b.set(x - Math.floor(r / 2), r, { objective: true, max: 12 });
-    }
-    for (const p of [0, 1]) for (const inset of [0, 1]) {
-      b.set((p ? 1 : -1) * (halfWidth - inset), 0, { owner: p, power: p ? 5 : kp(rng, k) });
-    }
-    return b;
-  },
-  highlands(rng: Rng, k: number, seats: number) {
-    const b = new Board();
-    const reach = 4 + rng.int(2);
-    const lake = 1 + rng.int(2);
-    const turn = rng.int(6);
-    b.disk(reach + 2);
-    for (const c of b.all()) {
-      if (hexDist([c.q, c.r], [0, 0]) <= lake) b.remove(c.q, c.r);
-      else c.max = rollMax(rng);
-    }
-    for (let p = 0; p < seats; p++) {
-      const side = turn + 2 * p;
-      const peak = rot([reach, 0], side);
-      for (const c of b.all()) if (hexDist([c.q, c.r], peak) <= 1) Object.assign(c, { max: 12, power: 2 });
-      b.set(...peak, { objective: true, power: 3 });
-      for (const at of [[reach, 0], [reach + 1, 0]] as Ax[]) b.set(...rot(at, side + 1), { owner: p, power: p ? 5 : kp(rng, k) });
-    }
-    return b;
-  },
-  moonvale(rng: Rng, k: number, seats: number) {
-    const b = new Board();
-    b.disk(6);
-    for (const c of b.all()) c.max = rollMax(rng);
-    const turn = rng.int(6);
-    const scout: Ax = [2, -3 - rng.int(2)];
-    for (let p = 0; p < seats; p++) {
-      const side = turn + 2 * p;
-      for (const at of [[5, 0], [4, 0], [4, 1]] as Ax[]) b.set(...rot(at, side), { owner: p, power: p ? 6 : kp(rng, k) });
-      b.set(...rot(scout, side), { owner: p, power: 2 });
-    }
-    return b;
-  },
-  sparks(rng: Rng, k: number) {
-    const b = new Board();
-    b.disk(4);
-    b.remove(0, 0);
-    const triples: Ax[][] = [];
-    for (const c of b.all()) {
-      const triple = [0, 2, 4].map(turn => rot([c.q, c.r], turn));
-      if (triple.every(([q, r]) => q > c.q || (q === c.q && r >= c.r))) triples.push(triple);
-    }
-    rng.shuffle(triples).forEach((triple, n) => {
-      const first = rng.int(3);
-      const power = n % 4 === 0 ? kp(rng, k) : 1 + rng.int(2);
-      const max = rollMax(rng);
-      triple.forEach((at, i) => b.set(...at, { owner: (first + i) % 3, power, max }));
-    });
-    return b;
-  },
-  fireflies(rng: Rng, k: number, seats: number) {
-    const b = new Board();
-    b.disk(7);
-    for (const c of b.all()) c.max = rollMax(rng);
-    rng.shuffle(landingDrops(rng, 7, 3, 3 * seats)).forEach((at, i) => {
-      const owner = i % seats;
-      b.set(...at, { owner, power: owner ? 2 : kp(rng, k) });
-    });
-    return b;
-  },
-  colonies(rng: Rng, k: number) {
-    const b = new Board();
-    b.disk(8);
-    for (const c of b.all()) c.max = rollMax(rng);
-    const turn = rng.int(6);
-    for (const p of [0, 1]) {
-      const home = rot([p ? 3 : -3, -2], turn);
-      for (const c of b.all()) if (hexDist([c.q, c.r], home) <= 2)
-        Object.assign(c, { owner: p, power: p ? 7 : kp(rng, k) });
-    }
-    for (const r of [4, 6]) for (const q of [-5, -2, 1]) {
-      b.set(...rot([q, r], turn), { owner: 0, power: 2 });
-      b.set(...rot([q + 1, r], turn), { owner: 1, power: 2 });
-    }
-    return b;
-  },
-  /** Six climbers around a mountain; its slopes are rich and walled, with one path up from each side. */
-  olympus(rng, k, seats) {
-    const b = new Board();
-    b.disk(6);
-    for (const c of b.all()) {
-      const d = hexDist([c.q, c.r], [0, 0]);
-      c.max = d <= 2 ? 12 : rollMax(rng, 0.2);
-    }
-    for (const c of b.all()) {
-      if (hexDist([c.q, c.r], [0, 0]) !== 2 || (c.q === 0 || c.r === 0 || c.q + c.r === 0)) continue;
-      for (const [dq, dr] of DIRS) if (hexDist([c.q + dq, c.r + dr], [0, 0]) === 3) b.wall([c.q, c.r], [c.q + dq, c.r + dr]);
-    }
-    const turn = rng.int(6);
-    for (let p = 0; p < seats; p++) {
-      const at = rot([5, 0], p + turn);
-      for (const c of b.all())
-        if (hexDist([c.q, c.r], at) <= 1 && hexDist([c.q, c.r], [0, 0]) >= 5) Object.assign(c, { owner: p, power: p === 0 ? kp(rng, k) : 3 });
-    }
-    for (const c of b.all()) if (hexDist([c.q, c.r], [0, 0]) === 6 && c.owner === NEUTRAL && rng.float() < 0.3) b.remove(c.q, c.r);
-    return b;
-  },
-};
 
 /**
  * The sides (k × 60°) of `seats` evenly spread seats: three and six are fully symmetric, four sit in
@@ -2832,20 +2697,18 @@ export function scenarioOrderComp(id: ScenarioId, seats: number, given?: OrderCo
  * recommended seat types (seat 0 is you; as many seats as recommended, or any number the scenario
  * allows when it is configurable); `config` picks the size and modes of a configurable scenario.
  */
-function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig, historical = false, order?: number[]): MatchState {
+function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig, order?: number[]): MatchState {
   const meta = SCENARIO_META[id];
   const seats = players ?? meta.players;
   if (!seatsFit(id, seats.length)) throw new Error(`${id}: ${meta.players.length} seats, got ${seats.length}`);
   const { size, unions, frontier, signalFires } = scenarioSetup(id, config);
   const rng = new Rng(seed);
   // people at the table: everyone starts alike (the stronger start of yours is a handicap against bots)
-  const people = !historical && (!!config?.even || seats.filter(isPersonType).length >= 2);
+  const people = (!!config?.even || seats.filter(isPersonType).length >= 2);
   const even = people && EVEN_KNOB[id] !== undefined;
   const comp = id === 'landing' ? landingOrderComp(seats.length, size, config?.orderComp)
-    : historical ? null : scenarioOrderComp(id, seats.length, config?.orderComp, people);
-  const legacyBuilder = historical ? LEGACY_BUILDERS[id] : undefined;
-  const board = legacyBuilder ? legacyBuilder(rng, knob ?? DAILY_KNOB[id] ?? scenarioKnob(id, size), seats.length) :
-    BUILDERS[id](rng, even ? EVEN_KNOB[id]! : knob ?? scenarioKnob(id, size), seats.length, size, { comp, even });
+    : scenarioOrderComp(id, seats.length, config?.orderComp, people);
+  const board = BUILDERS[id](rng, even ? EVEN_KNOB[id]! : knob ?? scenarioKnob(id, size), seats.length, size, { comp, even });
   board.unchoke();
   const { field, objectives } = board.toField(size);
   if (order) {
@@ -2865,7 +2728,7 @@ function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, play
       shuffle: false,
       duelRules: false,
       puzzle: id,
-      ...(meta.blind && !(historical && (id === 'moonvale' || id === 'fireflies')) ? { blind: true } : {}),
+      ...(meta.blind ? { blind: true } : {}),
       ...(comp ? { orderComp: comp } : {}),
       ...(signalFires && meta.darkness ? { signalFires: true } : {}),
       ...(frontier ? frontierSettings(frontier) : {}),
@@ -2882,11 +2745,6 @@ function buildScenarioInternal(id: ScenarioId, seed: number, knob?: number, play
 /** Gallery and battle setup: the current designs and exploration rules. */
 export function buildScenario(id: ScenarioId, seed: number, knob?: number, players?: PlayerType[], config?: ScenarioConfig): MatchState {
   return buildScenarioInternal(id, seed, knob, players, config);
-}
-
-/** All previously scheduled dates keep their original maps and rules, including future dates. */
-export function buildDailyScenario(id: ScenarioId, seed: number): MatchState {
-  return buildScenarioInternal(id, seed, undefined, undefined, undefined, true);
 }
 
 /**
@@ -2916,7 +2774,7 @@ export function startMatch(settings: MatchSettings, seed = randomSeed(), seatOrd
     // the night drop builds its turn-order compensation into the squads: its seats are dealt before the drop
     : id === 'landing' ? buildScenario(id, seed, undefined, order.map((i) => settings.players[i]), config)
     // elsewhere the design favours your seat (the difficulty knob): build it for you, then move the turn order
-    : buildScenarioInternal(id, seed, undefined, settings.players, config, false, order);
+    : buildScenarioInternal(id, seed, undefined, settings.players, config, order);
   st.settings = { ...st.settings, kind: settings.kind, turnTime: settings.turnTime, ...(shuffle ? { shuffle: true } : {}) };
   return st;
 }

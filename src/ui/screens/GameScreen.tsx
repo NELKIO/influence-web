@@ -183,7 +183,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
     const orderHint = orderCompHint(ctrl.state.settings.orderComp, ctrl.state);
     const atStart = ctrl.state.turn === 0 && ctrl.state.current === 0 && ctrl.state.phase === 'attack';
     if (pz && !online?.remoteDriven && atStart) {
-      const goal = `${t(`puzzle_${pz}` as 'puzzle_siege')}: ${scenarioBrief(pz, ctrl.state.settings.kind === 'daily')}`;
+      const goal = `${t(`puzzle_${pz}` as 'puzzle_siege')}: ${scenarioBrief(pz)}`;
       ctrl.showHint(orderHint ? `${goal} ${orderHint}` : goal, undefined, orderHint ? 9000 : 6000);
     } else if (orderHint && atStart) ctrl.showHint(orderHint, undefined, 5000);
     if (isSaveable(ctrl.state) && !ctrl.state.ended) saveGame({ state: ctrl.state, initial: launch.initial });
@@ -618,7 +618,7 @@ export function GameScreen({ launch }: { launch: Launch }) {
           <div class="scenario-info" data-testid="scenario-info">
             <div class="kicker">{t('scenarioKicker')}</div>
             <h2>{t(`puzzle_${pz}` as 'puzzle_siege')}</h2>
-            <p>{scenarioDesc(pz, s.settings.kind === 'daily')}</p>
+            <p>{scenarioDesc(pz)}</p>
             {orderCompHint(s.settings.orderComp, launch.initial) && <p class="order-note">{orderCompHint(s.settings.orderComp, launch.initial)}</p>}
             <RulesList
               // the rules this match is played with

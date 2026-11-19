@@ -9,7 +9,7 @@ import { runMatch } from '../../src/ai/arena';
 import { canLightSignalFire, exploredCells, explore } from '../../src/core/engine';
 import { frontierGenerated, objectiveWinCount, validObjectiveFields } from '../../src/core/objectives';
 import { FRONTIER_SCENARIOS } from '../../src/core/objectivePuzzles';
-import { buildDailyScenario, buildScenario, SCENARIO_META, SCENARIOS, scenarioSetup, startMatch } from '../../src/core/scenarios';
+import { buildScenario, SCENARIO_META, SCENARIOS, scenarioSetup, startMatch } from '../../src/core/scenarios';
 import { NEUTRAL, type BotType, type MatchState, type PlayerType } from '../../src/core/types';
 import { DEFAULT_SETUP, isMatchState, loadSetup, setupToSettings, type SetupPrefs } from '../../src/storage';
 
@@ -87,7 +87,8 @@ describe('frontier victory and signal fires in the dark scenarios', () => {
       expect(st.settings.signalFires).toBeUndefined();
     }
     for (const id of DARK) {
-      const day = buildDailyScenario(id, 11);
+      // the map of the day: the scenario as recommended, without a configuration
+      const day = buildScenario(id, 11);
       expect(day.settings.frontierMode).toBeUndefined();
       expect(day.objectives).toBeUndefined();
     }

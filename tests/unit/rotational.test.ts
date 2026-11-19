@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/rng';
-import { generateField, isConnected, rotationalWide, rowWidth, ROT_LAYOUTS, WIDE_ROTATIONAL_DAILY_FROM } from '../../src/core/field';
+import { generateField, isConnected, rotationalWide, rowWidth, ROT_LAYOUTS } from '../../src/core/field';
 import { createMatch } from '../../src/core/engine';
 import { startsWidth } from '../../src/core/connectivity';
 import { SIZES, SIZE_ORDER, type Field } from '../../src/core/types';
@@ -62,16 +62,18 @@ describe('rotational symmetric maps', () => {
         }
   });
 
-  it('maps of the day keep the published three-player maps of 2026 and get the wide ones after', () => {
+  it('maps of the day get the wide three-player maps on every date, past ones included', () => {
     const settings = (dailyId: string) => ({
       kind: 'daily' as const, size: 'L' as const, players: ['human', 'hunter', 'master'] as ('human' | 'hunter' | 'master')[],
       darkness: false, symmetry: true, crowded: false, unions: false, shuffle: false, duelRules: false, dailyId,
     });
-    for (let seed = 1; seed <= 12; seed++) {
-      const old = createMatch(settings('2026-06-06'), { seed }).field;
-      expect(old.cells.map((c) => c.id)).toEqual(generateField({ size: 'L', symmetry: true, players: 3, legacy: true }, new Rng(seed)).cells.map((c) => c.id));
-      expect(rotationalWide(createMatch(settings(WIDE_ROTATIONAL_DAILY_FROM), { seed }).field), `seed ${seed}`).toBe(true);
-    }
+    for (let seed = 1; seed <= 12; seed++)
+      for (const day of ['2026-06-06', '2026-11-19', '2027-03-01']) {
+        const f = createMatch(settings(day), { seed }).field;
+        expect(rotationalWide(f), `${day} seed ${seed}`).toBe(true);
+        // the same generator as an ordinary battle
+        expect(f.cells.map((c) => c.id)).toEqual(generateField({ size: 'L', symmetry: true, players: 3 }, new Rng(seed)).cells.map((c) => c.id));
+      }
   });
 
   it('random layouts vary between seeds', () => {

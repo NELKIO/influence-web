@@ -172,8 +172,6 @@ describe('turn-order compensation in ordinary battles', () => {
     for (const n of [5, 6]) expect(scenarioOrderComp('fireflies', n)).toEqual({ skip: 2 });
     expect(scenarioOrderComp('archipelago', 3)).toEqual({ bonus: [0, 3, 6] });
     expect(scenarioOrderComp('archipelago', 6)).toEqual(defaultOrderComp(6));
-    // published maps of the day keep their old order
-    expect(createDailyMatch('2026-11-26').settings.orderComp).toBeUndefined();
   });
 });
 
@@ -284,7 +282,7 @@ describe('turn-order compensation in the night drop', () => {
 describe('turn-order compensation and the map of the day', () => {
   const days = (from: string, count: number) => Array.from({ length: count }, (_, i) => dayId(new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8)) + i)));
 
-  it('every day, past ones too, plays with the compensation; the scenario of a day is unchanged', () => {
+  it('every day, past ones too, plays with the compensation of its battle or scenario', () => {
     for (const id of days('2026-10-01', 60)) {
       const k = dailyKind(id);
       const st = createDailyMatch(id);
@@ -293,7 +291,7 @@ describe('turn-order compensation and the map of the day', () => {
         expect(st.settings.orderComp ?? null).toEqual(defaultOrderComp(st.settings.players.length));
       } else if (k.scenario === 'landing') {
         expect(st.settings.orderComp, id).toEqual(defaultOrderComp(st.settings.players.length, 3));
-      } else expect(st.settings.orderComp, id).toBeUndefined();
+      } else expect(st.settings.orderComp ?? null, id).toEqual(scenarioOrderComp(k.scenario, st.settings.players.length));
     }
   });
 });
